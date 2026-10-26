@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: postgres_ferreteria
+    restart: always
+    environment:
+      POSTGRES_USER: admin_ferreteria
+      POSTGRES_PASSWORD: admin_ferreteria2026**
+      POSTGRES_DB: ferreteria
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin_ferreteria
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@ferreteria.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "8080:80"
+
+volumes:
+  postgres_data:
