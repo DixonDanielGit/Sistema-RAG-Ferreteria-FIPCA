@@ -6,3 +6,10 @@ __pycache__/
 .env
 .vscode/
 catalogos_temp/
+
+# Ignore all files in the catalogos_temp directory
+uploads/*
+
+#Ignore all IA generated files
+prompts/*
+AGENTS.md
