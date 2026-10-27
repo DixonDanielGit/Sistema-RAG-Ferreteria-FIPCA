@@ -2,11 +2,13 @@
 
 Rutas:
 
-* ``POST /api/v1/auth/login``    -> entrega un JWT con expiracion.
-* ``POST /api/v1/auth/register`` -> alta de cuentas (administrador).
-* ``GET  /api/v1/auth/me``       -> datos de la cuenta autenticada.
-* ``POST /api/v1/auth/logout``   -> cierra la sesion del lado del cliente.
-* ``GET  /api/v1/auth/roles``    -> catalogo de roles (administrador).
+* ``POST /api/v1/auth/login``      -> entrega un JWT con expiracion.
+* ``POST /api/v1/auth/register``   -> alta de cuentas (administrador).
+* ``GET  /api/v1/auth/me``         -> datos de la cuenta autenticada.
+* ``POST /api/v1/auth/logout``     -> cierra la sesion del lado del cliente.
+* ``GET  /api/v1/auth/roles``      -> catalogo de roles (administrador).
+* ``POST /api/v1/auth/recuperar``  -> enlace de recuperacion por correo (Adenda 1).
+* ``POST /api/v1/auth/restablecer``-> nueva contrasena con el token del correo.
 """
 
 from __future__ import annotations
@@ -14,12 +16,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from psycopg2 import Error as ErrorPostgres
 
 from app.api.deps import puede_registrar, requiere_admin, usuario_actual
+from app.core import sesion
 from app.core.jwt import crear_token
-from app.core.logging import registrar_evento
+from app.core.logging import ip_de_peticion, registrar_evento
 from app.core.security import (
     gastar_tiempo_como_si_existiera,
     hash_password,
@@ -30,11 +33,14 @@ from app.models import usuario as usuario_model
 from app.schemas.usuario_schema import (
     LoginRequest,
     MensajeRespuesta,
+    RecuperarPasswordRequest,
+    RestablecerPasswordRequest,
     RolSalida,
     TokenRespuesta,
     UsuarioRegistro,
     UsuarioSalida,
 )
+from app.services import recuperacion_service
 
 logger = logging.getLogger("ferreteria.auth")
 
@@ -42,12 +48,6 @@ router = APIRouter(prefix="/auth", tags=["Autenticacion"])
 
 # Mensaje unico para no revelar si el usuario existe (evita enumeracion).
 MENSAJE_CREDENCIALES = "Usuario o contrasena incorrectos"
-
-
-def _ip(request: Request) -> str:
-    from app.core.logging import ip_de_peticion
-
-    return ip_de_peticion(request)
 
 
 @router.post(
@@ -59,7 +59,7 @@ def _ip(request: Request) -> str:
         403: {"description": "Cuenta inactiva"},
     },
 )
-def login(datos: LoginRequest, request: Request) -> TokenRespuesta:
+def login(datos: LoginRequest, request: Request, respuesta: Response) -> TokenRespuesta:
     """Valida las credenciales y emite un token de acceso."""
     usuario = usuario_model.buscar_por_identificador(datos.identificador)
 
@@ -115,6 +115,10 @@ def login(datos: LoginRequest, request: Request) -> TokenRespuesta:
     )
 
     registrar_evento(request, f"login exitoso ({usuario['usuario']})", id_usuario=usuario["id"])
+
+    # Adenda 1: la interfaz web usa la cookie; el cuerpo con el token se
+    # mantiene intacto para los clientes de API.
+    sesion.publicar_cookies_sesion(respuesta, token.token, token.segundos_restantes)
 
     return TokenRespuesta(
         access_token=token.token,
@@ -202,6 +206,7 @@ def me(usuario: dict[str, Any] = Depends(usuario_actual)) -> UsuarioSalida:
 )
 def logout(
     request: Request,
+    respuesta: Response,
     usuario: dict[str, Any] = Depends(usuario_actual),
 ) -> MensajeRespuesta:
     """Registra el cierre de sesion.
@@ -209,6 +214,7 @@ def logout(
     El token es autocontenido: el cliente debe descartarlo. La expiracion del
     JWT acota el tiempo maximo de una sesion olvidada (RF-01.3).
     """
+    sesion.borrar_cookies_sesion(respuesta)
     registrar_evento(request, f"cierre de sesion ({usuario['usuario']})", id_usuario=usuario["id"])
     return MensajeRespuesta(mensaje="Sesion cerrada correctamente")
 
@@ -220,3 +226,73 @@ def logout(
 )
 def roles(usuario: dict[str, Any] = Depends(requiere_admin)) -> list[RolSalida]:
     return [RolSalida(**fila) for fila in usuario_model.listar_roles()]
+
+
+@router.post(
+    "/recuperar",
+    response_model=MensajeRespuesta,
+    summary="Solicitar enlace de recuperacion de contrasena",
+    responses={429: {"description": "Demasiadas solicitudes desde esta IP"}},
+)
+def recuperar(
+    datos: RecuperarPasswordRequest,
+    request: Request,
+) -> MensajeRespuesta:
+    """Envia un enlace de un solo uso, exista o no la cuenta.
+
+    La respuesta es identica en todos los casos para no revelar que correos
+    estan registrados.
+    """
+    try:
+        resultado = recuperacion_service.solicitar(
+            datos.correo,
+            ip=ip_de_peticion(request),
+        )
+    except recuperacion_service.DemasiadosIntentos as exc:
+        registrar_evento(request, "recuperacion bloqueada: demasiados intentos")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demasiadas solicitudes. Espere unos minutos antes de reintentar.",
+            headers={"Retry-After": "900"},
+        ) from exc
+
+    if resultado.modo == "omitido":
+        registrar_evento(request, "solicitud de recuperacion sin cuenta asociada")
+    else:
+        registrar_evento(request, f"solicitud de recuperacion enviada ({resultado.modo})")
+
+    return MensajeRespuesta(mensaje=resultado.mensaje)
+
+
+@router.post(
+    "/restablecer",
+    response_model=MensajeRespuesta,
+    summary="Restablecer contrasena con el token del correo",
+    responses={400: {"description": "Enlace invalido, vencido o ya utilizado"}},
+)
+def restablecer(
+    datos: RestablecerPasswordRequest,
+    request: Request,
+    respuesta: Response,
+) -> MensajeRespuesta:
+    """Consume el token y guarda la contrasena nueva."""
+    try:
+        cuenta = recuperacion_service.restablecer(datos.token, datos.password)
+    except recuperacion_service.RecuperacionInvalida as exc:
+        registrar_evento(request, "restablecimiento rechazado: enlace invalido")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    # Cualquier sesion abierta con la contrasena anterior deja de servir en el
+    # navegador: se borran las cookies de este equipo.
+    sesion.borrar_cookies_sesion(respuesta)
+    registrar_evento(
+        request,
+        f"contrasena restablecida por enlace ({cuenta['usuario']})",
+        id_usuario=cuenta["id"],
+    )
+    return MensajeRespuesta(
+        mensaje="Contrasena actualizada. Ya puede iniciar sesion con su nueva clave."
+    )

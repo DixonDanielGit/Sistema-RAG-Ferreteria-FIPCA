@@ -37,6 +37,14 @@ def _booleano(nombre: str, defecto: bool = False) -> bool:
     return valor.strip().lower() in {"1", "true", "si", "yes", "on"}
 
 
+def _booleano_opcional(nombre: str) -> bool | None:
+    """Como ``_booleano`` pero distingue "sin definir" de "false"."""
+    valor = os.getenv(nombre)
+    if valor is None or not valor.strip():
+        return None
+    return valor.strip().lower() in {"1", "true", "si", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class Settings:
     """Valores de configuracion inmutables de la aplicacion."""
@@ -73,9 +81,62 @@ class Settings:
     )
     confiar_en_proxy: bool = field(default_factory=lambda: _booleano("CONFIAR_EN_PROXY", False))
 
+    # Interfaz web (Adenda 1): la sesion viaja en cookie HttpOnly y los POST
+    # exigen un token CSRF adicional.
+    url_base: str = field(
+        default_factory=lambda: os.getenv("URL_BASE", "http://localhost:8000").strip().rstrip("/")
+    )
+    cookie_nombre: str = field(
+        default_factory=lambda: os.getenv("COOKIE_NOMBRE", "access_token").strip()
+    )
+    cookie_csrf: str = field(
+        default_factory=lambda: os.getenv("COOKIE_CSRF", "csrf_token").strip()
+    )
+    cookie_segura_env: bool | None = field(
+        default_factory=lambda: _booleano_opcional("COOKIE_SEGURA")
+    )
+
+    # Recuperacion de contrasena (Adenda 1)
+    recuperacion_minutos: int = field(
+        default_factory=lambda: _entero("RECUPERACION_MINUTOS", 30)
+    )
+    recuperacion_max_intentos: int = field(
+        default_factory=lambda: _entero("RECUPERACION_MAX_INTENTOS", 5)
+    )
+    recuperacion_ventana_minutos: int = field(
+        default_factory=lambda: _entero("RECUPERACION_VENTANA_MINUTOS", 15)
+    )
+
+    # Correo saliente (smtplib). Sin SMTP configurado el enlace se escribe en
+    # el log del proceso (modo consola), suficiente para desarrollo y pruebas.
+    smtp_host: str = field(default_factory=lambda: os.getenv("SMTP_HOST", "").strip())
+    smtp_puerto: int = field(default_factory=lambda: _entero("SMTP_PUERTO", 587))
+    smtp_usuario: str = field(default_factory=lambda: os.getenv("SMTP_USUARIO", "").strip())
+    smtp_password: str = field(default_factory=lambda: os.getenv("SMTP_PASSWORD", ""))
+    smtp_remitente: str = field(
+        default_factory=lambda: os.getenv("SMTP_REMITENTE", "").strip()
+    )
+    smtp_tls: bool = field(default_factory=lambda: _booleano("SMTP_TLS", True))
+
     @property
     def es_produccion(self) -> bool:
         return self.entorno == "produccion"
+
+    @property
+    def smtp_configurado(self) -> bool:
+        """True cuando hay un servidor de correo utilizable."""
+        return bool(self.smtp_host and self.smtp_remitente)
+
+    @property
+    def cookie_segura(self) -> bool:
+        """En produccion la cookie solo viaja por HTTPS.
+
+        Se puede forzar con COOKIE_SEGURA=true/false para escenarios concretos
+        (por ejemplo, una prueba local con proxy TLS).
+        """
+        if self.cookie_segura_env is not None:
+            return self.cookie_segura_env
+        return self.es_produccion
 
     def validar(self) -> None:
         """Comprueba que la configuracion critica este completa.
@@ -105,6 +166,22 @@ class Settings:
             problemas.append(
                 f"JWT_ALGORITHM '{self.jwt_algoritmo}' no permitido; use HS256/HS384/HS512"
             )
+
+        if self.recuperacion_minutos <= 0:
+            problemas.append("RECUPERACION_MINUTOS debe ser mayor que cero")
+        elif self.recuperacion_minutos > 24 * 60:
+            problemas.append("RECUPERACION_MINUTOS no puede superar 1440 (24 horas)")
+
+        if self.recuperacion_max_intentos <= 0:
+            problemas.append("RECUPERACION_MAX_INTENTOS debe ser mayor que cero")
+        if self.recuperacion_ventana_minutos <= 0:
+            problemas.append("RECUPERACION_VENTANA_MINUTOS debe ser mayor que cero")
+
+        if not self.url_base.startswith(("http://", "https://")):
+            problemas.append("URL_BASE debe empezar por http:// o https://")
+
+        if not self.cookie_nombre.strip():
+            problemas.append("COOKIE_NOMBRE no puede estar vacio")
 
         if problemas:
             raise ValueError("Configuracion invalida: " + "; ".join(problemas))

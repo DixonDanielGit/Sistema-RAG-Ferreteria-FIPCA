@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block titulo %}Panel principal{% endblock %}
+
+{% block navegacion %}
+{% set activo = 'dashboard' %}
+{% include "_navbar.html" %}
+{% endblock %}
+
+{% block contenido %}
+<div class="tablero">
+  <header class="tablero__cabecera">
+    <div>
+      <h1>Buen día, {{ usuario.nombre }}</h1>
+      <p>
+        {{ empresa }} · sesión iniciada como
+        {{ 'administrador' if usuario.rol == 'admin' else 'ventas' }}
+      </p>
+    </div>
+  </header>
+
+  <section class="accion" aria-labelledby="accion-titulo">
+    <h2 class="accion__titulo" id="accion-titulo">Pregúntele al inventario.</h2>
+    <p class="accion__bajada">
+      Existencias, precios y disponibilidad, respondidos desde el catálogo de la
+      ferretería. Escriba la consulta y el asistente la abre directamente.
+    </p>
+
+    <form class="accion__formulario" id="form-consulta" role="search" novalidate>
+      <label class="visually-hidden" for="consulta">Su pregunta sobre el inventario</label>
+      <input
+        class="accion__campo"
+        id="consulta"
+        name="consulta"
+        type="text"
+        maxlength="2000"
+        autocomplete="off"
+        placeholder="¿Cuántos martillos quedan?"
+      />
+      <button class="btn-fipca" type="submit">Preguntar</button>
+    </form>
+
+    <div class="accion__atajos">
+      <span class="accion__etiqueta">Ejemplos:</span>
+      <button class="accion__atajo" type="button"
+              data-atajo="¿Qué productos tienen stock disponible?">
+        ¿Qué productos tienen stock disponible?
+      </button>
+      <button class="accion__atajo" type="button"
+              data-atajo="¿Qué productos están por debajo del stock mínimo?">
+        ¿Qué productos están por debajo del stock mínimo?
+      </button>
+    </div>
+  </section>
+
+  <aside class="estado" aria-labelledby="estado-titulo">
+    <h2 class="estado__titulo" id="estado-titulo">Estado del sistema</h2>
+
+    <dl class="estado__lista">
+      <div class="estado__fila">
+        <dt class="estado__nombre">Asistente</dt>
+        <dd class="estado__marca">
+          <span class="chip chip--curso">
+            <span class="chip__punto" aria-hidden="true"></span>Provisional
+          </span>
+        </dd>
+        <dd class="estado__detalle">
+          Responde con el contrato final; el motor llega en la Semana 5.
+        </dd>
+      </div>
+
+      <div class="estado__fila">
+        <dt class="estado__nombre">Catálogo</dt>
+        <dd class="estado__marca">
+          <span class="chip">
+            <span class="chip__punto" aria-hidden="true"></span>Semana 3
+          </span>
+        </dd>
+        <dd class="estado__detalle">
+          Carga de archivos de proveedores y alta de productos.
+        </dd>
+      </div>
+
+      <div class="estado__fila">
+        <dt class="estado__nombre">Bitácora</dt>
+        <dd class="estado__marca">
+          <span class="chip">
+            <span class="chip__punto" aria-hidden="true"></span>Semana 6
+          </span>
+        </dd>
+        <dd class="estado__detalle">
+          Ya registra cada sesión; el visor con filtros llega después.
+        </dd>
+      </div>
+
+      <div class="estado__fila">
+        <dt class="estado__nombre">Mi cuenta</dt>
+        <dd class="estado__marca">
+          <span class="chip chip--listo">
+            <span class="chip__punto" aria-hidden="true"></span>Activa
+          </span>
+        </dd>
+        <dd class="estado__detalle">
+          {{ usuario.usuario }} · {{ usuario.correo }}
+        </dd>
+      </div>
+    </dl>
+  </aside>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/dashboard.js" defer></script>
+{% endblock %}

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es" data-bs-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="csrf-token" content="{{ csrf }}" />
+    <meta name="description" content="Sistema de inventario e IA RAG de {{ empresa }}" />
+    <title>{% block titulo %}Sistema de Inventario{% endblock %} · FIPCA</title>
+
+    {# El tema se aplica antes de pintar para que no haya destello blanco. #}
+    <script>
+      (function () {
+        try {
+          var guardado = localStorage.getItem("fipca-tema");
+          var sistema = window.matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light";
+          document.documentElement.setAttribute("data-bs-theme", guardado || sistema);
+        } catch (error) {
+          document.documentElement.setAttribute("data-bs-theme", "light");
+        }
+      })();
+    </script>
+
+    <link rel="stylesheet" href="/static/vendor/bootstrap.min.css" />
+    <link rel="stylesheet" href="/static/css/estilos.css" />
+    <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body class="{% block clase_cuerpo %}{% endblock %}">
+    <a class="visually-hidden-focusable" href="#contenido">Saltar al contenido</a>
+
+    {% block navegacion %}{% endblock %}
+
+    <main id="contenido">
+      {% block contenido %}{% endblock %}
+    </main>
+
+    <script src="/static/vendor/bootstrap.bundle.min.js" defer></script>
+    <script src="/static/js/tema.js" defer></script>
+    <script src="/static/js/comun.js" defer></script>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

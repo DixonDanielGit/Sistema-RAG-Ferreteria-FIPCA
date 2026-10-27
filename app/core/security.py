@@ -180,3 +180,42 @@ def gastar_tiempo_como_si_existiera(password: str) -> None:
 def _hash_ficticio() -> str:
     """Hash real de una contrasena descartada (se calcula una sola vez)."""
     return hash_password("contrasena-ficticia-para-igualar-tiempos-0")
+
+
+# ---------------------------------------------------------------------------
+# Tokens de un solo uso (recuperacion de contrasena, Adenda 1)
+# ---------------------------------------------------------------------------
+
+TOKEN_RECUPERACION_BYTES = 32
+
+
+def hash_token(token: str) -> str:
+    """SHA-256 en hexadecimal del token.
+
+    Es lo unico que se guarda en la base: si alguien copia la tabla no puede
+    reutilizar los enlaces. No se usa scrypt aqui a proposito: el token ya es
+    aleatorio de 256 bits, no requiere un KDF lento.
+    """
+    if not token or not isinstance(token, str):
+        raise ValueError("El token no puede estar vacio")
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def generar_token_recuperacion() -> tuple[str, str]:
+    """Devuelve ``(token_crudo, sha256)``.
+
+    El token crudo viaja una sola vez, dentro del enlace del correo. En la
+    base queda unicamente su hash.
+    """
+    token = secrets.token_urlsafe(TOKEN_RECUPERACION_BYTES)
+    return token, hash_token(token)
+
+
+def tokens_coinciden(primero: str, segundo: str) -> bool:
+    """Comparacion en tiempo constante (evita filtrar informacion por tiempo)."""
+    return hmac.compare_digest(primero.encode("utf-8"), segundo.encode("utf-8"))
+
+
+def generar_token_csrf() -> str:
+    """Token anti-CSRF para los formularios de la interfaz web."""
+    return secrets.token_urlsafe(32)

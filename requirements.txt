@@ -3,6 +3,7 @@ fastapi
 uvicorn[standard]
 psycopg2-binary
 pgvector
+jinja2
 
 # Configuracion y seguridad
 python-dotenv

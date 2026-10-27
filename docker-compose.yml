@@ -53,5 +53,48 @@ services:
       db:
         condition: service_healthy
 
+  api:
+    # Imagen de la aplicacion (Adenda 1). Se construye desde el Dockerfile de
+    # la raiz; la configuracion entra por entorno, no por archivos copiados.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ferreteria-api:2.5
+    container_name: api_ferreteria
+    restart: always
+    environment:
+      ENTORNO: ${ENTORNO:-desarrollo}
+      # Dentro de la red de Compose la base se llama "db", no localhost.
+      DATABASE_URL_RAG: postgresql://app_ferreteria:${APP_DB_PASSWORD}@db:5432/ferreteria_rag
+      DATABASE_URL_USUARIOS: postgresql://app_ferreteria:${APP_DB_PASSWORD}@db:5432/ferreteria_usuarios
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_EXPIRACION_MINUTOS: ${JWT_EXPIRACION_MINUTOS:-30}
+      JWT_EMISOR: ${JWT_EMISOR:-ferreteria-fipca}
+      CORS_ORIGENES: ${CORS_ORIGENES:-http://localhost:8000}
+      URL_BASE: ${URL_BASE:-http://localhost:8000}
+      COOKIE_NOMBRE: ${COOKIE_NOMBRE:-access_token}
+      COOKIE_CSRF: ${COOKIE_CSRF:-csrf_token}
+      COOKIE_SEGURA: ${COOKIE_SEGURA:-}
+      RECUPERACION_MINUTOS: ${RECUPERACION_MINUTOS:-30}
+      RECUPERACION_MAX_INTENTOS: ${RECUPERACION_MAX_INTENTOS:-5}
+      RECUPERACION_VENTANA_MINUTOS: ${RECUPERACION_VENTANA_MINUTOS:-15}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PUERTO: ${SMTP_PUERTO:-587}
+      SMTP_USUARIO: ${SMTP_USUARIO:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_REMITENTE: ${SMTP_REMITENTE:-}
+      SMTP_TLS: ${SMTP_TLS:-true}
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${API_HOST_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
 volumes:
   postgres_data:

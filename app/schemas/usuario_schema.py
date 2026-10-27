@@ -146,6 +146,48 @@ class MensajeRespuesta(BaseModel):
     detalle: str | None = None
 
 
+class RecuperarPasswordRequest(BaseModel):
+    """Solicitud de enlace de recuperacion (Adenda 1)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    correo: str = Field(min_length=5, max_length=255)
+
+    @field_validator("correo")
+    @classmethod
+    def _validar_correo(cls, valor: str) -> str:
+        limpio = valor.strip().lower()
+        if not PATRON_CORREO.match(limpio):
+            raise ValueError("Correo electronico invalido")
+        return limpio
+
+
+class RestablecerPasswordRequest(BaseModel):
+    """Consumo del enlace: token del correo y contrasena nueva."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=16, max_length=200)
+    password: str = Field(min_length=1, max_length=LONGITUD_MAXIMA)
+
+    @field_validator("token")
+    @classmethod
+    def _validar_token(cls, valor: str) -> str:
+        limpio = valor.strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{16,200}", limpio):
+            raise ValueError("El enlace de recuperacion no es valido")
+        return limpio
+
+    @field_validator("password")
+    @classmethod
+    def _validar_password(cls, valor: str) -> str:
+        try:
+            validar_fortaleza(valor)
+        except PasswordInvalida as exc:
+            raise ValueError(str(exc)) from exc
+        return valor
+
+
 class RolSalida(BaseModel):
     id_rol: int
     nombre: str

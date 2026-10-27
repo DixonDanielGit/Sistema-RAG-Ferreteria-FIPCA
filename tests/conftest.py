@@ -62,6 +62,21 @@ def bases_de_prueba():
 
     try:
         with conexion.cursor() as cur:
+            # La API en ejecucion mantiene conexiones ociosas a las bases
+            # plantilla y PostgreSQL no permite clonar una base en uso. Se
+            # cierran solo las sesiones ociosas de esas dos bases: el pool de
+            # la API descarta las conexiones rotas y las recrea en la siguiente
+            # peticion, sin necesidad de detener uvicorn.
+            cur.execute(
+                """
+                SELECT pg_terminate_backend(pid)
+                  FROM pg_stat_activity
+                 WHERE datname = ANY(%s)
+                   AND pid <> pg_backend_pid()
+                   AND state = 'idle'
+                """,
+                ([RAG_PLANTILLA, USUARIOS_PLANTILLA],),
+            )
             for plantilla, prueba in (
                 (RAG_PLANTILLA, RAG_PRUEBA),
                 (USUARIOS_PLANTILLA, USUARIOS_PRUEBA),
@@ -70,8 +85,9 @@ def bases_de_prueba():
                 cur.execute(f'CREATE DATABASE "{prueba}" TEMPLATE "{plantilla}"')
     except psycopg2.Error as exc:
         pytest.skip(
-            "No se pudieron clonar las bases de prueba "
-            f"(cierre pgAdmin si tiene sesiones abiertas): {exc}"
+            "No se pudieron clonar las bases de prueba: hay conexiones abiertas a "
+            "'ferreteria_rag' o 'ferreteria_usuarios'. Detenga la API (uvicorn) y "
+            f"cierre las sesiones de pgAdmin antes de ejecutar pytest. Detalle: {exc}"
         )
     finally:
         conexion.close()
@@ -113,6 +129,24 @@ def cliente(bases_de_prueba):
         yield cliente_http
 
 
+@pytest.fixture(autouse=True)
+def sesion_limpia(request):
+    """Vacia las cookies del cliente entre pruebas.
+
+    El cliente es de sesion (para no recrear la aplicacion) y el login ahora
+    deja cookies, asi que sin esta limpieza una prueba podria quedar
+    autenticada por la anterior y responder 200 donde espera 401.
+    """
+    if "cliente" not in request.fixturenames:
+        yield
+        return
+
+    cliente_http = request.getfixturevalue("cliente")
+    cliente_http.cookies.clear()
+    yield
+    cliente_http.cookies.clear()
+
+
 @pytest.fixture(scope="session")
 def conexion_limpieza(bases_de_prueba):
     """Conexion de administracion reutilizada en toda la sesion."""
@@ -151,11 +185,14 @@ def crear_cuenta(usuarios_limpios):
         activo: bool = True,
         nombre: str = "Ana",
         apellido: str = "Perez",
+        correo: str | None = None,
     ) -> dict:
         contador["n"] += 1
         sufijo = contador["n"]
         id_rol = modelo.id_de_rol(rol)
         assert id_rol is not None, f"El rol {rol} no existe en la base"
+
+        correo_final = correo or f"{usuario}@ferreteria.test"
 
         creado = modelo.crear(
             id_rol=id_rol,
@@ -164,7 +201,7 @@ def crear_cuenta(usuarios_limpios):
             apellido=apellido,
             usuario=usuario,
             password_hash=hash_password(password),
-            correo=f"{usuario}@ferreteria.test",
+            correo=correo_final,
         )
 
         if not activo:
@@ -174,7 +211,7 @@ def crear_cuenta(usuarios_limpios):
         return {
             "id": creado["id"],
             "usuario": usuario,
-            "correo": f"{usuario}@ferreteria.test",
+            "correo": correo_final,
             "password": password,
             "rol": rol,
             "activo": activo,

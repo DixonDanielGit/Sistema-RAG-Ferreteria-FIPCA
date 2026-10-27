@@ -13,12 +13,14 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.api_router import api_router
+from app.api.deps import usuario_de_cookie
+from app.api.v1 import web
 from app.config import get_settings
 from app.core.logging import AuditoriaMiddleware, configurar_logging
 from app.db.session import BaseDeDatosNoDisponible, cerrar_pools, consultar_uno
@@ -67,6 +69,7 @@ def crear_aplicacion() -> FastAPI:
         )
 
     aplicacion.include_router(api_router)
+    aplicacion.include_router(web.router)
 
     if DIRECTORIO_ESTATICOS.is_dir():
         aplicacion.mount(
@@ -81,14 +84,22 @@ def crear_aplicacion() -> FastAPI:
             content={"detail": "Servicio temporalmente no disponible. Intente mas tarde."},
         )
 
-    @aplicacion.get("/", tags=["Sistema"], summary="Informacion del servicio")
-    def raiz() -> dict:
+    @aplicacion.get(
+        "/", tags=["Sistema"], summary="Informacion del servicio", response_model=None
+    )
+    def raiz(request: Request):
+        """Navegador -> interfaz web; cliente de API -> informacion JSON."""
+        if "text/html" in request.headers.get("accept", ""):
+            destino = "/dashboard" if usuario_de_cookie(request) else "/login"
+            return RedirectResponse(url=destino, status_code=status.HTTP_303_SEE_OTHER)
+
         return {
             "sistema": config.nombre,
             "empresa": config.empresa,
             "version": config.version,
             "documentacion": "/docs",
             "salud": "/salud",
+            "interfaz": "/login",
         }
 
     @aplicacion.get("/salud", tags=["Sistema"], summary="Estado de las bases de datos")

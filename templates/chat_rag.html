@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block titulo %}Asistente de inventario{% endblock %}
+{% block clase_cuerpo %}cuerpo-chat{% endblock %}
+
+{% block navegacion %}
+{% set activo = 'chat' %}
+{% include "_navbar.html" %}
+{% endblock %}
+
+{% block contenido %}
+{% set es_admin = usuario and usuario.rol == 'admin' %}
+<div class="chat">
+  <div class="fuentes__velo" id="velo-fuentes" hidden></div>
+
+  <aside class="fuentes" id="panel-fuentes" aria-labelledby="titulo-fuentes">
+    <div class="fuentes__cabecera">
+      <h2 class="fuentes__titulo" id="titulo-fuentes">Fuentes</h2>
+      <span class="fuentes__cuenta" id="cuenta-fuentes">0 archivos</span>
+      <button class="fuentes__cerrar" type="button" id="cerrar-fuentes"
+              aria-label="Cerrar el panel de fuentes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+             stroke-linecap="round" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
+    </div>
+
+    <div class="fuentes__cuerpo">
+      {% if es_admin %}
+      <input class="visually-hidden" type="file" id="archivos" multiple
+             accept=".pdf,.csv,.xlsx,.xls,.docx,.txt" tabindex="-1" />
+
+      <button class="fuentes__agregar" type="button" id="boton-archivos">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" aria-hidden="true">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+        Agregar archivo
+      </button>
+
+      <button class="fuentes__zona" type="button" id="zona-archivos">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5" />
+          <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" />
+        </svg>
+        <strong>Arrastre sus archivos aquí</strong>
+        <span>PDF, Excel, CSV o Word</span>
+        <span>Hasta 20 archivos de 20 MB</span>
+      </button>
+
+      <p class="fuentes__error" id="error-fuentes" role="alert" aria-live="polite"></p>
+      {% endif %}
+
+      <ul class="fuentes__lista" id="lista-fuentes" aria-live="polite">
+        <li class="fuentes__vacio" id="fuentes-vacio">
+          <strong>Sin archivos todavía</strong>
+          {% if es_admin %}
+          Agregue el catálogo del proveedor para que el asistente lo consulte.
+          {% else %}
+          Un administrador todavía no ha cargado el catálogo.
+          {% endif %}
+        </li>
+      </ul>
+    </div>
+
+    <p class="fuentes__nota">
+      Vista previa: los archivos no se envían. La carga real llega en la
+      Semana 3.
+    </p>
+  </aside>
+
+  <div class="chat__principal">
+    <div class="chat__cabecera">
+      <div>
+        <h1>Asistente de inventario</h1>
+        <p>
+          Responde solo sobre productos registrados en el catálogo
+        </p>
+      </div>
+      <div class="chat__acciones">
+        <button class="chat__fuentes-boton" type="button" id="abrir-fuentes"
+                aria-controls="panel-fuentes" aria-expanded="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 6.5A1.5 1.5 0 0 1 5.5 5H9l2 2h7.5A1.5 1.5 0 0 1 20 8.5v9A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5z" />
+          </svg>
+          <span class="visually-hidden">Fuentes</span>
+          <span class="chat__fuentes-cuenta" id="cuenta-fuentes-movil">0</span>
+        </button>
+        <span class="chat__estado" title="El motor de búsqueda semántica llega en la Semana 5">
+          <span class="chat__punto" aria-hidden="true"></span>
+          Motor provisional
+        </span>
+      </div>
+    </div>
+
+    <div class="chat__hilo" id="hilo" role="log" aria-live="polite" aria-label="Conversación">
+      <div class="chat__ancho" id="hilo-ancho">
+        <div class="chat__vacio" id="vacio">
+          <h2>¿Qué necesita del inventario?</h2>
+          <p>
+            Pregunte por existencias, precios o disponibilidad. Cada respuesta
+            indicará en qué productos del catálogo se apoya.
+          </p>
+          <div class="chat__sugerencias">
+            <button class="chat__sugerencia" type="button"
+                    data-pregunta="¿Qué productos tienen stock disponible?">
+              ¿Qué productos tienen stock disponible?
+            </button>
+            <button class="chat__sugerencia" type="button"
+                    data-pregunta="¿Cuánto cuesta un martillo y cuántos quedan?">
+              ¿Cuánto cuesta un martillo y cuántos quedan?
+            </button>
+            <button class="chat__sugerencia" type="button"
+                    data-pregunta="¿Qué productos están por debajo del stock mínimo?">
+              ¿Qué productos están por debajo del stock mínimo?
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="chat__redactor">
+      <form class="chat__fila" id="form-chat" novalidate>
+        <label class="visually-hidden" for="pregunta">Escriba su pregunta</label>
+        <textarea
+          class="chat__entrada"
+          id="pregunta"
+          name="pregunta"
+          rows="1"
+          maxlength="2000"
+          placeholder="Escriba su pregunta…"
+          autocomplete="off"
+          aria-describedby="contador-chat ayuda-chat"
+        ></textarea>
+        <button class="chat__enviar" id="btn-enviar" type="submit"
+                aria-label="Enviar pregunta" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 12h14M12 5l7 7-7 7" />
+          </svg>
+        </button>
+      </form>
+
+      <div class="chat__pie">
+        <span id="contador-chat">0 / 2000</span>
+        <span id="ayuda-chat">Enter envía · Shift+Enter nueva línea</span>
+      </div>
+      <p class="fipca-campo__error" id="error-chat" role="alert" aria-live="polite"
+         style="max-width: 780px; margin: var(--esp-1) auto 0"></p>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/chat.js" defer></script>
+<script src="/static/js/fuentes.js" defer></script>
+{% endblock %}

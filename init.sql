@@ -179,6 +179,29 @@ CREATE TABLE usuarios (
         ON DELETE RESTRICT
 );
 
+-- Tabla: tokens_recuperacion
+-- Recuperacion de contrasena por correo (Adenda 1, Semana 2.5).
+-- Se guarda el SHA-256 del token, nunca el token en claro: quien lea la tabla
+-- no puede reconstruir el enlace. Un token es de un solo uso y caduca.
+CREATE TABLE tokens_recuperacion (
+    id SERIAL PRIMARY KEY,
+    id_usuario INT NOT NULL,
+    token_hash CHAR(64) NOT NULL UNIQUE,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expira_en TIMESTAMPTZ NOT NULL,
+    usado_en TIMESTAMPTZ,
+
+    CONSTRAINT fk_tokens_usuario
+        FOREIGN KEY (id_usuario) REFERENCES usuarios(id)
+        ON DELETE CASCADE,
+    CONSTRAINT chk_tokens_vigencia
+        CHECK (expira_en > creado_en)
+);
+
+-- Busqueda del token por su hash (unico) y limpieza por usuario.
+CREATE INDEX idx_tokens_usuario ON tokens_recuperacion (id_usuario);
+CREATE INDEX idx_tokens_expira ON tokens_recuperacion (expira_en);
+
 -- Tabla: bitacora (RF-05)
 -- id_usuario admite NULL para poder auditar intentos de login fallidos
 -- con un usuario inexistente. Es inmutable: no se permite UPDATE/DELETE.
@@ -238,6 +261,11 @@ GRANT SELECT ON rol TO app_ferreteria;
 -- Usuarios: alta y modificacion. Sin DELETE: las cuentas se desactivan
 -- (activo = FALSE) para conservar la trazabilidad de la auditoria.
 GRANT SELECT, INSERT, UPDATE ON usuarios TO app_ferreteria;
+
+-- Tokens de recuperacion: se consultan, se crean y se marcan como usados.
+-- No se concede DELETE: la API nunca borra un token, lo invalida con un
+-- UPDATE (usado_en) para conservar el rastro.
+GRANT SELECT, INSERT, UPDATE ON tokens_recuperacion TO app_ferreteria;
 
 -- Bitacora: solo insercion y consulta. La inmutabilidad se garantiza en
 -- dos capas: permisos y trigger.

@@ -64,6 +64,25 @@ class _PoolDiferido:
                     self._pool = self._crear()
         return self._pool
 
+    def _obtener_conexion(self, pool):
+        """Pide una conexion y descarta las que PostgreSQL ya cerro.
+
+        Un servidor PostgreSQL puede cerrar conexiones inactivas (reinicio,
+        timeout del servidor). El pool las sigue entregando y reutilizarlas
+        rompe la peticion con ``InterfaceError: connection already closed``.
+        La conexion cerrada se devuelve marcada para cierre y se pide otra.
+        """
+        for _ in range(2):
+            conexion = pool.getconn()
+            if getattr(conexion, "closed", 0) == 0:
+                return conexion
+            pool.putconn(conexion, close=True)
+
+        raise BaseDeDatosNoDisponible(
+            f"Las conexiones de {self._nombre} estan cerradas; "
+            "reintente cuando la base vuelva a estar disponible"
+        )
+
     @contextmanager
     def cursor(self, *, commit: bool = True) -> Iterator[RealDictCursor]:
         """Entrega un cursor y gestiona la transaccion.
@@ -72,9 +91,8 @@ class _PoolDiferido:
         revierte. La conexion siempre vuelve al pool.
         """
         pool = self.obtener()
-        conexion = None
         try:
-            conexion = pool.getconn()
+            conexion = self._obtener_conexion(pool)
         except pg_pool.PoolError as exc:
             raise BaseDeDatosNoDisponible(
                 f"Sin conexiones disponibles para {self._nombre}"

@@ -57,6 +57,20 @@ def contar() -> int:
     return int(fila["total"]) if fila else 0
 
 
+def buscar_por_correo(correo: str) -> dict[str, Any] | None:
+    """Busca una cuenta por correo exacto (sin distinguir mayusculas)."""
+    return consultar_uno(
+        f"""
+        SELECT {COLUMNAS_USUARIO}
+        FROM usuarios u
+        JOIN rol r ON r.id_rol = u.id_rol
+        WHERE LOWER(u.correo) = LOWER(%s)
+        LIMIT 1
+        """,
+        (correo,),
+    )
+
+
 def conflictos(usuario: str, correo: str, cedula: str) -> list[str]:
     """Devuelve los campos que ya estan registrados en otra cuenta."""
     fila = consultar_uno(

@@ -10,9 +10,10 @@ sobre el catálogo real de productos.
 - **IA:** modelo de embeddings + modelo generativo (Semana 4/5)
 - **Infraestructura:** Docker + Docker Compose
 
-> Estado actual: **Semana 2 completada** (infraestructura, base de datos,
-> autenticación JWT y auditoría). Las semanas 3 a 8 añaden ETL, vectores,
-> RAG, interfaz y despliegue.
+> Estado actual: **Semana 2.5 (Adenda 1) completada** — infraestructura, base
+> de datos, autenticación JWT, auditoría y la interfaz web (acceso, recuperación
+> de contraseña, panel y asistente con motor provisional). Las semanas 3 a 8
+> añaden ETL, vectores, RAG definitivo, módulos administrativos y despliegue.
 
 ## Requisitos
 
@@ -42,6 +43,9 @@ uvicorn app.main:app --reload
 
 | Servicio | URL | Credenciales |
 |---|---|---|
+| Aplicación (acceso) | http://localhost:8000/login | Usuario y contraseña de la base |
+| Panel | http://localhost:8000/dashboard | Requiere sesión |
+| Asistente | http://localhost:8000/chat | Requiere sesión |
 | API (Swagger UI) | http://localhost:8000/docs | — |
 | Estado del servicio | http://localhost:8000/salud | — |
 | pgAdmin | http://localhost:8080 | `PGADMIN_DEFAULT_*` de `.env` |
@@ -51,6 +55,43 @@ Generar un `JWT_SECRET` propio:
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+### Levantar la aplicación en Docker
+
+El `Dockerfile` construye la misma API que se ejecuta con `uvicorn`, sin
+necesidad de instalar Python ni las dependencias en el equipo:
+
+```bash
+docker compose up -d --build          # PostgreSQL, pgAdmin y API
+docker compose ps                     # deben verse los tres servicios
+docker compose logs -f api            # registro de la aplicación
+```
+
+| Detalle | Valor |
+|---|---|
+| Imagen | `ferreteria-api:2.5` (Python 3.12 slim) |
+| Contenedor | `api_ferreteria`, usuario sin privilegios `uid 10001` |
+| Puerto | `API_HOST_PORT` de `.env` (8000 por defecto), solo en `BIND_ADDRESS` |
+| Origen público | `URL_BASE` de `.env`, debe coincidir con la barra del navegador |
+| Salud | `healthcheck` sobre `/salud` cada 30 s |
+| Disco | Solo lectura (`read_only`) con `/tmp` en memoria |
+
+Dos avisos:
+
+- **Cambia `API_HOST_PORT` si el 8000 está ocupado** (por ejemplo, porque la API
+  de desarrollo sigue corriendo con `uvicorn`). El puerto del contenedor no
+  cambia; solo el publicado en el equipo.
+- **`URL_BASE` debe ser el origen real** con el que se abre el sistema. Si el
+  puerto publicado es 8099, `URL_BASE=http://localhost:8099`; de lo contrario el
+  enlace de recuperación apunta al puerto equivocado y el CSRF rechaza los
+  formularios con 403.
+
+Para detener solo la aplicación:
+
+```bash
+docker compose stop api
+docker compose rm -f api
 ```
 
 ### Crear la primera cuenta
@@ -90,15 +131,61 @@ curl http://localhost:8000/api/v1/auth/me \
 
 En Swagger UI también puedes pulsar **Authorize** y pegar el token.
 
+### Interfaz web
+
+La aplicación sirve las pantallas desde el mismo proceso. Al iniciar sesión en
+`/login`, el servidor deja el JWT en una cookie `HttpOnly` y un token CSRF en
+una cookie legible; no hay que copiar nada a mano.
+
+| Ruta | Descripción |
+|---|---|
+| `/login` | Acceso con usuario o correo |
+| `/recuperar` | Solicitud del enlace de restablecimiento |
+| `/restablecer?token=…` | Nueva contraseña con el enlace recibido |
+| `/dashboard` | Panel: preguntar al inventario y estado del sistema |
+| `/chat` | Asistente de inventario con el panel de fuentes |
+
+El panel y el asistente se adaptan a escritorio y móvil, y siguen el tema del
+sistema operativo (claro u oscuro) hasta que se cambie con el conmutador.
+
+**Panel de fuentes.** A la izquierda del asistente vive la lista de archivos que
+alimentan al catálogo: PDF, Excel, CSV, Word o TXT. En esta etapa es solo
+interfaz. El administrador puede agregarlos, arrastrarlos y quitarlos de la
+lista, pero nada se envía al servidor; la carga real llega con el ETL de la
+Semana 3. El rol de ventas ve la lista y una frase que explica quién puede
+cargarla. En el teléfono el panel se abre como cajón desde el botón "Fuentes".
+
+**Recuperación sin SMTP.** Mientras `SMTP_HOST` no esté configurado, el enlace
+de recuperación se escribe en el registro de Uvicorn:
+
+```text
+Enlace de recuperacion para demo@ferreteria.local:
+http://127.0.0.1:8000/restablecer?token=…
+```
+
+El enlace dura 30 minutos, sirve una sola vez y anula cualquier enlace anterior.
+Con las variables `SMTP_*` definidas en `.env`, el envío pasa a ser por correo y
+el enlace deja de aparecer en el log.
+
+**Sesión por cookie y CSRF.** Además del encabezado `Authorization`, la API
+acepta la cookie de sesión. Toda petición que modifique datos debe enviar el
+encabezado `X-CSRF-Token` con el valor de la cookie `csrf_token`; los formularios
+de la interfaz lo hacen automáticamente. Con `curl`, usa `-c cookies.txt` al
+iniciar sesión y `-b cookies.txt` en las llamadas siguientes.
+
 ## Endpoints de la API
 
 | Método | Ruta | Acceso | Descripción |
 |---|---|---|---|
-| POST | `/api/v1/auth/login` | público | Valida credenciales y entrega un JWT |
+| POST | `/api/v1/auth/login` | público | Valida credenciales y entrega JWT + cookies |
 | POST | `/api/v1/auth/register` | admin (o público si no hay cuentas) | Alta de usuarios |
 | GET | `/api/v1/auth/me` | autenticado | Datos de la cuenta actual |
-| POST | `/api/v1/auth/logout` | autenticado | Registra el cierre de sesión |
+| POST | `/api/v1/auth/logout` | autenticado | Registra el cierre y borra la cookie |
 | GET | `/api/v1/auth/roles` | admin | Catálogo de roles |
+| POST | `/api/v1/auth/recuperar` | público | Envía (o registra) el enlace de recuperación |
+| POST | `/api/v1/auth/restablecer` | público | Cambia la contraseña con el token del enlace |
+| POST | `/api/v1/rag/chat` | autenticado | Pregunta al asistente (contrato final) |
+| GET | `/api/v1/rag/estado` | autenticado | Disponibilidad del motor RAG |
 | GET | `/salud` | público | Estado de las bases de datos |
 | GET | `/docs` | público | Documentación interactiva |
 
@@ -109,6 +196,8 @@ Reglas de autenticación:
 - El token incluye el rol; cada ruta decide el permiso (`admin` / `ventas`).
 - La cuenta se relee de la base en cada petición: desactivar un usuario
   invalida sus tokens de inmediato.
+- El asistente responde hoy con un aviso de motor provisional; el contrato
+  (`respuesta`, `productos`, `aviso`, `modelo`) no cambia cuando llegue el RAG.
 
 ### Conectar pgAdmin a PostgreSQL
 
@@ -158,6 +247,14 @@ docker compose down -v   # ¡elimina todos los datos!
 docker compose up -d
 ```
 
+Si ya tienes datos y solo falta la tabla de la Adenda 1, aplica la migración
+idempotente sin borrar nada:
+
+```bash
+docker compose exec -T db psql -U postgres -d ferreteria_usuarios \
+  < scripts/migracion_2_5.sql
+```
+
 ## Pruebas
 
 ```bash
@@ -166,16 +263,16 @@ pytest -q
 
 | Carpeta | Contenido |
 |---|---|
-| `unit/` | Caja blanca: esquema SQL, hashing de contraseñas, JWT |
-| `integration/` | Caja negra: login, registro, roles, auditoría |
+| `unit/` | Caja blanca: esquema SQL, hashing, JWT, tokens de recuperación, pool |
+| `integration/` | Caja negra: login, registro, roles, auditoría, páginas web |
 | `boundary/` | Valores límite: expiración exacta del JWT |
-| `security/` | Inyección SQL, permisos de BD, endurecimiento de Docker |
+| `security/` | Inyección SQL, permisos de BD, CSRF, endurecimiento de Docker |
 | `stress/` | Carga masiva de catálogos (Semana 3) |
 
 Resultado actual:
 
 ```text
-230 passed, 1 skipped
+329 passed
 ```
 
 Las pruebas de integración **no tocan las bases de desarrollo**: al iniciar la
@@ -191,17 +288,21 @@ Si PostgreSQL no responde, esas pruebas se omiten en lugar de fallar.
 
 ```text
 app/                Código del backend (FastAPI)
-  api/v1/           Rutas REST (/api/v1/...)
-  core/             Seguridad, JWT y auditoría
+  api/v1/           Rutas REST (/api/v1/...) y páginas HTML
+  core/             Seguridad, JWT, sesión por cookie y auditoría
   db/               Pools de conexión a PostgreSQL
   models/           Acceso a datos (SQL parametrizado)
   schemas/          DTOs de Pydantic
-  services/         ETL, embeddings, búsqueda vectorial y LLM
-  static/           CSS y JS
+  services/         Correo, recuperación, ETL, embeddings, búsqueda y LLM
+  static/           CSS, JS, imágenes y Bootstrap servido localmente
 templates/          Vistas Jinja2
 tests/              Suite de pruebas
+scripts/            Migraciones incrementales (sin borrar datos)
 init.sql            Esquema de las dos bases
-docker-compose.yml  PostgreSQL + pgAdmin
+docker-compose.yml  PostgreSQL + pgAdmin + API
+Dockerfile          Imagen de la API (usuario sin privilegios)
+DESIGN.md           Sistema de diseño de la interfaz
+PRODUCT.md          Verdad de producto para el diseño
 docs/actas/         Actas de entrega semanales
 ```
 
@@ -218,7 +319,13 @@ docs/actas/         Actas de entrega semanales
 - Bitácora **inmutable**: solo `INSERT` y `SELECT`; los triggers bloquean
   `UPDATE`, `DELETE` y `TRUNCATE` incluso para el propietario.
 - Puertos publicados solo en `127.0.0.1` (cambia `BIND_ADDRESS` para un VPS).
-- `no-new-privileges` en ambos contenedores e imágenes con versión fija.
+- `no-new-privileges` en los tres contenedores e imágenes con versión fija.
+- La imagen de la API corre como `uid 10001` con el sistema de archivos en solo
+  lectura y `/tmp` en memoria; no incluye `.env` ni credenciales.
+- JWT en cookie `HttpOnly` + `SameSite=Lax`, con CSRF de doble envío y
+  validación de `Origin` en las peticiones que cambian datos.
+- Enlace de recuperación de un solo uso, con huella SHA-256 y caducidad de 30
+  minutos; la respuesta es la misma exista o no la cuenta.
 
 ## Problemas frecuentes
 
@@ -230,12 +337,16 @@ docs/actas/         Actas de entrega semanales
 | `Configuracion invalida: Falta JWT_SECRET` | Copia `.env.example` a `.env` y define los valores |
 | `password authentication failed for user "app_ferreteria"` | Recrea el volumen para que `init.sql` aplique `APP_DB_PASSWORD` |
 | Las pruebas de integración se omiten | PostgreSQL apagado o pgAdmin con sesiones abiertas sobre las bases |
+| `403` al enviar un formulario | Falta el encabezado `X-CSRF-Token` o el origen no coincide con `URL_BASE` |
+| No llega el correo de recuperación | Sin SMTP configurado: busca el enlace en el log de Uvicorn |
 | `docker: command not found` en WSL | Activa la integración WSL 2 en Docker Desktop o usa PowerShell |
-| Puerto 5432/8000/8080 ocupado | Cambia `POSTGRES_HOST_PORT` / usa otro `--port` / `PGADMIN_HOST_PORT` |
+| Puerto 5432/8000/8080 ocupado | Cambia `POSTGRES_HOST_PORT` / `API_HOST_PORT` / `PGADMIN_HOST_PORT` en `.env` |
+| La API en Docker no arranca: puerto 8000 en uso | Detén `uvicorn` o define otro `API_HOST_PORT`; recuerda ajustar `URL_BASE` |
 
 ## Documentación del proyecto
 
 - `prompts/requisitos_funcionales_y_no_funcionales_del_sistema.md`
 - `prompts/lista_de_tareas_y_checklist_de_ejecucion_del_proyecto.md`
 - `prompts/estructura_y_arquitectura_del_proyecto.md`
+- `DESIGN.md` — sistema de diseño (colores, tipografía, componentes)
 - `docs/actas/` — actas de entrega

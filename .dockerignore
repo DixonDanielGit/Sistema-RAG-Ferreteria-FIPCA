@@ -1,27 +1,23 @@
-# Contexto de construccion de la imagen de la aplicacion.
-# Evita enviar al daemon archivos innecesarios o sensibles.
+# Contexto de construccion minimo: la imagen no necesita tests, docs,
+# capturas ni credenciales.
 .git
 .gitignore
-venv/
-env/
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# Secretos y configuracion local
 .env
 .env.*
 !.env.example
-
-# Documentacion y especificaciones
-prompts/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
 docs/
-*.md
-
-# Datos locales
+tests/
+prompts/
+scripts/
 uploads/
-catalogos_temp/
-*.sql
+.impeccable/
+.agents/
+*.md
 *.png
+*.jpg
+*.jpeg
+*.pdf

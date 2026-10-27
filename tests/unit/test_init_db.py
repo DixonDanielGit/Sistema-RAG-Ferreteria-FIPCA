@@ -291,6 +291,7 @@ def test_bitacora_rechaza_truncate(usuarios):
 
 
 def test_bitacora_no_borra_auditoria_al_eliminar_usuario(usuarios):
+    with usuarios.cursor() as cur:
         cur.execute(
             """
             SELECT confdeltype FROM pg_constraint
