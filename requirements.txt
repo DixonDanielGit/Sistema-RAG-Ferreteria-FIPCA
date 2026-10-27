@@ -1,0 +1,13 @@
+# Aplicacion (Semanas 1-2)
+fastapi
+uvicorn[standard]
+psycopg2-binary
+pgvector
+
+# Configuracion y seguridad
+python-dotenv
+PyJWT
+
+# Pruebas (RNF-04)
+pytest
+httpx

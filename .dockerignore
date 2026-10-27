@@ -1,0 +1,27 @@
+# Contexto de construccion de la imagen de la aplicacion.
+# Evita enviar al daemon archivos innecesarios o sensibles.
+.git
+.gitignore
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Secretos y configuracion local
+.env
+.env.*
+!.env.example
+
+# Documentacion y especificaciones
+prompts/
+docs/
+*.md
+
+# Datos locales
+uploads/
+catalogos_temp/
+*.sql
+*.png

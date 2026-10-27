@@ -1,0 +1,152 @@
+"""Esquemas Pydantic de autenticacion y usuarios (RF-01).
+
+Los esquemas validan la forma y el contenido de todo lo que entra por la API.
+``extra="forbid"`` rechaza campos no previstos: un atacante no puede inyectar
+propiedades adicionales esperando que el servidor las interprete.
+"""
+
+from __future__ import annotations
+
+import re
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.core.security import LONGITUD_MAXIMA, PasswordInvalida, validar_fortaleza
+
+PATRON_USUARIO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,48}[A-Za-z0-9]$")
+PATRON_CORREO = re.compile(r"^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$")
+PATRON_CEDULA = re.compile(r"^[VEJPG]?-?\d{5,9}$", re.IGNORECASE)
+PATRON_NOMBRE = re.compile(r"^[^\W\d_][^\W\d_' .-]*$", re.UNICODE)
+
+ROLES_VALIDOS = ("admin", "ventas")
+
+
+class LoginRequest(BaseModel):
+    """Credenciales de entrada. El identificador acepta usuario o correo."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    identificador: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=1, max_length=LONGITUD_MAXIMA)
+
+    @field_validator("identificador")
+    @classmethod
+    def _limpiar_identificador(cls, valor: str) -> str:
+        limpio = valor.strip()
+        if not limpio:
+            raise ValueError("El usuario o correo es obligatorio")
+        if any(c in limpio for c in "\r\n\t\0"):
+            raise ValueError("El identificador contiene caracteres no permitidos")
+        return limpio
+
+    @field_validator("password")
+    @classmethod
+    def _password_no_vacio(cls, valor: str) -> str:
+        if not valor:
+            raise ValueError("La contrasena es obligatoria")
+        return valor
+
+
+class UsuarioRegistro(BaseModel):
+    """Datos para dar de alta una cuenta."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    cedula: str = Field(min_length=5, max_length=20)
+    nombre: str = Field(min_length=2, max_length=100)
+    apellido: str = Field(min_length=2, max_length=100)
+    usuario: str = Field(min_length=4, max_length=50)
+    correo: str = Field(min_length=5, max_length=255)
+    password: str = Field(min_length=1, max_length=LONGITUD_MAXIMA)
+    rol: str = Field(default="ventas", max_length=50)
+
+    @field_validator("cedula")
+    @classmethod
+    def _validar_cedula(cls, valor: str) -> str:
+        limpio = valor.strip().upper()
+        if not PATRON_CEDULA.match(limpio):
+            raise ValueError(
+                "Cedula invalida: use el formato V-12345678 o 12345678"
+            )
+        return limpio
+
+    @field_validator("nombre", "apellido")
+    @classmethod
+    def _validar_nombre(cls, valor: str) -> str:
+        limpio = " ".join(valor.split())
+        if not PATRON_NOMBRE.match(limpio):
+            raise ValueError("El nombre solo admite letras, espacios y guiones")
+        return limpio.title()
+
+    @field_validator("usuario")
+    @classmethod
+    def _validar_usuario(cls, valor: str) -> str:
+        limpio = valor.strip().lower()
+        if not PATRON_USUARIO.match(limpio):
+            raise ValueError(
+                "El usuario debe tener entre 4 y 50 caracteres alfanumericos, "
+                "puntos, guiones o guion bajo, y empezar y terminar con letra o numero"
+            )
+        return limpio
+
+    @field_validator("correo")
+    @classmethod
+    def _validar_correo(cls, valor: str) -> str:
+        limpio = valor.strip().lower()
+        if not PATRON_CORREO.match(limpio):
+            raise ValueError("Correo electronico invalido")
+        return limpio
+
+    @field_validator("password")
+    @classmethod
+    def _validar_password(cls, valor: str) -> str:
+        try:
+            validar_fortaleza(valor)
+        except PasswordInvalida as exc:
+            raise ValueError(str(exc)) from exc
+        return valor
+
+    @field_validator("rol")
+    @classmethod
+    def _validar_rol(cls, valor: str) -> str:
+        limpio = valor.strip().lower()
+        if limpio not in ROLES_VALIDOS:
+            raise ValueError(f"Rol invalido; use uno de: {', '.join(ROLES_VALIDOS)}")
+        return limpio
+
+
+class UsuarioSalida(BaseModel):
+    """Datos publicos de una cuenta. Nunca incluye el hash de la contrasena."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: int
+    cedula: str
+    nombre: str
+    apellido: str
+    usuario: str
+    correo: str
+    rol: str
+    activo: bool
+
+
+class TokenRespuesta(BaseModel):
+    """Respuesta del login."""
+
+    access_token: str
+    token_type: str = "bearer"
+    expira_en: int = Field(description="Segundos de vigencia del token")
+    expira_en_utc: datetime
+    usuario: UsuarioSalida
+
+
+class MensajeRespuesta(BaseModel):
+    mensaje: str
+    detalle: str | None = None
+
+
+class RolSalida(BaseModel):
+    id_rol: int
+    nombre: str
+    descripcion: str | None = None
