@@ -68,10 +68,10 @@ def sesion_ventas(navegador, crear_cuenta):
 
 
 class TestPanelDeFuentes:
-    """El panel de archivos es solo interfaz hasta la Semana 3.
+    """El panel conecta el flujo de ingesta de la Semana 3.
 
-    Estas pruebas fijan el contrato visual: el panel existe, el
-    administrador ve los controles de carga y el rol de ventas no.
+    El administrador ve los controles de carga y el rol de ventas puede
+    consultar el historial sin recibir controles de escritura.
     """
 
     def test_incluye_el_panel_de_fuentes(self, navegador, sesion):
@@ -80,8 +80,9 @@ class TestPanelDeFuentes:
         assert 'id="panel-fuentes"' in html
         assert "Agregar archivo" in html
         assert 'id="archivos"' in html
-        assert 'accept=".pdf,.csv,.xlsx,.xls,.docx,.txt"' in html
+        assert 'accept=".pdf,.xlsx,.docx,.txt"' in html
         assert "Arrastre sus archivos aquí" in html
+        assert 'id="procesar-archivos"' in html
 
     def test_carga_el_script_del_panel(self, navegador, sesion):
         assert "/static/js/fuentes.js" in navegador.get("/chat").text
@@ -92,8 +93,10 @@ class TestPanelDeFuentes:
         assert 'aria-controls="panel-fuentes"' in html
         assert 'aria-expanded="false"' in html
 
-    def test_el_panel_declara_que_es_una_vista_previa(self, navegador, sesion):
-        assert "Vista previa" in navegador.get("/chat").text
+    def test_el_panel_explica_la_validacion_y_el_historial(self, navegador, sesion):
+        html = navegador.get("/chat").text
+        assert "Los catálogos se validan individualmente" in html
+        assert "PDF, XLSX, DOCX o TXT" in html
 
     def test_ventas_no_ve_los_controles_de_carga(self, navegador, sesion_ventas):
         html = navegador.get("/chat").text

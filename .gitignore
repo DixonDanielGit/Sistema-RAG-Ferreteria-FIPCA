@@ -9,6 +9,7 @@ catalogos_temp/
 
 # Ignore all files in the catalogos_temp directory
 uploads/*
+.cache/
 
 #Ignore all IA generated files
 prompts/*

@@ -12,3 +12,9 @@ PyJWT
 # Pruebas (RNF-04)
 pytest
 httpx
+
+# Semana 3: ingesta de catalogos
+python-multipart
+openpyxl
+python-docx
+pypdf

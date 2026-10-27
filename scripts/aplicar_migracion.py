@@ -1,14 +1,16 @@
-"""Aplica scripts/migracion_2_5.sql sobre la base de usuarios.
+"""Aplica las migraciones incrementales sin borrar datos.
 
-Se usa cuando el volumen de PostgreSQL ya existe (init.sql solo corre al crear
-el volumen por primera vez). Es idempotente.
+``init.sql`` solo corre al crear el volumen. Este comando actualiza una base
+existente sin borrar sus datos y puede repetirse de forma segura.
 
 Uso:
-    ./venv/Scripts/python.exe scripts/aplicar_migracion.py
+    ./venv/Scripts/python.exe scripts/aplicar_migracion.py 2_5
+    ./venv/Scripts/python.exe scripts/aplicar_migracion.py 3_0
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -21,7 +23,11 @@ sys.path.insert(0, str(RAIZ))
 
 from app.config import get_settings  # noqa: E402  (tras ajustar sys.path)
 
-SQL = RAIZ / "scripts" / "migracion_2_5.sql"
+MIGRACIONES = {
+    "2_5": ("database_url_usuarios", "ferreteria_usuarios"),
+    "3_0": ("database_url_rag", "ferreteria_rag"),
+    "4_0": ("database_url_rag", "ferreteria_rag"),
+}
 
 
 def con_base_admin(dsn_admin: str, dsn_objetivo: str) -> str:
@@ -36,6 +42,15 @@ def con_base_admin(dsn_admin: str, dsn_objetivo: str) -> str:
 
 
 def main() -> int:
+    argumentos = argparse.ArgumentParser(description=__doc__)
+    argumentos.add_argument(
+        "version",
+        nargs="?",
+        choices=tuple(MIGRACIONES),
+        default="2_5",
+        help="version de migracion (por defecto: 2_5)",
+    )
+    opciones = argumentos.parse_args()
     load_dotenv(RAIZ / ".env")
     config = get_settings()
 
@@ -43,12 +58,19 @@ def main() -> int:
         print("Falta ADMIN_DATABASE_URL en .env", file=sys.stderr)
         return 1
 
-    if not SQL.is_file():
-        print(f"No existe {SQL}", file=sys.stderr)
+    atributo_dsn, nombre_base = MIGRACIONES[opciones.version]
+    dsn_objetivo = getattr(config, atributo_dsn)
+    if not dsn_objetivo.strip():
+        print(f"Falta la URL de conexion para {nombre_base}", file=sys.stderr)
         return 1
 
-    dsn = con_base_admin(config.admin_database_url, config.database_url_usuarios)
-    sentencias = SQL.read_text(encoding="utf-8")
+    sql = RAIZ / "scripts" / f"migracion_{opciones.version}.sql"
+    if not sql.is_file():
+        print(f"No existe {sql}", file=sys.stderr)
+        return 1
+
+    dsn = con_base_admin(config.admin_database_url, dsn_objetivo)
+    sentencias = sql.read_text(encoding="utf-8")
 
     try:
         with psycopg2.connect(dsn, connect_timeout=5) as conexion:
@@ -60,7 +82,7 @@ def main() -> int:
         return 1
 
     base = urlsplit(dsn).path.lstrip("/")
-    print(f"Migracion 2.5 aplicada sobre {base} (idempotente).")
+    print(f"Migracion {opciones.version} aplicada sobre {base} (idempotente).")
     return 0
 
 

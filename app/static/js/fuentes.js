@@ -1,14 +1,18 @@
-/* Panel de fuentes del asistente (Adenda 1).
-   Solo interfaz: los archivos se listan en el navegador y nunca se envian al
-   servidor. La carga real al catalogo llega con el ETL de la Semana 3.
-   Todo el texto se pinta con textContent: un nombre de archivo es dato del
-   usuario y nunca se interpreta como HTML. */
+/* Carga y estado de los catalogos que alimentan el asistente. */
 (function () {
   "use strict";
 
   var MAX_ARCHIVOS = 20;
   var MAX_BYTES = 20 * 1024 * 1024;
-  var EXTENSIONES = ["pdf", "csv", "xlsx", "xls", "docx", "txt"];
+  var EXTENSIONES = ["pdf", "xlsx", "docx", "txt"];
+  var ETIQUETAS_ESTADO = {
+    pendiente: "Pendiente",
+    procesando: "Procesando",
+    ok: "Cargado",
+    parcial: "Cargado con errores",
+    error: "No procesado",
+    rechazado: "Rechazado",
+  };
 
   function extension(nombre) {
     var punto = nombre.lastIndexOf(".");
@@ -16,6 +20,7 @@
   }
 
   function formatear(bytes) {
+    if (!bytes) return "0 KB";
     if (bytes < 1024 * 1024) {
       return Math.max(1, Math.round(bytes / 1024)) + " KB";
     }
@@ -48,6 +53,7 @@
     var cuenta = document.getElementById("cuenta-fuentes");
     var cuentaMovil = document.getElementById("cuenta-fuentes-movil");
     var error = document.getElementById("error-fuentes");
+    var procesar = document.getElementById("procesar-archivos");
     var zona = document.getElementById("zona-archivos");
     var boton = document.getElementById("boton-archivos");
     var abrir = document.getElementById("abrir-fuentes");
@@ -56,19 +62,28 @@
     var principal = document.querySelector(".chat__principal");
 
     var archivos = [];
+    var historial = [];
+    var subiendo = false;
     var arrastre = 0;
 
-    function aviso(texto) {
-      if (error) error.textContent = texto;
+    function aviso(texto, tipo) {
+      if (!error) return;
+      error.textContent = texto;
+      if (texto) error.setAttribute("data-tipo", tipo || "error");
+      else error.removeAttribute("data-tipo");
     }
 
     function actualizar() {
-      var total = archivos.length;
+      var total = archivos.length + historial.length;
       if (cuenta) {
         cuenta.textContent = total + (total === 1 ? " archivo" : " archivos");
       }
       if (cuentaMovil) cuentaMovil.textContent = String(total);
       if (vacio) vacio.hidden = total > 0;
+      if (procesar) procesar.disabled = archivos.length === 0 || subiendo;
+      if (boton) boton.disabled = subiendo;
+      if (zona) zona.disabled = subiendo;
+      if (entrada) entrada.disabled = subiendo;
     }
 
     function pintar() {
@@ -77,14 +92,14 @@
         nodo.remove();
       });
 
-      archivos.forEach(function (archivo, indice) {
+      function agregarFila(archivo, indice, esLocal) {
         var fila = document.createElement("li");
         fila.className = "fuentes__archivo";
 
         var icono = document.createElement("span");
         icono.className = "fuentes__icono";
         icono.setAttribute("aria-hidden", "true");
-        icono.textContent = archivo.ext.toUpperCase();
+        icono.textContent = String(archivo.ext || archivo.tipo || "").toUpperCase();
 
         var datos = document.createElement("span");
         datos.className = "fuentes__datos";
@@ -96,21 +111,50 @@
 
         var meta = document.createElement("span");
         meta.className = "fuentes__meta";
-        meta.textContent = archivo.ext.toUpperCase() + " · " + formatear(archivo.tamano);
-
-        var quitar = document.createElement("button");
-        quitar.type = "button";
-        quitar.className = "fuentes__quitar";
-        quitar.dataset.indice = String(indice);
-        quitar.setAttribute("aria-label", "Quitar " + archivo.nombre);
-        quitar.appendChild(iconoQuitar());
+        var tamano = archivo.tamano === undefined
+          ? Number(archivo.tamano_bytes || 0)
+          : archivo.tamano;
+        var detalles = [
+          String(archivo.ext || archivo.tipo || "").toUpperCase(),
+          formatear(tamano),
+        ];
+        if (!esLocal) {
+          detalles.push(ETIQUETAS_ESTADO[archivo.estado] || "Estado desconocido");
+          if (archivo.filas_ok || archivo.filas_error) {
+            detalles.push(
+              archivo.filas_ok + " correctas, " + archivo.filas_error + " con error"
+            );
+          }
+        }
+        meta.textContent = detalles.filter(Boolean).join(" · ");
 
         datos.appendChild(nombre);
         datos.appendChild(meta);
         fila.appendChild(icono);
         fila.appendChild(datos);
-        fila.appendChild(quitar);
+        if (esLocal) {
+          var quitar = document.createElement("button");
+          quitar.type = "button";
+          quitar.className = "fuentes__quitar";
+          quitar.dataset.indice = String(indice);
+          quitar.setAttribute("aria-label", "Quitar " + archivo.nombre);
+          quitar.appendChild(iconoQuitar());
+          fila.appendChild(quitar);
+        } else if (archivo.detalle) {
+          var detalle = document.createElement("span");
+          detalle.className = "fuentes__meta";
+          detalle.textContent = archivo.detalle.slice(0, 180);
+          fila.title = archivo.detalle;
+          datos.appendChild(detalle);
+        }
         lista.appendChild(fila);
+      }
+
+      historial.forEach(function (archivo, indice) {
+        agregarFila(archivo, indice, false);
+      });
+      archivos.forEach(function (archivo, indice) {
+        agregarFila(archivo, indice, true);
       });
     }
 
@@ -121,7 +165,11 @@
 
       Array.prototype.forEach.call(seleccion, function (archivo) {
         var ext = extension(archivo.name);
-        if (EXTENSIONES.indexOf(ext) === -1 || archivo.size > MAX_BYTES) {
+        if (
+          EXTENSIONES.indexOf(ext) === -1 ||
+          archivo.size > MAX_BYTES ||
+          archivo.size === 0
+        ) {
           rechazados += 1;
           return;
         }
@@ -136,12 +184,17 @@
           sobrantes += 1;
           return;
         }
-        archivos.push({ nombre: archivo.name, tamano: archivo.size, ext: ext });
+        archivos.push({
+          nombre: archivo.name,
+          tamano: archivo.size,
+          ext: ext,
+          archivo: archivo,
+        });
       });
 
       var mensajes = [];
       if (rechazados) {
-        mensajes.push("Solo se aceptan PDF, Excel, CSV, Word o TXT de hasta 20 MB.");
+        mensajes.push("Solo se aceptan PDF, XLSX, DOCX o TXT de hasta 20 MB y no vacíos.");
       }
       if (sobrantes) {
         mensajes.push("La lista admite como máximo " + MAX_ARCHIVOS + " archivos.");
@@ -226,6 +279,68 @@
       });
     }
 
+    async function cargarHistorial() {
+      try {
+        historial = await Fipca.pedir("/api/v1/inventario/archivos");
+        pintar();
+        actualizar();
+      } catch (fallo) {
+        aviso("No se pudo consultar el historial de catálogos.");
+      }
+    }
+
+    if (procesar) {
+      procesar.addEventListener("click", async function () {
+        if (subiendo || archivos.length === 0) return;
+        subiendo = true;
+        aviso("");
+        actualizar();
+
+        var formulario = new FormData();
+        archivos.forEach(function (archivo) {
+          formulario.append("archivos", archivo.archivo, archivo.nombre);
+        });
+
+        try {
+          var respuesta = await Fipca.pedir("/api/v1/inventario/ingesta", {
+            metodo: "POST",
+            cuerpo: formulario,
+          });
+          var cargados = respuesta.archivos_ok + respuesta.archivos_parciales;
+          var conProblemas =
+            respuesta.archivos_parciales +
+            respuesta.archivos_error +
+            respuesta.archivos_rechazados;
+          archivos = [];
+          var resumen = cargados + " archivo(s) cargado(s)";
+          if (conProblemas) {
+            var incidencias = respuesta.resultados
+              .filter(function (resultado) {
+                return (
+                  resultado.estado === "parcial" ||
+                  resultado.estado === "error" ||
+                  resultado.estado === "rechazado"
+                );
+              })
+              .map(function (resultado) {
+                return resultado.nombre + ": " + (resultado.detalle || "sin detalle");
+              })
+              .join(". ")
+              .slice(0, 700);
+            resumen += "; " + conProblemas + " archivo(s) requieren revisión. " + incidencias;
+          }
+          aviso(resumen, conProblemas ? "error" : "exito");
+          await cargarHistorial();
+        } catch (fallo) {
+          aviso(fallo.message || "No se pudo procesar el lote.");
+        } finally {
+          subiendo = false;
+          pintar();
+          actualizar();
+        }
+      });
+    }
+
     /* Cajon del telefono: se abre sobre la conversacion y se cierra con la
        aspa, el velo o la tecla Escape. */
     var movil = window.matchMedia("(max-width: 900px)");
@@ -273,6 +388,7 @@
       });
     }
 
+    cargarHistorial();
     actualizar();
   });
 })();

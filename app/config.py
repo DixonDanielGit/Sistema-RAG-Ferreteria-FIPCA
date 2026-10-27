@@ -45,6 +45,12 @@ def _booleano_opcional(nombre: str) -> bool | None:
     return valor.strip().lower() in {"1", "true", "si", "yes", "on"}
 
 
+def _directorio_cargas() -> Path:
+    valor = os.getenv("UPLOADS_DIR", "").strip()
+    ruta = Path(valor).expanduser() if valor else Path("uploads")
+    return ruta if ruta.is_absolute() else RAIZ_PROYECTO / ruta
+
+
 @dataclass(frozen=True)
 class Settings:
     """Valores de configuracion inmutables de la aplicacion."""
@@ -62,6 +68,12 @@ class Settings:
     admin_database_url: str = field(default_factory=lambda: os.getenv("ADMIN_DATABASE_URL", ""))
     db_pool_minimo: int = field(default_factory=lambda: _entero("DB_POOL_MINIMO", 1))
     db_pool_maximo: int = field(default_factory=lambda: _entero("DB_POOL_MAXIMO", 5))
+    uploads_dir: Path = field(default_factory=_directorio_cargas)
+    embedding_cache_dir: Path = field(
+        default_factory=lambda: Path(
+            os.getenv("EMBEDDING_CACHE_DIR", ".cache/embeddings")
+        ).expanduser()
+    )
 
     # JWT
     jwt_secret: str = field(default_factory=lambda: os.getenv("JWT_SECRET", ""))

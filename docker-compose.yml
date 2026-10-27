@@ -59,7 +59,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ferreteria-api:2.5
+    image: ferreteria-api:4.0
     container_name: api_ferreteria
     restart: always
     environment:
@@ -79,12 +79,15 @@ services:
       RECUPERACION_MINUTOS: ${RECUPERACION_MINUTOS:-30}
       RECUPERACION_MAX_INTENTOS: ${RECUPERACION_MAX_INTENTOS:-5}
       RECUPERACION_VENTANA_MINUTOS: ${RECUPERACION_VENTANA_MINUTOS:-15}
+      UPLOADS_DIR: /app/uploads
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PUERTO: ${SMTP_PUERTO:-587}
       SMTP_USUARIO: ${SMTP_USUARIO:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_REMITENTE: ${SMTP_REMITENTE:-}
       SMTP_TLS: ${SMTP_TLS:-true}
+      EMBEDDING_CACHE_DIR: /app/model-cache
+      HF_HOME: /app/model-cache/huggingface
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${API_HOST_PORT:-8000}:8000"
     depends_on:
@@ -95,6 +98,11 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+    volumes:
+      - uploads:/app/uploads
+      - model_cache:/app/model-cache
 
 volumes:
   postgres_data:
+  uploads:
+  model_cache:

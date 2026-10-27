@@ -83,6 +83,15 @@ def bases_de_prueba():
             ):
                 cur.execute(f'DROP DATABASE IF EXISTS "{prueba}" WITH (FORCE)')
                 cur.execute(f'CREATE DATABASE "{prueba}" TEMPLATE "{plantilla}"')
+
+        conexion_rag = conexion_admin(RAG_PRUEBA)
+        try:
+            with conexion_rag.cursor() as cur:
+                for version in ("3_0", "4_0"):
+                    migracion = RAIZ / "scripts" / f"migracion_{version}.sql"
+                    cur.execute(migracion.read_text(encoding="utf-8"))
+        finally:
+            conexion_rag.close()
     except psycopg2.Error as exc:
         pytest.skip(
             "No se pudieron clonar las bases de prueba: hay conexiones abiertas a "
@@ -147,10 +156,29 @@ def sesion_limpia(request):
     cliente_http.cookies.clear()
 
 
+@pytest.fixture(autouse=True)
+def uploads_temporales(tmp_path, monkeypatch):
+    """Evita que las pruebas creen archivos dentro del almacenamiento real."""
+    monkeypatch.setenv("UPLOADS_DIR", str(tmp_path / "uploads"))
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
 @pytest.fixture(scope="session")
 def conexion_limpieza(bases_de_prueba):
     """Conexion de administracion reutilizada en toda la sesion."""
     conexion = conexion_admin()
+    yield conexion
+    conexion.close()
+
+
+@pytest.fixture(scope="session")
+def conexion_rag_limpieza(bases_de_prueba):
+    """Conexion de administracion a la copia de prueba del catalogo."""
+    conexion = conexion_admin(RAG_PRUEBA)
     yield conexion
     conexion.close()
 

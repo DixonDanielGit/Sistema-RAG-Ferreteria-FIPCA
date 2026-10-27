@@ -30,9 +30,13 @@
     };
 
     if (opciones.cuerpo !== undefined) {
-      cabeceras["Content-Type"] = "application/json";
       cabeceras["X-CSRF-Token"] = Fipca.csrf();
-      configuracion.body = JSON.stringify(opciones.cuerpo);
+      if (opciones.cuerpo instanceof FormData) {
+        configuracion.body = opciones.cuerpo;
+      } else {
+        cabeceras["Content-Type"] = "application/json";
+        configuracion.body = JSON.stringify(opciones.cuerpo);
+      }
     }
 
     var respuesta;

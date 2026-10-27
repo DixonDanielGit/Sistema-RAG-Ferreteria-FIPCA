@@ -73,8 +73,25 @@ CREATE TABLE archivos_subidos (
     id_archivo SERIAL PRIMARY KEY,
     nombre VARCHAR(255) NOT NULL,
     tipo VARCHAR(100) NOT NULL,
-    fecha_de_subida TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    fecha_de_subida TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ruta TEXT,
+    hash_sha256 CHAR(64),
+    tamano_bytes BIGINT NOT NULL DEFAULT 0
+        CONSTRAINT chk_archivos_tamano CHECK (tamano_bytes >= 0),
+    estado VARCHAR(20) NOT NULL DEFAULT 'pendiente'
+        CONSTRAINT chk_archivos_estado
+        CHECK (estado IN ('pendiente', 'procesando', 'ok', 'parcial', 'error')),
+    filas_ok INT NOT NULL DEFAULT 0
+        CONSTRAINT chk_archivos_filas_ok CHECK (filas_ok >= 0),
+    filas_error INT NOT NULL DEFAULT 0
+        CONSTRAINT chk_archivos_filas_error CHECK (filas_error >= 0),
+    detalle TEXT,
+    id_usuario INT,
+    terminado_en TIMESTAMPTZ
 );
+
+CREATE INDEX idx_archivos_hash ON archivos_subidos (hash_sha256);
+CREATE INDEX idx_archivos_fecha ON archivos_subidos (fecha_de_subida DESC);
 
 -- Tabla: proveedores
 CREATE TABLE proveedores (
@@ -105,7 +122,7 @@ CREATE TABLE productos (
     descuentos NUMERIC(10, 2) NOT NULL DEFAULT 0.00 CHECK (descuentos >= 0),
     descripcion TEXT,
     stock INT NOT NULL DEFAULT 0 CHECK (stock >= 0),
-    descripcion_vectorial vector(1536),
+    descripcion_vectorial vector(384),
 
     CONSTRAINT fk_productos_archivo
         FOREIGN KEY (id_archivo) REFERENCES archivos_subidos(id_archivo)

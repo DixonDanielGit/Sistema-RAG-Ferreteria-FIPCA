@@ -29,7 +29,7 @@
     <div class="fuentes__cuerpo">
       {% if es_admin %}
       <input class="visually-hidden" type="file" id="archivos" multiple
-             accept=".pdf,.csv,.xlsx,.xls,.docx,.txt" tabindex="-1" />
+             accept=".pdf,.xlsx,.docx,.txt" tabindex="-1" />
 
       <button class="fuentes__agregar" type="button" id="boton-archivos">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -46,8 +46,12 @@
           <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" />
         </svg>
         <strong>Arrastre sus archivos aquí</strong>
-        <span>PDF, Excel, CSV o Word</span>
+        <span>PDF, XLSX, DOCX o TXT</span>
         <span>Hasta 20 archivos de 20 MB</span>
+      </button>
+
+      <button class="fuentes__agregar" type="button" id="procesar-archivos" disabled>
+        Procesar catálogo
       </button>
 
       <p class="fuentes__error" id="error-fuentes" role="alert" aria-live="polite"></p>
@@ -66,8 +70,8 @@
     </div>
 
     <p class="fuentes__nota">
-      Vista previa: los archivos no se envían. La carga real llega en la
-      Semana 3.
+      Los catálogos se validan individualmente. Los archivos que no cumplan el
+      formato requerido se reportan sin detener el resto del lote.
     </p>
   </aside>
 

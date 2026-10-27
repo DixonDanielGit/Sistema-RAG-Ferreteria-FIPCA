@@ -7,13 +7,13 @@ sobre el catálogo real de productos.
 - **Backend:** Python 3.11+ / FastAPI / Uvicorn / Pydantic
 - **Base de datos:** PostgreSQL 16 + `pgvector`
 - **Frontend:** Jinja2 + Bootstrap 5 + JavaScript vanilla (fetch/AJAX)
-- **IA:** modelo de embeddings + modelo generativo (Semana 4/5)
+- **IA:** embeddings locales (Semana 4) + modelo generativo (Semana 5)
 - **Infraestructura:** Docker + Docker Compose
 
-> Estado actual: **Semana 2.5 (Adenda 1) completada** — infraestructura, base
-> de datos, autenticación JWT, auditoría y la interfaz web (acceso, recuperación
-> de contraseña, panel y asistente con motor provisional). Las semanas 3 a 8
-> añaden ETL, vectores, RAG definitivo, módulos administrativos y despliegue.
+> Estado actual: **Semana 3 completada; implementación técnica de Semana 4 lista
+> para piloto** — incluye embeddings locales y búsqueda vectorial. Falta validar
+> relevancia y latencia con una muestra del catálogo de desarrollo. El chat sigue
+> provisional hasta la integración RAG de Semana 5.
 
 ## Requisitos
 
@@ -70,12 +70,12 @@ docker compose logs -f api            # registro de la aplicación
 
 | Detalle | Valor |
 |---|---|
-| Imagen | `ferreteria-api:2.5` (Python 3.12 slim) |
+| Imagen | `ferreteria-api:4.0` (Python 3.12 slim) |
 | Contenedor | `api_ferreteria`, usuario sin privilegios `uid 10001` |
 | Puerto | `API_HOST_PORT` de `.env` (8000 por defecto), solo en `BIND_ADDRESS` |
 | Origen público | `URL_BASE` de `.env`, debe coincidir con la barra del navegador |
 | Salud | `healthcheck` sobre `/salud` cada 30 s |
-| Disco | Solo lectura (`read_only`) con `/tmp` en memoria |
+| Disco | Solo lectura (`read_only`); `/tmp` en memoria, originales en `/app/uploads` y modelo en `/app/model-cache` persistentes |
 
 Dos avisos:
 
@@ -148,12 +148,15 @@ una cookie legible; no hay que copiar nada a mano.
 El panel y el asistente se adaptan a escritorio y móvil, y siguen el tema del
 sistema operativo (claro u oscuro) hasta que se cambie con el conmutador.
 
-**Panel de fuentes.** A la izquierda del asistente vive la lista de archivos que
-alimentan al catálogo: PDF, Excel, CSV, Word o TXT. En esta etapa es solo
-interfaz. El administrador puede agregarlos, arrastrarlos y quitarlos de la
-lista, pero nada se envía al servidor; la carga real llega con el ETL de la
-Semana 3. El rol de ventas ve la lista y una frase que explica quién puede
-cargarla. En el teléfono el panel se abre como cajón desde el botón "Fuentes".
+**Panel de fuentes.** El administrador puede cargar lotes de hasta 20 archivos
+PDF, XLSX, DOCX o TXT (máximo 20 MB cada uno). Cada archivo se valida de forma
+independiente; un archivo rechazado no detiene los demás. El panel muestra el
+resultado y el historial de las últimas 100 cargas. Ventas puede consultar el
+historial, pero no cargar catálogos. Los originales se guardan bajo un nombre
+UUID en `UPLOADS_DIR` (un volumen persistente `/app/uploads` en Docker), nunca
+en los estáticos. PDF/XLSX/DOCX necesitan columnas reconocibles de código,
+nombre y precio; TXT también admite el orden posicional documentado
+`codigo;nombre;precio;descripcion;marca`. El ETL no admite CSV ni XLS.
 
 **Recuperación sin SMTP.** Mientras `SMTP_HOST` no esté configurado, el enlace
 de recuperación se escribe en el registro de Uvicorn:
@@ -184,6 +187,8 @@ iniciar sesión y `-b cookies.txt` en las llamadas siguientes.
 | GET | `/api/v1/auth/roles` | admin | Catálogo de roles |
 | POST | `/api/v1/auth/recuperar` | público | Envía (o registra) el enlace de recuperación |
 | POST | `/api/v1/auth/restablecer` | público | Cambia la contraseña con el token del enlace |
+| POST | `/api/v1/inventario/ingesta` | admin | Procesa un lote de catálogos |
+| GET | `/api/v1/inventario/archivos` | autenticado | Historial de las últimas 100 cargas |
 | POST | `/api/v1/rag/chat` | autenticado | Pregunta al asistente (contrato final) |
 | GET | `/api/v1/rag/estado` | autenticado | Disponibilidad del motor RAG |
 | GET | `/salud` | público | Estado de las bases de datos |
@@ -197,7 +202,21 @@ Reglas de autenticación:
 - La cuenta se relee de la base en cada petición: desactivar un usuario
   invalida sus tokens de inmediato.
 - El asistente responde hoy con un aviso de motor provisional; el contrato
-  (`respuesta`, `productos`, `aviso`, `modelo`) no cambia cuando llegue el RAG.
+  (`respuesta`, `fuentes`, `aviso`, `modelo`) no cambia cuando llegue el RAG.
+
+La carga acepta un campo multipart repetido `archivos`. Para probarla desde
+terminal con un token Bearer:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/inventario/ingesta \
+  -H "Authorization: Bearer <token>" \
+  -F "archivos=@catalogo.txt"
+```
+
+Los `.xlsx` y `.docx` se revisan además contra paquetes ZIP dañados o con
+relaciones de compresión anómalas. Cada archivo se limita a 20 000 filas y los
+PDF a 300 páginas. Los productos se actualizan por código; el proceso conserva
+el stock existente y fija el IVA en 16 %.
 
 ### Conectar pgAdmin a PostgreSQL
 
@@ -222,7 +241,7 @@ El esquema se define en `init.sql` y crea dos bases:
 
 | Base | Tablas | Uso |
 |---|---|---|
-| `ferreteria_rag` | `archivos_subidos`, `proveedores`, `categoria`, `productos` | Catálogo e insumos del motor RAG (incluye `descripcion_vectorial vector(1536)` e índice HNSW) |
+| `ferreteria_rag` | `archivos_subidos`, `proveedores`, `categoria`, `productos` | Catálogo e insumos del motor RAG (incluye `descripcion_vectorial vector(384)` e índice HNSW) |
 | `ferreteria_usuarios` | `rol`, `usuarios`, `bitacora` | Autenticación, roles y auditoría inmutable |
 | `ferreteria` | — | Base de mantenimiento (la usa pgAdmin para conectarse) |
 
@@ -247,38 +266,94 @@ docker compose down -v   # ¡elimina todos los datos!
 docker compose up -d
 ```
 
-Si ya tienes datos y solo falta la tabla de la Adenda 1, aplica la migración
-idempotente sin borrar nada:
+Si ya tienes datos, aplica las migraciones idempotentes sin borrar nada. La
+migración `3_0` agrega los metadatos de ingesta y `4_0` prepara los vectores
+para el modelo local. La migración `4_0` conserva el catálogo y solo permite el
+cambio de dimensión si los vectores existentes están vacíos; si encuentra
+embeddings previos, aborta sin convertirlos:
 
 ```bash
-docker compose exec -T db psql -U postgres -d ferreteria_usuarios \
-  < scripts/migracion_2_5.sql
+venv\Scripts\python.exe scripts\aplicar_migracion.py 2_5
+venv\Scripts\python.exe scripts\aplicar_migracion.py 3_0
+venv\Scripts\python.exe scripts\aplicar_migracion.py 4_0
 ```
+
+### Piloto local de embeddings (Semana 4)
+
+El piloto usa `intfloat/multilingual-e5-small`, un modelo multilingüe gratuito
+que se ejecuta localmente y genera vectores de 384 dimensiones. La primera
+ejecución descarga los pesos públicos del modelo; el contenido del catálogo no
+se envía a un proveedor externo. En Docker, los pesos permanecen en el volumen
+`model_cache` y la inferencia corre en la imagen Python 3.12. FastEmbed/ONNX
+Runtime no tiene rueda para el Python 3.15 usado por el entorno virtual de
+desarrollo; use Docker o un entorno local Python 3.12 para este comando.
+
+Después de aplicar `4_0`, reconstruye la imagen si aún no tiene FastEmbed y
+vectoriza primero una muestra pequeña:
+
+```powershell
+docker compose up -d --build api
+docker compose exec api python scripts\vectorizar_catalogo.py --lote 10
+docker compose exec api python scripts\buscar_productos_vectorial.py "taladro para concreto"
+```
+
+La orden de vectorización solo se ejecuta cuando se la invoca. Comprueba los
+resultados antes de procesar el catálogo completo con `--todos`. Para revisar
+el estado desde pgAdmin:
+
+```sql
+SELECT COUNT(*) AS productos,
+       COUNT(*) FILTER (WHERE descripcion_vectorial IS NOT NULL) AS vectorizados
+FROM productos;
+```
+
+La búsqueda semántica todavía es un servicio de backend de Semana 4; el chat web
+seguirá mostrando su respuesta provisional hasta la integración RAG de Semana 5.
+La reingesta invalida el vector cuando cambia nombre, marca o descripción para
+que el siguiente proceso de vectorización lo regenere.
+
+**Smoke test técnico (dataset sintético):** el modelo devolvió 384 dimensiones.
+En cuatro consultas de ejemplo, el producto esperado quedó primero en 3 de 4;
+la consulta de brocas priorizó un taladro relacionado. Con los pesos ya
+descargados, cargar el modelo y vectorizar cuatro pasajes tomó 16,0 s; codificar
+las cuatro consultas con el modelo cargado tomó 162,5 ms. Esto es una comprobación
+preliminar, no una medición de búsqueda PostgreSQL ni una garantía de calidad
+para el catálogo real. Revise el [registro preliminar de Semana 4](docs/actas/acta_04_embeddings_busqueda.md)
+antes de procesar el catálogo completo.
 
 ## Pruebas
 
 ```bash
-pytest -q
+venv\Scripts\python.exe -m pytest tests/ -q
 ```
 
 | Carpeta | Contenido |
 |---|---|
-| `unit/` | Caja blanca: esquema SQL, hashing, JWT, tokens de recuperación, pool |
-| `integration/` | Caja negra: login, registro, roles, auditoría, páginas web |
+| `unit/` | Caja blanca: esquema SQL, hashing, JWT, ETL, tokens y pool |
+| `integration/` | Caja negra: login, registro, roles, auditoría y páginas web |
 | `boundary/` | Valores límite: expiración exacta del JWT |
 | `security/` | Inyección SQL, permisos de BD, CSRF, endurecimiento de Docker |
-| `stress/` | Carga masiva de catálogos (Semana 3) |
-
-Resultado actual:
+| `stress/` | Lote real de 20 archivos / 5000 productos (Semana 3, optativo) |
 
 ```text
-329 passed
+Última verificación: **378 pruebas pasaron y 1 se omitió** en 200,83 s. La
+prueba optativa de estrés ETL también pasó: 20 archivos y 5000 productos dentro
+del objetivo de 4,25 s.
 ```
 
 Las pruebas de integración **no tocan las bases de desarrollo**: al iniciar la
 sesión clonan `ferreteria_rag` y `ferreteria_usuarios` como
 `ferreteria_rag_test` y `ferreteria_usuarios_test`, y las eliminan al terminar.
-Si PostgreSQL no responde, esas pruebas se omiten en lugar de fallar.
+La copia de prueba recibe las migraciones ETL y vectorial automáticamente; la
+base de desarrollo no se altera. Si PostgreSQL no responde, esas pruebas se
+omiten en lugar de fallar.
+
+La prueba de carga reducida es optativa:
+
+```powershell
+$env:PRUEBA_ESTRES = "1"
+venv\Scripts\python.exe -m pytest tests\stress -q -s
+```
 
 > Si pgAdmin tiene sesiones abiertas sobre las bases, PostgreSQL no permite
 > clonarlas. En ese caso cierra las pestañas de consulta en pgAdmin y vuelve a

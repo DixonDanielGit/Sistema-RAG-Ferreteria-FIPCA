@@ -1575,6 +1575,10 @@ body.cuerpo-chat main {
   color: var(--ciruela-texto);
 }
 
+.fuentes__error[data-tipo="exito"] {
+  color: var(--exito-texto);
+}
+
 .fuentes__error:empty {
   display: none;
 }
