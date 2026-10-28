@@ -6,6 +6,7 @@ __pycache__/
 .env
 .vscode/
 catalogos_temp/
+.VSCodeCounter/*
 
 # Ignore all files in the catalogos_temp directory
 uploads/*
@@ -18,3 +19,7 @@ AGENTS.md
 skills-lock.json
 .playwright-cli/*
 .impeccable/*
+
+# Ignore all files innecesarios
+DESIGN.md
+PRODUCT.md

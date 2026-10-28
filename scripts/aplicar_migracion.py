@@ -6,6 +6,7 @@ existente sin borrar sus datos y puede repetirse de forma segura.
 Uso:
     ./venv/Scripts/python.exe scripts/aplicar_migracion.py 2_5
     ./venv/Scripts/python.exe scripts/aplicar_migracion.py 3_0
+    ./venv/Scripts/python.exe scripts/aplicar_migracion.py 5_0
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ MIGRACIONES = {
     "2_5": ("database_url_usuarios", "ferreteria_usuarios"),
     "3_0": ("database_url_rag", "ferreteria_rag"),
     "4_0": ("database_url_rag", "ferreteria_rag"),
+    "5_0": ("database_url_usuarios", "ferreteria_usuarios"),
 }
 
 

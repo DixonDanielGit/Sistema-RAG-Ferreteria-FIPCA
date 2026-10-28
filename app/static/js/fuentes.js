@@ -159,18 +159,24 @@
     }
 
     function agregar(seleccion) {
-      var rechazados = 0;
+      var extensionesInvalidas = 0;
+      var archivosVacios = 0;
+      var archivosGrandes = 0;
       var repetidos = 0;
       var sobrantes = 0;
 
       Array.prototype.forEach.call(seleccion, function (archivo) {
         var ext = extension(archivo.name);
-        if (
-          EXTENSIONES.indexOf(ext) === -1 ||
-          archivo.size > MAX_BYTES ||
-          archivo.size === 0
-        ) {
-          rechazados += 1;
+        if (EXTENSIONES.indexOf(ext) === -1) {
+          extensionesInvalidas += 1;
+          return;
+        }
+        if (archivo.size === 0) {
+          archivosVacios += 1;
+          return;
+        }
+        if (archivo.size > MAX_BYTES) {
+          archivosGrandes += 1;
           return;
         }
         var yaEsta = archivos.some(function (guardado) {
@@ -193,8 +199,14 @@
       });
 
       var mensajes = [];
-      if (rechazados) {
-        mensajes.push("Solo se aceptan PDF, XLSX, DOCX o TXT de hasta 20 MB y no vacíos.");
+      if (extensionesInvalidas) {
+        mensajes.push("Solo se aceptan archivos PDF, XLSX, DOCX o TXT.");
+      }
+      if (archivosVacios) {
+        mensajes.push("No se pueden agregar archivos vacíos.");
+      }
+      if (archivosGrandes) {
+        mensajes.push("Cada archivo debe pesar como máximo 20 MB.");
       }
       if (sobrantes) {
         mensajes.push("La lista admite como máximo " + MAX_ARCHIVOS + " archivos.");

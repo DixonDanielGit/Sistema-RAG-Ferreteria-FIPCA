@@ -190,11 +190,18 @@ CREATE TABLE usuarios (
     password VARCHAR(255) NOT NULL,
     correo VARCHAR(255) NOT NULL UNIQUE,
     activo BOOLEAN NOT NULL DEFAULT TRUE,
+    imagen_perfil BYTEA,
 
     CONSTRAINT fk_usuarios_rol
         FOREIGN KEY (id_rol) REFERENCES rol(id_rol)
-        ON DELETE RESTRICT
+        ON DELETE RESTRICT,
+    CONSTRAINT chk_usuarios_imagen_perfil_tamano
+        CHECK (imagen_perfil IS NULL OR octet_length(imagen_perfil) <= 2097152)
 );
+
+CREATE UNIQUE INDEX uq_usuarios_usuario_lower ON usuarios (LOWER(usuario));
+CREATE UNIQUE INDEX uq_usuarios_correo_lower ON usuarios (LOWER(correo));
+CREATE UNIQUE INDEX uq_usuarios_cedula_lower ON usuarios (LOWER(cedula));
 
 -- Tabla: tokens_recuperacion
 -- Recuperacion de contrasena por correo (Adenda 1, Semana 2.5).

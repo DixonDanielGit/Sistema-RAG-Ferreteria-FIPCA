@@ -92,6 +92,14 @@ def bases_de_prueba():
                     cur.execute(migracion.read_text(encoding="utf-8"))
         finally:
             conexion_rag.close()
+
+        conexion_usuarios = conexion_admin(USUARIOS_PRUEBA)
+        try:
+            with conexion_usuarios.cursor() as cur:
+                migracion = RAIZ / "scripts" / "migracion_5_0.sql"
+                cur.execute(migracion.read_text(encoding="utf-8"))
+        finally:
+            conexion_usuarios.close()
     except psycopg2.Error as exc:
         pytest.skip(
             "No se pudieron clonar las bases de prueba: hay conexiones abiertas a "

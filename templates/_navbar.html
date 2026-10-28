@@ -2,14 +2,32 @@
   {% set url_marca = '/dashboard' %}
   {% include "_marca.html" %}
 
-  <nav class="fipca-nav__enlaces" aria-label="Navegación principal">
+  <button class="fipca-nav__menu" id="fipca-menu-toggle" type="button"
+          aria-expanded="false" aria-controls="fipca-menu-enlaces"
+          aria-label="Abrir navegación" title="Abrir navegación">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+         stroke-linecap="round" aria-hidden="true">
+    <path class="fipca-nav__linea-menu fipca-nav__linea-menu--arriba" d="M4 7h16" />
+    <path class="fipca-nav__linea-menu fipca-nav__linea-menu--medio" d="M4 12h16" />
+    <path class="fipca-nav__linea-menu fipca-nav__linea-menu--abajo" d="M4 17h16" />
+  </svg>
+  </button>
+
+  <nav class="fipca-nav__enlaces" id="fipca-menu-enlaces"
+       aria-label="Navegación principal">
     <a class="fipca-nav__enlace" href="/dashboard"
        {% if activo == 'dashboard' %}aria-current="page"{% endif %}>Panel</a>
     <a class="fipca-nav__enlace" href="/chat"
        {% if activo == 'chat' %}aria-current="page"{% endif %}>Asistente</a>
     {% if usuario and usuario.rol == 'admin' %}
+    <a class="fipca-nav__enlace" href="/usuarios"
+       {% if activo == 'usuarios' %}aria-current="page"{% endif %}>Usuarios</a>
     <a class="fipca-nav__enlace fipca-nav__enlace--api" href="/docs" rel="noopener">API</a>
     {% endif %}
+    <a class="fipca-nav__enlace" href="/perfil"
+       {% if activo == 'perfil' %}aria-current="page"{% endif %}>Perfil</a>
+    <a class="fipca-nav__enlace" href="/configuracion"
+       {% if activo == 'configuracion' %}aria-current="page"{% endif %}>Configuración</a>
   </nav>
 
   <div class="fipca-nav__usuario">
@@ -30,7 +48,12 @@
     </svg>
   </button>
 
-  <button class="btn-fipca btn-fipca--fantasma" type="button" data-cerrar-sesion>
-    Salir
+  <button class="fipca-nav__salir" type="button" data-cerrar-sesion
+          aria-label="Cerrar sesión" title="Cerrar sesión">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M10 17l5-5-5-5M15 12H3" />
+      <path d="M12 3h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-6" />
+    </svg>
   </button>
 </header>

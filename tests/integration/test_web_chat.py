@@ -38,6 +38,7 @@ class TestVistaDelChat:
 
         assert respuesta.status_code == 200
         assert 'id="hilo"' in respuesta.text
+        assert 'id="loader-vista"' in respuesta.text
         assert 'id="form-chat"' in respuesta.text
         assert 'id="pregunta"' in respuesta.text
         assert "Motor provisional" in respuesta.text

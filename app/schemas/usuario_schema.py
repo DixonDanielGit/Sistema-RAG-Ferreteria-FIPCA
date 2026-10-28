@@ -64,39 +64,22 @@ class UsuarioRegistro(BaseModel):
     @field_validator("cedula")
     @classmethod
     def _validar_cedula(cls, valor: str) -> str:
-        limpio = valor.strip().upper()
-        if not PATRON_CEDULA.match(limpio):
-            raise ValueError(
-                "Cedula invalida: use el formato V-12345678 o 12345678"
-            )
-        return limpio
+        return validar_cedula(valor)
 
     @field_validator("nombre", "apellido")
     @classmethod
     def _validar_nombre(cls, valor: str) -> str:
-        limpio = " ".join(valor.split())
-        if not PATRON_NOMBRE.match(limpio):
-            raise ValueError("El nombre solo admite letras, espacios y guiones")
-        return limpio.title()
+        return validar_nombre(valor)
 
     @field_validator("usuario")
     @classmethod
     def _validar_usuario(cls, valor: str) -> str:
-        limpio = valor.strip().lower()
-        if not PATRON_USUARIO.match(limpio):
-            raise ValueError(
-                "El usuario debe tener entre 4 y 50 caracteres alfanumericos, "
-                "puntos, guiones o guion bajo, y empezar y terminar con letra o numero"
-            )
-        return limpio
+        return validar_usuario(valor)
 
     @field_validator("correo")
     @classmethod
     def _validar_correo(cls, valor: str) -> str:
-        limpio = valor.strip().lower()
-        if not PATRON_CORREO.match(limpio):
-            raise ValueError("Correo electronico invalido")
-        return limpio
+        return validar_correo(valor)
 
     @field_validator("password")
     @classmethod
@@ -128,6 +111,104 @@ class UsuarioSalida(BaseModel):
     usuario: str
     correo: str
     rol: str
+    activo: bool
+    tiene_imagen: bool = False
+
+
+def validar_cedula(valor: str) -> str:
+    limpio = valor.strip().upper()
+    if not PATRON_CEDULA.match(limpio):
+        raise ValueError("Cedula invalida: use el formato V-12345678 o 12345678")
+    return limpio
+
+
+def validar_nombre(valor: str) -> str:
+    limpio = " ".join(valor.split())
+    if not PATRON_NOMBRE.match(limpio):
+        raise ValueError("El nombre solo admite letras, espacios y guiones")
+    return limpio.title()
+
+
+def validar_usuario(valor: str) -> str:
+    limpio = valor.strip().lower()
+    if not PATRON_USUARIO.match(limpio):
+        raise ValueError(
+            "El usuario debe tener entre 4 y 50 caracteres alfanumericos, "
+            "puntos, guiones o guion bajo, y empezar y terminar con letra o numero"
+        )
+    return limpio
+
+
+def validar_correo(valor: str) -> str:
+    limpio = valor.strip().lower()
+    if not PATRON_CORREO.match(limpio):
+        raise ValueError("Correo electronico invalido")
+    return limpio
+
+
+class PerfilActualizar(BaseModel):
+    """Campos editables del perfil propio; el rol y el estado son inmutables aquí."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    cedula: str = Field(min_length=5, max_length=20)
+    nombre: str = Field(min_length=2, max_length=100)
+    apellido: str = Field(min_length=2, max_length=100)
+    usuario: str = Field(min_length=4, max_length=50)
+    correo: str = Field(min_length=5, max_length=255)
+
+    @field_validator("cedula")
+    @classmethod
+    def _validar_cedula(cls, valor: str) -> str:
+        return validar_cedula(valor)
+
+    @field_validator("nombre", "apellido")
+    @classmethod
+    def _validar_nombre(cls, valor: str) -> str:
+        return validar_nombre(valor)
+
+    @field_validator("usuario")
+    @classmethod
+    def _validar_usuario(cls, valor: str) -> str:
+        return validar_usuario(valor)
+
+    @field_validator("correo")
+    @classmethod
+    def _validar_correo(cls, valor: str) -> str:
+        return validar_correo(valor)
+
+
+class RolActualizar(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rol: str = Field(min_length=1, max_length=50)
+
+    @field_validator("rol")
+    @classmethod
+    def _validar_rol(cls, valor: str) -> str:
+        limpio = valor.strip().lower()
+        if limpio not in ROLES_VALIDOS:
+            raise ValueError(f"Rol invalido; use uno de: {', '.join(ROLES_VALIDOS)}")
+        return limpio
+
+
+class UsuarioAdminActualizar(PerfilActualizar):
+    """Campos editables por administración sin permitir modificar el estado."""
+
+    rol: str = Field(min_length=1, max_length=50)
+
+    @field_validator("rol")
+    @classmethod
+    def _validar_rol(cls, valor: str) -> str:
+        limpio = valor.strip().lower()
+        if limpio not in ROLES_VALIDOS:
+            raise ValueError(f"Rol invalido; use uno de: {', '.join(ROLES_VALIDOS)}")
+        return limpio
+
+
+class EstadoCuentaActualizar(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     activo: bool
 
 

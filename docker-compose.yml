@@ -101,6 +101,8 @@ services:
     volumes:
       - uploads:/app/uploads
       - model_cache:/app/model-cache
+      - ./app:/app/app:ro
+      - ./templates:/app/templates:ro
 
 volumes:
   postgres_data:

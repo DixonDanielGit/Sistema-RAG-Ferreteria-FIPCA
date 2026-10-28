@@ -12,13 +12,13 @@
     <div>
       <h2 class="acceso__titular">Una contraseña nueva y sigue trabajando.</h2>
       <p class="acceso__bajada">
-        Elija una clave que no use en otros sistemas. Mínimo 8 caracteres, con
-        al menos una letra y un número.
+        Elija una clave que no use en otros sistemas. Use entre 8 y 128
+        caracteres, con letras y números, sin espacios al inicio ni al final.
       </p>
       <ul class="acceso__lista">
-        <li>Mínimo 8 caracteres</li>
+        <li>Entre 8 y 128 caracteres</li>
         <li>Letras y números</li>
-        <li>Sin datos personales</li>
+        <li>Sin espacios al inicio ni al final</li>
       </ul>
     </div>
 
@@ -61,7 +61,7 @@
         <a class="btn-fipca btn-fipca--bloque" href="/recuperar">Solicitar un enlace nuevo</a>
       </div>
 
-      <form id="form-restablecer" novalidate hidden>
+      <form id="form-restablecer" hidden>
         <input type="hidden" id="token" name="token" value="{{ token }}" />
 
         <div class="fipca-campo">
@@ -73,10 +73,11 @@
               name="password"
               type="password"
               autocomplete="new-password"
+              minlength="8"
               maxlength="128"
               required
               autofocus
-              aria-describedby="error-password ayuda-password"
+              aria-describedby="ayuda-password"
             />
             <button class="fipca-campo__ver" type="button" data-ver-password
                     aria-label="Mostrar contraseña" aria-pressed="false">
@@ -87,7 +88,6 @@
               </svg>
             </button>
           </div>
-          <p class="fipca-campo__error" id="error-password" aria-live="polite"></p>
           <p class="fipca-campo__ayuda" id="ayuda-password">
             Mínimo 8 caracteres, con letras y números.
           </p>
@@ -103,9 +103,7 @@
             autocomplete="new-password"
             maxlength="128"
             required
-            aria-describedby="error-confirmacion"
           />
-          <p class="fipca-campo__error" id="error-confirmacion" aria-live="polite"></p>
         </div>
 
         <div class="acceso__acciones">

@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block titulo %}Mi perfil{% endblock %}
+
+{% block navegacion %}
+{% set activo = 'perfil' %}
+{% include "_navbar.html" %}
+{% endblock %}
+
+{% block contenido %}
+<div class="cuenta-pagina cuenta-pagina--perfil">
+  <header class="cuenta-cabecera cuenta-cabecera--acciones">
+    <div>
+      <h1>Mi perfil</h1>
+      <p>Consulte y actualice sus datos de contacto y la imagen de su cuenta.</p>
+    </div>
+    <button class="btn-fipca" id="abrir-modal-perfil" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
+      </svg>
+      Editar perfil
+    </button>
+  </header>
+
+  <section class="cuenta-seccion perfil-seccion" aria-labelledby="perfil-resumen-titulo">
+    <div class="perfil-resumen">
+      <img
+        class="perfil-foto__imagen"
+        id="imagen-perfil"
+        src="{{ '/api/v1/auth/me/imagen' if usuario.tiene_imagen else '/static/img/avatar-default.svg' }}"
+        alt="Imagen de perfil de {{ usuario.nombre }} {{ usuario.apellido }}"
+      />
+      <div class="perfil-resumen__datos">
+        <h2 id="perfil-resumen-titulo">{{ usuario.nombre }} {{ usuario.apellido }}</h2>
+        <p>{{ 'Administrador' if usuario.rol == 'admin' else 'Ventas' }}</p>
+        <dl class="configuracion-datos perfil-resumen__campos">
+          <div><dt>Usuario</dt><dd id="perfil-resumen-usuario">{{ usuario.usuario }}</dd></div>
+          <div><dt>Cédula</dt><dd id="perfil-resumen-cedula">{{ usuario.cedula }}</dd></div>
+          <div><dt>Correo electrónico</dt><dd id="perfil-resumen-correo">{{ usuario.correo }}</dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="modal fade" id="modal-perfil" tabindex="-1"
+     aria-labelledby="modal-perfil-titulo" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+    <div class="modal-content cuenta-modal">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title" id="modal-perfil-titulo">Editar perfil</h2>
+          <p class="cuenta-modal__ayuda">El usuario y la cédula deben ser únicos en el sistema.</p>
+        </div>
+        <button class="cuenta-modal__cerrar" type="button" data-bs-dismiss="modal"
+                aria-label="Cerrar ventana">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+               stroke-linecap="round" aria-hidden="true">
+            <path d="m6 6 12 12M18 6 6 18" />
+          </svg>
+        </button>
+      </div>
+      <form class="cuenta-formulario" id="form-perfil">
+        <div class="modal-body">
+          <label class="cuenta-campo">
+            <span>Nombre</span>
+            <input name="nombre" type="text" minlength="2" maxlength="100"
+                   value="{{ usuario.nombre }}" autocomplete="given-name" required />
+          </label>
+          <label class="cuenta-campo">
+            <span>Apellido</span>
+            <input name="apellido" type="text" minlength="2" maxlength="100"
+                   value="{{ usuario.apellido }}" autocomplete="family-name" required />
+          </label>
+          <label class="cuenta-campo">
+            <span>Cédula</span>
+            <input name="cedula" type="text" minlength="5" maxlength="20"
+                   value="{{ usuario.cedula }}" autocomplete="off" required />
+          </label>
+          <label class="cuenta-campo">
+            <span>Usuario</span>
+            <input name="usuario" type="text" minlength="4" maxlength="50"
+                   value="{{ usuario.usuario }}" autocomplete="username" required />
+          </label>
+          <label class="cuenta-campo">
+            <span>Correo electrónico</span>
+            <input name="correo" type="email" maxlength="255"
+                   value="{{ usuario.correo }}" autocomplete="email" required />
+          </label>
+          <div class="perfil-rol">
+            <span>Rol de acceso</span>
+            <strong>{{ 'Administrador' if usuario.rol == 'admin' else 'Ventas' }}</strong>
+            <small>El rol solo puede cambiarlo un administrador.</small>
+          </div>
+
+          <div class="perfil-modal__foto">
+            <img class="perfil-foto__imagen perfil-foto__imagen--modal"
+                 id="vista-previa-imagen"
+                 src="{{ '/api/v1/auth/me/imagen' if usuario.tiene_imagen else '/static/img/avatar-default.svg' }}"
+                 alt="Vista previa de la imagen de perfil" />
+            <div class="perfil-modal__foto-datos">
+              <strong>Fotografía de perfil</strong>
+              <p>JPEG, PNG o WebP · máximo 2 MB.</p>
+              <div class="perfil-foto__acciones">
+                <label class="btn-fipca btn-fipca--fantasma perfil-foto__seleccionar">
+                  Elegir imagen
+                  <input id="archivo-perfil" type="file"
+                         accept="image/jpeg,image/png,image/webp" />
+                </label>
+                <button class="btn-fipca btn-fipca--fantasma" id="quitar-imagen"
+                        type="button" {% if not usuario.tiene_imagen %}hidden{% endif %}>
+                  Quitar imagen
+                </button>
+              </div>
+              <p class="perfil-modal__nota" id="nota-imagen-perfil"
+                 role="status" aria-live="polite">
+                La imagen seleccionada se guarda al confirmar los cambios.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-fipca btn-fipca--fantasma" type="button"
+                  data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn-fipca" type="submit">
+            <span class="spinner-border spinner-border-sm" aria-hidden="true" hidden></span>
+            <span>Guardar cambios</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/perfil.js?v={{ version }}" defer></script>
+{% endblock %}

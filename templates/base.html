@@ -16,18 +16,32 @@
           var sistema = window.matchMedia("(prefers-color-scheme: dark)").matches
             ? "dark"
             : "light";
-          document.documentElement.setAttribute("data-bs-theme", guardado || sistema);
+          var tema = guardado || sistema;
+          document.documentElement.setAttribute("data-bs-theme", tema);
+          document.documentElement.setAttribute("data-swal2-theme", tema);
         } catch (error) {
           document.documentElement.setAttribute("data-bs-theme", "light");
+          document.documentElement.setAttribute("data-swal2-theme", "light");
         }
       })();
     </script>
 
     <link rel="stylesheet" href="/static/vendor/bootstrap.min.css" />
-    <link rel="stylesheet" href="/static/css/estilos.css" />
+    <link rel="stylesheet" href="/static/vendor/sweetalert2.min.css" />
+    {% block estilos_extra %}{% endblock %}
+    <link rel="stylesheet" href="/static/css/estilos.css?v={{ version }}" />
     <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml" />
   </head>
   <body class="{% block clase_cuerpo %}{% endblock %}">
+    <div class="loader-vista" id="loader-vista" role="status" aria-live="polite"
+         aria-atomic="true" hidden>
+      <span class="loader-vista__giro" aria-hidden="true"></span>
+      <span class="loader-vista__texto">
+        <strong>Cargando vista</strong>
+        <span>Preparando el contenido…</span>
+      </span>
+    </div>
+
     <a class="visually-hidden-focusable" href="#contenido">Saltar al contenido</a>
 
     {% block navegacion %}{% endblock %}
@@ -37,8 +51,9 @@
     </main>
 
     <script src="/static/vendor/bootstrap.bundle.min.js" defer></script>
-    <script src="/static/js/tema.js" defer></script>
-    <script src="/static/js/comun.js" defer></script>
+    <script src="/static/vendor/sweetalert2.all.min.js" defer></script>
+    <script src="/static/js/tema.js?v={{ version }}" defer></script>
+    <script src="/static/js/comun.js?v={{ version }}" defer></script>
     {% block scripts %}{% endblock %}
   </body>
 </html>

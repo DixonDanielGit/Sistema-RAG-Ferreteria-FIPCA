@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block titulo %}Configuración{% endblock %}
+
+{% block navegacion %}
+{% set activo = 'configuracion' %}
+{% include "_navbar.html" %}
+{% endblock %}
+
+{% block contenido %}
+<div class="cuenta-pagina cuenta-pagina--configuracion">
+  <header class="cuenta-cabecera">
+    <div>
+      <h1>Configuración</h1>
+      <p>Información de la aplicación y preferencias de visualización.</p>
+    </div>
+  </header>
+
+  <section class="cuenta-seccion" aria-labelledby="sistema-titulo">
+    <div class="cuenta-seccion__cabecera">
+      <h2 id="sistema-titulo">Sistema</h2>
+      <p>Detalles de la instalación y vigencia de acceso.</p>
+    </div>
+    <dl class="configuracion-datos">
+      <div>
+        <dt>Aplicación</dt>
+        <dd>{{ sistema }}</dd>
+      </div>
+      <div>
+        <dt>Versión</dt>
+        <dd>{{ version }}</dd>
+      </div>
+      <div>
+        <dt>Vigencia de la sesión</dt>
+        <dd>{{ expiracion_sesion_minutos }} minutos</dd>
+      </div>
+      <div>
+        <dt>Empresa</dt>
+        <dd>{{ empresa }}</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="cuenta-seccion" aria-labelledby="apariencia-titulo">
+    <div class="cuenta-seccion__cabecera">
+      <h2 id="apariencia-titulo">Apariencia</h2>
+      <p>Elija el tema para este navegador. Si no selecciona uno, se respeta la preferencia del dispositivo.</p>
+    </div>
+    <div class="configuracion-tema">
+      <span>Modo claro u oscuro</span>
+      <button class="btn-fipca btn-fipca--fantasma" type="button" data-tema-toggle
+              aria-pressed="false">Cambiar tema</button>
+    </div>
+  </section>
+
+  {% if usuario.rol == 'admin' %}
+  <section class="cuenta-seccion" aria-labelledby="tecnico-titulo">
+    <div class="cuenta-seccion__cabecera">
+      <h2 id="tecnico-titulo">Estado y límites técnicos</h2>
+      <p>Solo para administración. Estos datos son de consulta y no incluyen secretos.</p>
+    </div>
+    <div class="cuenta-aviso" id="aviso-configuracion" role="status" aria-live="polite" hidden></div>
+    <div id="estado-tecnico" class="configuracion-tecnica" aria-live="polite">
+      <p>Cargando estado de los servicios…</p>
+    </div>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if usuario.rol == 'admin' %}
+<script src="/static/js/configuracion.js" defer></script>
+{% endif %}
+{% endblock %}

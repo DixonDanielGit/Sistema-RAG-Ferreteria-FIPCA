@@ -15,24 +15,11 @@
     var panelEnviado = document.getElementById("panel-enviado");
     var botonOtro = document.getElementById("btn-otro-correo");
 
-    var patron = /^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/;
-
     formulario.addEventListener("submit", async function (evento) {
       evento.preventDefault();
       Fipca.aviso(aviso, "");
-      Fipca.errorCampo(correo, "");
 
       var valor = correo.value.trim();
-      if (!valor) {
-        Fipca.errorCampo(correo, "Escriba su correo electronico.");
-        correo.focus();
-        return;
-      }
-      if (!patron.test(valor)) {
-        Fipca.errorCampo(correo, "El correo no tiene un formato valido.");
-        correo.focus();
-        return;
-      }
 
       Fipca.cargando(boton, giro, true, "Enviando...");
       try {

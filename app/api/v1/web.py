@@ -43,6 +43,7 @@ def _contexto(request: Request, usuario: dict[str, Any] | None = None) -> dict[s
         "empresa": config.empresa,
         "sistema": config.nombre,
         "version": config.version,
+        "expiracion_sesion_minutos": config.jwt_expiracion_minutos,
         "usuario": usuario,
     }
 
@@ -125,6 +126,32 @@ def chat(request: Request) -> HTMLResponse:
     if usuario is None:
         return _redirigir("/login")
     return _html(request, "chat_rag.html", _contexto(request, usuario))
+
+
+@router.get("/usuarios", response_class=HTMLResponse, summary="Gestion de usuarios")
+def usuarios(request: Request) -> HTMLResponse:
+    usuario = _sesion(request)
+    if usuario is None:
+        return _redirigir("/login")
+    if usuario["rol"] != "admin":
+        return _redirigir("/dashboard")
+    return _html(request, "usuarios.html", _contexto(request, usuario))
+
+
+@router.get("/perfil", response_class=HTMLResponse, summary="Perfil personal")
+def perfil(request: Request) -> HTMLResponse:
+    usuario = _sesion(request)
+    if usuario is None:
+        return _redirigir("/login")
+    return _html(request, "perfil.html", _contexto(request, usuario))
+
+
+@router.get("/configuracion", response_class=HTMLResponse, summary="Configuracion del sistema")
+def configuracion(request: Request) -> HTMLResponse:
+    usuario = _sesion(request)
+    if usuario is None:
+        return _redirigir("/login")
+    return _html(request, "configuracion.html", _contexto(request, usuario))
 
 
 @router.get("/favicon.ico", include_in_schema=False)

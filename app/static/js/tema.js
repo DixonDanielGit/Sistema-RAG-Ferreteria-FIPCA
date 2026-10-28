@@ -13,6 +13,7 @@
 
   function aplicar(tema) {
     document.documentElement.setAttribute("data-bs-theme", tema);
+    document.documentElement.setAttribute("data-swal2-theme", tema);
     try {
       localStorage.setItem(CLAVE, tema);
     } catch (error) {
@@ -22,7 +23,9 @@
   }
 
   function sincronizar() {
-    var oscuro = actual() === "dark";
+    var tema = actual();
+    var oscuro = tema === "dark";
+    document.documentElement.setAttribute("data-swal2-theme", tema);
     document.querySelectorAll("[data-tema-toggle]").forEach(function (boton) {
       boton.setAttribute("aria-pressed", String(oscuro));
       boton.setAttribute(
@@ -48,10 +51,9 @@
     } catch (error) {
       return;
     }
-    document.documentElement.setAttribute(
-      "data-bs-theme",
-      evento.matches ? "dark" : "light"
-    );
+    var nuevoTema = evento.matches ? "dark" : "light";
+    document.documentElement.setAttribute("data-bs-theme", nuevoTema);
+    document.documentElement.setAttribute("data-swal2-theme", nuevoTema);
     sincronizar();
   });
 

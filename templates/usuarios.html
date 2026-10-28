@@ -1,0 +1,479 @@
+{% extends "base.html" %} {% block titulo %}Usuarios{% endblock %} {% block
+estilos_extra %}
+<link rel="stylesheet" href="/static/vendor/datatables.dataTables.min.css" />
+<link rel="stylesheet" href="/static/vendor/datatables.responsive.min.css" />
+{% endblock %} {% block navegacion %} {% set activo = 'usuarios' %} {% include
+"_navbar.html" %} {% endblock %} {% block contenido %}
+<div class="cuenta-pagina">
+  <header class="cuenta-cabecera cuenta-cabecera--acciones">
+    <div>
+      <h1>Usuarios</h1>
+      <p>Administre las cuentas y sus permisos de acceso.</p>
+    </div>
+    {# <button class="btn-fipca" id="abrir-modal-usuario" type="button">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        aria-hidden="true"
+      >
+        <path d="M12 5v14M5 12h14" />
+      </svg>
+      Crear usuario
+    </button> #}
+
+    <!-- Button trigger modal -->
+    <button
+      type="button"
+      class="btn-fipca"
+      data-bs-toggle="modal"
+      data-bs-target="#exampleModal"
+      id="abrir-modal-usuario"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        aria-hidden="true"
+      >
+        <path d="M12 5v14M5 12h14" />
+      </svg>
+      Registrar usuario
+    </button>
+  </header>
+
+  <section
+    class="cuenta-seccion cuenta-seccion--lista"
+    aria-labelledby="lista-usuarios-titulo"
+  >
+    <div class="cuenta-seccion__cabecera cuenta-lista__cabecera">
+      <div>
+        <h2 id="lista-usuarios-titulo">Cuentas registradas</h2>
+        <p id="conteo-usuarios" aria-live="polite">Cargando usuarios…</p>
+      </div>
+    </div>
+    <div class="cuenta-tabla-contenedor">
+      <table class="cuenta-tabla display responsive nowrap" id="tabla-usuarios">
+        <thead>
+          <tr>
+            <th scope="col">Persona</th>
+            <th scope="col">Usuario y cédula</th>
+            <th scope="col">Correo</th>
+            <th scope="col">Rol</th>
+            <th scope="col">Estado</th>
+            <th scope="col"><span class="visually-hidden">Acciones</span></th>
+          </tr>
+        </thead>
+        <tbody id="filas-usuarios"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<div
+  class="modal fade"
+  id="modal-usuario"
+  tabindex="-1"
+  aria-labelledby="modal-usuario-titulo"
+  aria-hidden="true"
+>
+  <div
+    class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable"
+  >
+    <div class="modal-content cuenta-modal">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title" id="modal-usuario-titulo">Crear usuario</h2>
+          <p class="cuenta-modal__ayuda" id="modal-usuario-ayuda">
+            La contraseña inicial se entrega al usuario por un canal seguro.
+          </p>
+        </div>
+        <button
+          class="cuenta-modal__cerrar"
+          type="button"
+          data-bs-dismiss="modal"
+          aria-label="Cerrar ventana"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            aria-hidden="true"
+          >
+            <path d="m6 6 12 12M18 6 6 18" />
+          </svg>
+        </button>
+      </div>
+      <form class="cuenta-formulario" id="form-usuario">
+        <div class="modal-body">
+          <label class="cuenta-campo">
+            <span>Nombre</span>
+            <input
+              name="nombre"
+              type="text"
+              minlength="2"
+              maxlength="100"
+              autocomplete="given-name"
+              required
+            />
+          </label>
+          <label class="cuenta-campo">
+            <span>Apellido</span>
+            <input
+              name="apellido"
+              type="text"
+              minlength="2"
+              maxlength="100"
+              autocomplete="family-name"
+              required
+            />
+          </label>
+          <label class="cuenta-campo">
+            <span>Cédula</span>
+            <input
+              name="cedula"
+              type="text"
+              minlength="5"
+              maxlength="20"
+              placeholder="V-12345678"
+              autocomplete="off"
+              required
+            />
+          </label>
+          <label class="cuenta-campo">
+            <span>Usuario</span>
+            <input
+              name="usuario"
+              type="text"
+              minlength="4"
+              maxlength="50"
+              autocomplete="username"
+              required
+            />
+          </label>
+          <label class="cuenta-campo">
+            <span>Correo</span>
+            <input
+              name="correo"
+              type="email"
+              maxlength="255"
+              autocomplete="email"
+              required
+            />
+          </label>
+          <label class="cuenta-campo" id="campo-password-inicial">
+            <span>Contraseña inicial</span>
+            <input
+              name="password"
+              type="password"
+              minlength="1"
+              maxlength="128"
+              autocomplete="new-password"
+            />
+          </label>
+          <label class="cuenta-campo">
+            <span>Rol</span>
+            <select name="rol" required>
+              <option value="ventas">Ventas</option>
+              <option value="admin">Administrador</option>
+            </select>
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button
+            class="btn-fipca btn-fipca--fantasma"
+            type="button"
+            data-bs-dismiss="modal"
+          >
+            Cancelar
+          </button>
+          <button class="btn-fipca" type="submit">
+            <span
+              class="spinner-border spinner-border-sm"
+              aria-hidden="true"
+              hidden
+            ></span>
+            <span id="guardar-usuario-etiqueta">Crear usuario</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Registrar Usuario -->
+<div
+  class="modal fade"
+  id="exampleModal"
+  tabindex="-1"
+  aria-labelledby="exampleModalLabel"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content cuenta-modal">
+      <div class="modal-header">
+        <div>
+          <h1 class="modal-title fs-5" id="exampleModalLabel">
+            Registrar Usuario
+          </h1>
+          <p class="cuenta-modal__ayuda">
+            Complete los datos para dar de alta una nueva cuenta en el sistema.
+          </p>
+        </div>
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="modal"
+          aria-label="Cerrar ventana"
+        ></button>
+      </div>
+      <form class="cuenta-formulario" id="form-usuario2" novalidate>
+        <div class="modal-body formulario-compacto">
+          <!-- Cédula -->
+          <div class="cuenta-campo campo-custom">
+            <label for="reg-cedula" class="form-label">Cédula</label>
+            <div class="campo-input-contenedor">
+              <input
+                type="text"
+                class="form-control input-custom input-validar"
+                id="reg-cedula"
+                placeholder="Ej: 12345678 o V-12345678"
+                required
+                name="cedula"
+                autocomplete="off"
+              />
+              <span class="icono-der" aria-hidden="true">
+                <svg class="check d-none" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                  <path
+                    d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425a.247.247 0 0 1 .02-.022Z" />
+                </svg>
+                <svg class="error d-none" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                  <path
+                    d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
+                </svg>
+              </span>
+            </div>
+            <p class="p-error-validaciones d-none"></p>
+          </div>
+
+          <!-- Nombre -->
+          <div class="cuenta-campo campo-custom">
+            <label for="reg-nombre" class="form-label">Nombre</label>
+            <div class="campo-input-contenedor">
+              <input
+                type="text"
+                class="form-control input-custom input-validar"
+                id="reg-nombre"
+                placeholder="Nombre"
+                required
+                name="nombre"
+                autocomplete="given-name"
+              />
+              <span class="icono-der" aria-hidden="true">
+                <svg class="check d-none" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                  <path
+                    d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425a.247.247 0 0 1 .02-.022Z" />
+                </svg>
+                <svg class="error d-none" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                  <path
+                    d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
+                </svg>
+              </span>
+            </div>
+            <p class="p-error-validaciones d-none"></p>
+          </div>
+
+          <!-- Apellido -->
+          <div class="cuenta-campo campo-custom">
+            <label for="reg-apellido" class="form-label">Apellido</label>
+            <div class="campo-input-contenedor">
+              <input
+                type="text"
+                class="form-control input-custom input-validar"
+                id="reg-apellido"
+                placeholder="Apellido"
+                required
+                name="apellido"
+                autocomplete="family-name"
+              />
+              <span class="icono-der" aria-hidden="true">
+                <svg class="check d-none" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                  <path
+                    d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425a.247.247 0 0 1 .02-.022Z" />
+                </svg>
+                <svg class="error d-none" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                  <path
+                    d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
+                </svg>
+              </span>
+            </div>
+            <p class="p-error-validaciones d-none"></p>
+          </div>
+
+          <!-- Usuario -->
+          <div class="cuenta-campo campo-custom">
+            <label for="reg-usuario" class="form-label">Usuario</label>
+            <div class="campo-input-contenedor">
+              <input
+                type="text"
+                class="form-control input-custom input-validar"
+                id="reg-usuario"
+                placeholder="Nombre de usuario"
+                required
+                name="usuario"
+                autocomplete="username"
+              />
+              <span class="icono-der" aria-hidden="true">
+                <svg class="check d-none" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                  <path
+                    d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425a.247.247 0 0 1 .02-.022Z" />
+                </svg>
+                <svg class="error d-none" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                  <path
+                    d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
+                </svg>
+              </span>
+            </div>
+            <p class="p-error-validaciones d-none"></p>
+          </div>
+
+          <!-- Correo Electrónico -->
+          <div class="cuenta-campo campo-custom">
+            <label for="reg-correo" class="form-label">Correo Electrónico</label>
+            <div class="campo-input-contenedor">
+              <input
+                type="email"
+                class="form-control input-custom input-validar"
+                id="reg-correo"
+                placeholder="ejemplo@dominio.com"
+                required
+                name="correo"
+                autocomplete="email"
+              />
+              <span class="icono-der" aria-hidden="true">
+                <svg class="check d-none" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                  <path
+                    d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425a.247.247 0 0 1 .02-.022Z" />
+                </svg>
+                <svg class="error d-none" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                  <path
+                    d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
+                </svg>
+              </span>
+            </div>
+            <p class="p-error-validaciones d-none"></p>
+          </div>
+
+          <!-- Rol -->
+          <div class="cuenta-campo campo-custom">
+            <label for="reg-rol" class="form-label">Rol</label>
+            <div class="campo-input-contenedor">
+              <select name="rol" id="reg-rol" class="form-control input-custom input-validar" required>
+                <option value="ventas" selected>Ventas</option>
+                <option value="admin">Administrador</option>
+              </select>
+              <span class="icono-der" aria-hidden="true">
+                <svg class="check d-none" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                  <path
+                    d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425a.247.247 0 0 1 .02-.022Z" />
+                </svg>
+                <svg class="error d-none" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                  <path
+                    d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
+                </svg>
+              </span>
+            </div>
+            <p class="p-error-validaciones d-none"></p>
+          </div>
+
+          <!-- Contraseña -->
+          <div class="cuenta-campo campo-custom">
+            <label for="reg-password" class="form-label">Contraseña</label>
+            <div class="campo-input-contenedor">
+              <input
+                type="password"
+                class="form-control input-custom input-validar"
+                id="reg-password"
+                placeholder="Contraseña inicial"
+                required
+                name="password"
+                autocomplete="new-password"
+              />
+              <span class="icono-der" aria-hidden="true">
+                <svg class="check d-none" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                  <path
+                    d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425a.247.247 0 0 1 .02-.022Z" />
+                </svg>
+                <svg class="error d-none" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                  <path
+                    d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
+                </svg>
+              </span>
+            </div>
+            <p class="p-error-validaciones d-none"></p>
+          </div>
+
+          <!-- Confirmar Contraseña -->
+          <div class="cuenta-campo campo-custom">
+            <label for="reg-passwordConf" class="form-label">Confirmar Contraseña</label>
+            <div class="campo-input-contenedor">
+              <input
+                type="password"
+                class="form-control input-custom input-validar"
+                id="reg-passwordConf"
+                placeholder="Confirmar Contraseña"
+                required
+                name="passwordConf"
+                autocomplete="new-password"
+              />
+              <span class="icono-der" aria-hidden="true">
+                <svg class="check d-none" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                  <path
+                    d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425a.247.247 0 0 1 .02-.022Z" />
+                </svg>
+                <svg class="error d-none" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                  <path
+                    d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
+                </svg>
+              </span>
+            </div>
+            <p class="p-error-validaciones d-none"></p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button
+            class="btn-fipca btn-fipca--fantasma"
+            type="button"
+            data-bs-dismiss="modal"
+          >
+            Cancelar
+          </button>
+          <button class="btn-fipca" type="submit" id="btn-registrar-usuario">
+            <span
+              class="spinner-border spinner-border-sm"
+              aria-hidden="true"
+              hidden
+            ></span>
+            <span>Registrar</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %} {% block scripts %}
+<script src="/static/vendor/jquery.min.js" defer></script>
+<script src="/static/vendor/datatables.core.min.js" defer></script>
+<script src="/static/vendor/datatables.dataTables.min.js" defer></script>
+<script src="/static/vendor/datatables.responsive.core.min.js" defer></script>
+<script src="/static/vendor/datatables.responsive.min.js" defer></script>
+<script type="module" src="/static/js/usuarios.js?v={{ version }}" defer></script>
+
+{% endblock %}

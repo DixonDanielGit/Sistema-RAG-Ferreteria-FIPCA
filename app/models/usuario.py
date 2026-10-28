@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.db.session import consultar_todos, consultar_uno, ejecutar
+import psycopg2
+
+from app.db.session import consultar_todos, consultar_uno, cursor_usuarios, ejecutar
 
 COLUMNAS_USUARIO = """
     u.id,
@@ -20,6 +22,7 @@ COLUMNAS_USUARIO = """
     u.usuario,
     u.correo,
     u.activo,
+    (u.imagen_perfil IS NOT NULL) AS tiene_imagen,
     r.nombre AS rol
 """
 
@@ -71,16 +74,34 @@ def buscar_por_correo(correo: str) -> dict[str, Any] | None:
     )
 
 
-def conflictos(usuario: str, correo: str, cedula: str) -> list[str]:
+def conflictos(
+    usuario: str, correo: str, cedula: str, *, id_excluir: int | None = None
+) -> list[str]:
     """Devuelve los campos que ya estan registrados en otra cuenta."""
     fila = consultar_uno(
         """
         SELECT
-            EXISTS (SELECT 1 FROM usuarios WHERE LOWER(usuario) = LOWER(%s)) AS usuario,
-            EXISTS (SELECT 1 FROM usuarios WHERE LOWER(correo) = LOWER(%s))  AS correo,
-            EXISTS (SELECT 1 FROM usuarios WHERE LOWER(cedula) = LOWER(%s))  AS cedula
+            EXISTS (
+                SELECT 1 FROM usuarios
+                 WHERE LOWER(usuario) = LOWER(%s)
+                   AND (%s::integer IS NULL OR id <> %s)
+            ) AS usuario,
+            EXISTS (
+                SELECT 1 FROM usuarios
+                 WHERE LOWER(correo) = LOWER(%s)
+                   AND (%s::integer IS NULL OR id <> %s)
+            ) AS correo,
+            EXISTS (
+                SELECT 1 FROM usuarios
+                 WHERE LOWER(cedula) = LOWER(%s)
+                   AND (%s::integer IS NULL OR id <> %s)
+            ) AS cedula
         """,
-        (usuario, correo, cedula),
+        (
+            usuario, id_excluir, id_excluir,
+            correo, id_excluir, id_excluir,
+            cedula, id_excluir, id_excluir,
+        ),
     )
     if not fila:
         return []
@@ -127,6 +148,195 @@ def cambiar_estado(id_usuario: int, activo: bool) -> bool:
         (activo, id_usuario),
     )
     return fila is not None
+
+
+def listar_usuarios() -> list[dict[str, Any]]:
+    """Lista cuentas sin incluir hashes ni contenido de imagen."""
+    return consultar_todos(
+        f"""
+        SELECT {COLUMNAS_USUARIO}
+          FROM usuarios u
+          JOIN rol r ON r.id_rol = u.id_rol
+         ORDER BY LOWER(u.apellido), LOWER(u.nombre), u.id
+        """
+    )
+
+
+def actualizar_perfil(
+    id_usuario: int,
+    *,
+    cedula: str,
+    nombre: str,
+    apellido: str,
+    usuario: str,
+    correo: str,
+) -> dict[str, Any] | None:
+    fila = ejecutar(
+        """
+        UPDATE usuarios
+           SET cedula = %s, nombre = %s, apellido = %s, usuario = %s, correo = %s
+         WHERE id = %s
+        RETURNING id
+        """,
+        (cedula, nombre, apellido, usuario, correo, id_usuario),
+    )
+    return buscar_por_id(int(fila["id"])) if fila else None
+
+
+def actualizar_usuario_admin(
+    id_usuario: int,
+    *,
+    cedula: str,
+    nombre: str,
+    apellido: str,
+    usuario: str,
+    correo: str,
+    rol: str,
+) -> str:
+    """Actualiza datos de cuenta y rol de forma atomica, protegiendo al ultimo admin."""
+    with cursor_usuarios() as cur:
+        cur.execute("SELECT pg_advisory_xact_lock(917, 5)")
+        cur.execute(
+            """
+            SELECT u.activo, LOWER(r.nombre) AS rol
+              FROM usuarios u
+              JOIN rol r ON r.id_rol = u.id_rol
+             WHERE u.id = %s
+             FOR UPDATE OF u
+            """,
+            (id_usuario,),
+        )
+        actual = cur.fetchone()
+        if actual is None:
+            return "no_encontrado"
+
+        cur.execute("SELECT id_rol FROM rol WHERE LOWER(nombre) = LOWER(%s)", (rol,))
+        destino = cur.fetchone()
+        if destino is None:
+            return "rol_invalido"
+
+        if actual["rol"] == "admin" and actual["activo"] and rol != "admin":
+            cur.execute(
+                """
+                SELECT COUNT(*) AS total
+                  FROM usuarios u
+                  JOIN rol r ON r.id_rol = u.id_rol
+                 WHERE u.activo AND LOWER(r.nombre) = 'admin'
+                """
+            )
+            if cur.fetchone()["total"] <= 1:
+                return "ultimo_admin"
+
+        cur.execute(
+            """
+            UPDATE usuarios
+               SET id_rol = %s, cedula = %s, nombre = %s, apellido = %s,
+                   usuario = %s, correo = %s
+             WHERE id = %s
+            """,
+            (destino["id_rol"], cedula, nombre, apellido, usuario, correo, id_usuario),
+        )
+    return "actualizado"
+
+
+def guardar_imagen(id_usuario: int, imagen: bytes) -> bool:
+    fila = ejecutar(
+        "UPDATE usuarios SET imagen_perfil = %s WHERE id = %s RETURNING id",
+        (psycopg2.Binary(imagen), id_usuario),
+    )
+    return fila is not None
+
+
+def obtener_imagen(id_usuario: int) -> bytes | None:
+    fila = consultar_uno(
+        "SELECT imagen_perfil FROM usuarios WHERE id = %s",
+        (id_usuario,),
+    )
+    return bytes(fila["imagen_perfil"]) if fila and fila["imagen_perfil"] else None
+
+
+def eliminar_imagen(id_usuario: int) -> bool:
+    fila = ejecutar(
+        "UPDATE usuarios SET imagen_perfil = NULL WHERE id = %s RETURNING id",
+        (id_usuario,),
+    )
+    return fila is not None
+
+
+def actualizar_rol_admin(id_usuario: int, rol: str) -> str:
+    """Cambia el rol sin permitir retirar el ultimo administrador activo."""
+    with cursor_usuarios() as cur:
+        cur.execute("SELECT pg_advisory_xact_lock(917, 5)")
+        cur.execute(
+            """
+            SELECT u.id_rol, u.activo, LOWER(r.nombre) AS rol
+              FROM usuarios u
+              JOIN rol r ON r.id_rol = u.id_rol
+             WHERE u.id = %s
+             FOR UPDATE OF u
+            """,
+            (id_usuario,),
+        )
+        actual = cur.fetchone()
+        if actual is None:
+            return "no_encontrado"
+
+        cur.execute("SELECT id_rol FROM rol WHERE LOWER(nombre) = LOWER(%s)", (rol,))
+        destino = cur.fetchone()
+        if destino is None:
+            return "rol_invalido"
+
+        if actual["rol"] == "admin" and actual["activo"] and rol != "admin":
+            cur.execute(
+                """
+                SELECT COUNT(*) AS total
+                  FROM usuarios u
+                  JOIN rol r ON r.id_rol = u.id_rol
+                 WHERE u.activo AND LOWER(r.nombre) = 'admin'
+                """
+            )
+            if cur.fetchone()["total"] <= 1:
+                return "ultimo_admin"
+
+        cur.execute(
+            "UPDATE usuarios SET id_rol = %s WHERE id = %s",
+            (destino["id_rol"], id_usuario),
+        )
+    return "actualizado"
+
+
+def actualizar_estado_admin(id_usuario: int, activo: bool) -> str:
+    """Activa/desactiva una cuenta y protege al ultimo administrador activo."""
+    with cursor_usuarios() as cur:
+        cur.execute("SELECT pg_advisory_xact_lock(917, 5)")
+        cur.execute(
+            """
+            SELECT u.activo, LOWER(r.nombre) AS rol
+              FROM usuarios u
+              JOIN rol r ON r.id_rol = u.id_rol
+             WHERE u.id = %s
+             FOR UPDATE OF u
+            """,
+            (id_usuario,),
+        )
+        actual = cur.fetchone()
+        if actual is None:
+            return "no_encontrado"
+
+        if not activo and actual["activo"] and actual["rol"] == "admin":
+            cur.execute(
+                """
+                SELECT COUNT(*) AS total
+                  FROM usuarios u
+                  JOIN rol r ON r.id_rol = u.id_rol
+                 WHERE u.activo AND LOWER(r.nombre) = 'admin'
+                """
+            )
+            if cur.fetchone()["total"] <= 1:
+                return "ultimo_admin"
+
+        cur.execute("UPDATE usuarios SET activo = %s WHERE id = %s", (activo, id_usuario))
+    return "actualizado"
 
 
 def listar_roles() -> list[dict[str, Any]]:

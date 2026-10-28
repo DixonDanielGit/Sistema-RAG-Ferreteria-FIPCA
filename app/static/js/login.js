@@ -33,23 +33,6 @@
 
       var usuarioLimpio = identificador.value.trim();
       var clave = password.value;
-      var valido = true;
-
-      Fipca.errorCampo(identificador, "");
-      Fipca.errorCampo(password, "");
-
-      if (!usuarioLimpio) {
-        Fipca.errorCampo(identificador, "Escriba su usuario o correo.");
-        valido = false;
-      }
-      if (!clave) {
-        Fipca.errorCampo(password, "Escriba su contrasena.");
-        valido = false;
-      }
-      if (!valido) {
-        (usuarioLimpio ? password : identificador).focus();
-        return;
-      }
 
       Fipca.cargando(boton, giro, true, "Entrando...");
 
@@ -59,7 +42,7 @@
           cuerpo: { identificador: usuarioLimpio, password: clave },
           noRedirigir: true,
         });
-        window.location.replace("/dashboard");
+        Fipca.navegar("/dashboard", true);
       } catch (error) {
         if (error.estado === 401) {
           Fipca.aviso(aviso, "Usuario o contrasena incorrectos.", "error");

@@ -36,9 +36,12 @@
         maxlength="2000"
         autocomplete="off"
         placeholder="¿Cuántos martillos quedan?"
+        aria-describedby="error-consulta"
       />
       <button class="btn-fipca" type="submit">Preguntar</button>
     </form>
+    <p class="fipca-campo__error" id="error-consulta" role="alert"
+       aria-live="polite" hidden></p>
 
     <div class="accion__atajos">
       <span class="accion__etiqueta">Ejemplos:</span>

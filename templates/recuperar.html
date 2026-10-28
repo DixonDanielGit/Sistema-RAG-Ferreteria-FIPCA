@@ -52,7 +52,7 @@
 
       <div class="fipca-aviso" id="aviso" role="alert" aria-live="polite" hidden></div>
 
-      <form id="form-recuperar" novalidate>
+      <form id="form-recuperar">
         <div class="fipca-campo">
           <label class="fipca-campo__etiqueta" for="correo">Correo electrónico</label>
           <input
@@ -66,9 +66,8 @@
             required
             autofocus
             placeholder="nombre@ferreteria.com"
-            aria-describedby="error-correo ayuda-correo"
+            aria-describedby="ayuda-correo"
           />
-          <p class="fipca-campo__error" id="error-correo" aria-live="polite"></p>
           <p class="fipca-campo__ayuda" id="ayuda-correo">
             Por seguridad, la respuesta es la misma exista o no el correo.
           </p>

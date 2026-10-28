@@ -48,6 +48,16 @@ class TestPaginaDeLogin:
         respuesta = navegador.get("/login")
         assert "/static/css/estilos.css" in respuesta.text
         assert "/static/js/login.js" in respuesta.text
+        assert "/static/vendor/sweetalert2.min.css" in respuesta.text
+        assert "/static/vendor/sweetalert2.all.min.js" in respuesta.text
+
+    def test_incluye_el_loader_global_en_las_vistas_publicas(self, navegador):
+        for ruta in ("/login", "/recuperar", "/restablecer"):
+            respuesta = navegador.get(ruta)
+
+            assert respuesta.status_code == 200
+            assert 'id="loader-vista"' in respuesta.text
+            assert 'role="status"' in respuesta.text
 
     def test_no_expone_ningun_token_de_sesion(self, navegador):
         respuesta = navegador.get("/login")
@@ -106,6 +116,7 @@ class TestSesionWeb:
         respuesta = navegador.get("/dashboard")
 
         assert respuesta.status_code == 200
+        assert 'id="loader-vista"' in respuesta.text
         assert "Ana" in respuesta.text
         assert cuenta["correo"] in respuesta.text
 

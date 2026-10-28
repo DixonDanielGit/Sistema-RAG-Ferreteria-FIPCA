@@ -1,5 +1,4 @@
 """Verificacion estatica del endurecimiento de Docker.
-
 No requiere Docker en ejecucion: revisa docker-compose.yml, el Dockerfile y
 .dockerignore para evitar que una configuracion insegura vuelva al repositorio.
 Cubre la infraestructura de la Semana 1 y la imagen de la API de la Adenda 1.
@@ -11,7 +10,6 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parents[2]
 COMPOSE_TEXTO = (RAIZ / "docker-compose.yml").read_text(encoding="utf-8")
 DOCKERFILE_TEXTO = (RAIZ / "Dockerfile").read_text(encoding="utf-8")
-
 
 def _bloque_servicio(nombre: str) -> str:
     """Devuelve el texto del servicio indicado dentro del compose."""

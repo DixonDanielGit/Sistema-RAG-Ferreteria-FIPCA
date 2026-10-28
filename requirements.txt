@@ -15,6 +15,7 @@ httpx
 
 # Semana 3: ingesta de catalogos
 python-multipart
+Pillow
 openpyxl
 python-docx
 pypdf

@@ -33,6 +33,7 @@
     var contador = document.getElementById("contador-chat");
     var errorChat = document.getElementById("error-chat");
     var enviando = false;
+    var preguntaInteractuada = false;
 
     function alFinal() {
       var zona = document.getElementById("hilo");
@@ -47,9 +48,24 @@
     function actualizarEstado() {
       var largo = entrada.value.length;
       contador.textContent = largo + " / " + LIMITE;
-      boton.disabled = enviando || entrada.value.trim().length === 0;
+      var valida = validarPregunta(preguntaInteractuada);
+      boton.disabled = enviando || !valida;
       contador.style.color =
         largo > LIMITE * 0.9 ? "var(--ciruela-texto)" : "var(--texto-suave)";
+    }
+
+    function validarPregunta(mostrarVacio) {
+      var valor = entrada.value;
+      var mensaje = "";
+      if (!valor.trim()) {
+        if (mostrarVacio) mensaje = "Escriba una pregunta antes de enviarla.";
+      } else if (valor.length > LIMITE) {
+        mensaje = "La pregunta no puede superar los " + LIMITE + " caracteres.";
+      } else if (valor.includes("\0")) {
+        mensaje = "La pregunta contiene caracteres no permitidos.";
+      }
+      Fipca.errorCampo(entrada, mensaje);
+      return !mensaje && Boolean(valor.trim());
     }
 
     function burbuja(rol, texto) {
@@ -149,6 +165,8 @@
       burbuja("usuario", texto);
 
       entrada.value = "";
+      preguntaInteractuada = false;
+      Fipca.errorCampo(entrada, "");
       ajustarAltura();
       actualizarEstado();
 
@@ -187,15 +205,16 @@
     formulario.addEventListener("submit", function (evento) {
       evento.preventDefault();
       var texto = entrada.value.trim();
-      if (!texto) return;
-      if (texto.length > LIMITE) {
-        Fipca.aviso(errorChat, "La pregunta supera los " + LIMITE + " caracteres.", "error");
+      preguntaInteractuada = true;
+      if (!validarPregunta(true)) {
+        entrada.focus();
         return;
       }
       preguntar(texto);
     });
 
     entrada.addEventListener("input", function () {
+      preguntaInteractuada = true;
       ajustarAltura();
       actualizarEstado();
     });

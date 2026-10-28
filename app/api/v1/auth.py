@@ -16,8 +16,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
 from psycopg2 import Error as ErrorPostgres
+from psycopg2.errors import UniqueViolation
+from starlette.responses import Response as StarletteResponse
 
 from app.api.deps import puede_registrar, requiere_admin, usuario_actual
 from app.core import sesion
@@ -30,17 +32,22 @@ from app.core.security import (
     verify_password,
 )
 from app.models import usuario as usuario_model
+from app.db.session import BaseDeDatosNoDisponible, consultar_uno
 from app.schemas.usuario_schema import (
+    EstadoCuentaActualizar,
     LoginRequest,
     MensajeRespuesta,
+    PerfilActualizar,
     RecuperarPasswordRequest,
     RestablecerPasswordRequest,
+    RolActualizar,
     RolSalida,
     TokenRespuesta,
+    UsuarioAdminActualizar,
     UsuarioRegistro,
     UsuarioSalida,
 )
-from app.services import recuperacion_service
+from app.services import etl_service, perfil_service, recuperacion_service
 
 logger = logging.getLogger("ferreteria.auth")
 
@@ -171,15 +178,21 @@ def register(
             detail="El rol indicado no existe",
         )
 
-    creado = usuario_model.crear(
-        id_rol=id_rol,
-        cedula=datos.cedula,
-        nombre=datos.nombre,
-        apellido=datos.apellido,
-        usuario=datos.usuario,
-        password_hash=hash_password(datos.password),
-        correo=datos.correo,
-    )
+    try:
+        creado = usuario_model.crear(
+            id_rol=id_rol,
+            cedula=datos.cedula,
+            nombre=datos.nombre,
+            apellido=datos.apellido,
+            usuario=datos.usuario,
+            password_hash=hash_password(datos.password),
+            correo=datos.correo,
+        )
+    except UniqueViolation as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Usuario, correo o cedula ya registrados",
+        ) from exc
 
     registrar_evento(
         request,
@@ -197,6 +210,303 @@ def register(
 )
 def me(usuario: dict[str, Any] = Depends(usuario_actual)) -> UsuarioSalida:
     return UsuarioSalida(**usuario)
+
+
+@router.get(
+    "/usuarios",
+    response_model=list[UsuarioSalida],
+    summary="Listar usuarios (administrador)",
+)
+def listar_usuarios(
+    usuario: dict[str, Any] = Depends(requiere_admin),
+) -> list[UsuarioSalida]:
+    return [UsuarioSalida(**fila) for fila in usuario_model.listar_usuarios()]
+
+
+@router.put(
+    "/usuarios/{id_usuario}",
+    response_model=UsuarioSalida,
+    summary="Actualizar datos y rol de una cuenta (administrador)",
+    responses={
+        403: {"description": "Requiere rol administrador"},
+        409: {"description": "Datos duplicados o ultimo administrador activo"},
+    },
+)
+def actualizar_usuario_admin(
+    id_usuario: int,
+    datos: UsuarioAdminActualizar,
+    request: Request,
+    administrador: dict[str, Any] = Depends(requiere_admin),
+) -> UsuarioSalida:
+    duplicados = usuario_model.conflictos(
+        datos.usuario,
+        datos.correo,
+        datos.cedula,
+        id_excluir=id_usuario,
+    )
+    if duplicados:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Ya existe otra cuenta con ese {', '.join(duplicados)}",
+        )
+
+    try:
+        resultado = usuario_model.actualizar_usuario_admin(
+            id_usuario,
+            cedula=datos.cedula,
+            nombre=datos.nombre,
+            apellido=datos.apellido,
+            usuario=datos.usuario,
+            correo=datos.correo,
+            rol=datos.rol,
+        )
+    except UniqueViolation as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Usuario, correo o cedula ya registrados",
+        ) from exc
+
+    if resultado == "no_encontrado":
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if resultado == "rol_invalido":
+        raise HTTPException(status_code=400, detail="El rol indicado no existe")
+    if resultado == "ultimo_admin":
+        raise HTTPException(
+            status_code=409,
+            detail="No se puede retirar el rol al ultimo administrador activo",
+        )
+
+    actualizado = usuario_model.buscar_por_id(id_usuario)
+    if actualizado is None:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    registrar_evento(
+        request,
+        f"datos y rol de usuario {id_usuario} actualizados por administrador",
+        id_usuario=administrador["id"],
+    )
+    return UsuarioSalida(**actualizado)
+
+
+@router.delete(
+    "/usuarios/{id_usuario}",
+    response_model=MensajeRespuesta,
+    status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+    summary="No se permiten eliminaciones fisicas de cuentas",
+    responses={403: {"description": "Requiere rol administrador"}},
+)
+def eliminar_usuario_no_permitido(
+    id_usuario: int,
+    request: Request,
+    administrador: dict[str, Any] = Depends(requiere_admin),
+) -> MensajeRespuesta:
+    """Mantiene la regla de negocio: las cuentas se desactivan, no se borran."""
+    registrar_evento(
+        request,
+        f"se intento eliminar la cuenta {id_usuario} mediante DELETE",
+        id_usuario=administrador["id"],
+    )
+    raise HTTPException(
+        status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+        detail="Las cuentas no se eliminan fisicamente; desactivalas en su lugar",
+    )
+
+
+@router.patch(
+    "/usuarios/{id_usuario}/rol",
+    response_model=UsuarioSalida,
+    summary="Cambiar el rol de una cuenta",
+    responses={403: {"description": "Requiere rol administrador"}, 409: {"description": "Ultimo administrador activo"}},
+)
+def cambiar_rol(
+    id_usuario: int,
+    datos: RolActualizar,
+    request: Request,
+    administrador: dict[str, Any] = Depends(requiere_admin),
+) -> UsuarioSalida:
+    resultado = usuario_model.actualizar_rol_admin(id_usuario, datos.rol)
+    if resultado == "no_encontrado":
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if resultado == "rol_invalido":
+        raise HTTPException(status_code=400, detail="El rol indicado no existe")
+    if resultado == "ultimo_admin":
+        raise HTTPException(
+            status_code=409,
+            detail="No se puede retirar el rol al ultimo administrador activo",
+        )
+
+    actualizado = usuario_model.buscar_por_id(id_usuario)
+    if actualizado is None:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    registrar_evento(
+        request,
+        f"rol de usuario {id_usuario} actualizado a {datos.rol}",
+        id_usuario=administrador["id"],
+    )
+    return UsuarioSalida(**actualizado)
+
+
+@router.patch(
+    "/usuarios/{id_usuario}/estado",
+    response_model=UsuarioSalida,
+    summary="Activar o desactivar una cuenta",
+    responses={403: {"description": "Requiere rol administrador"}, 409: {"description": "Ultimo administrador activo"}},
+)
+def cambiar_estado_usuario(
+    id_usuario: int,
+    datos: EstadoCuentaActualizar,
+    request: Request,
+    administrador: dict[str, Any] = Depends(requiere_admin),
+) -> UsuarioSalida:
+    resultado = usuario_model.actualizar_estado_admin(id_usuario, datos.activo)
+    if resultado == "no_encontrado":
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if resultado == "ultimo_admin":
+        raise HTTPException(
+            status_code=409,
+            detail="No se puede desactivar al ultimo administrador activo",
+        )
+
+    actualizado = usuario_model.buscar_por_id(id_usuario)
+    if actualizado is None:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    registrar_evento(
+        request,
+        f"usuario {id_usuario} {'activado' if datos.activo else 'desactivado'}",
+        id_usuario=administrador["id"],
+    )
+    return UsuarioSalida(**actualizado)
+
+
+@router.put(
+    "/me",
+    response_model=UsuarioSalida,
+    summary="Actualizar el perfil de la cuenta autenticada",
+    responses={409: {"description": "Usuario, correo o cedula ya registrados"}},
+)
+def actualizar_perfil(
+    datos: PerfilActualizar,
+    request: Request,
+    usuario: dict[str, Any] = Depends(usuario_actual),
+) -> UsuarioSalida:
+    duplicados = usuario_model.conflictos(
+        datos.usuario,
+        datos.correo,
+        datos.cedula,
+        id_excluir=usuario["id"],
+    )
+    if duplicados:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Ya existe otra cuenta con ese {', '.join(duplicados)}",
+        )
+
+    try:
+        actualizado = usuario_model.actualizar_perfil(
+            usuario["id"],
+            cedula=datos.cedula,
+            nombre=datos.nombre,
+            apellido=datos.apellido,
+            usuario=datos.usuario,
+            correo=datos.correo,
+        )
+    except UniqueViolation as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Usuario, correo o cedula ya registrados",
+        ) from exc
+
+    if actualizado is None:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    registrar_evento(request, f"perfil actualizado ({usuario['id']})", id_usuario=usuario["id"])
+    return UsuarioSalida(**actualizado)
+
+
+@router.get("/me/imagen", summary="Obtener la imagen de perfil")
+def obtener_imagen_perfil(
+    usuario: dict[str, Any] = Depends(usuario_actual),
+) -> StarletteResponse:
+    imagen = usuario_model.obtener_imagen(usuario["id"])
+    if imagen is None:
+        raise HTTPException(status_code=404, detail="El perfil no tiene una imagen")
+    return StarletteResponse(
+        content=imagen,
+        media_type="image/webp",
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@router.post(
+    "/me/imagen",
+    response_model=MensajeRespuesta,
+    summary="Actualizar la imagen de perfil",
+)
+async def actualizar_imagen_perfil(
+    request: Request,
+    archivo: UploadFile = File(...),
+    usuario: dict[str, Any] = Depends(usuario_actual),
+) -> MensajeRespuesta:
+    try:
+        contenido = await archivo.read(perfil_service.MAX_IMAGEN_PERFIL_BYTES + 1)
+    finally:
+        await archivo.close()
+
+    if len(contenido) > perfil_service.MAX_IMAGEN_PERFIL_BYTES:
+        raise HTTPException(status_code=413, detail="La imagen supera el limite de 2 MB")
+
+    try:
+        imagen = perfil_service.normalizar_imagen_perfil(contenido)
+    except perfil_service.ImagenPerfilInvalida as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if not usuario_model.guardar_imagen(usuario["id"], imagen):
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    registrar_evento(request, f"imagen de perfil actualizada ({usuario['id']})", id_usuario=usuario["id"])
+    return MensajeRespuesta(mensaje="Imagen de perfil actualizada")
+
+
+@router.delete(
+    "/me/imagen",
+    response_model=MensajeRespuesta,
+    summary="Eliminar la imagen de perfil",
+)
+def eliminar_imagen_perfil(
+    request: Request,
+    usuario: dict[str, Any] = Depends(usuario_actual),
+) -> MensajeRespuesta:
+    if not usuario_model.eliminar_imagen(usuario["id"]):
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    registrar_evento(request, f"imagen de perfil eliminada ({usuario['id']})", id_usuario=usuario["id"])
+    return MensajeRespuesta(mensaje="Imagen de perfil eliminada")
+
+
+@router.get(
+    "/configuracion/admin",
+    summary="Consultar estado de servicios y limites (administrador)",
+)
+def configuracion_admin(
+    usuario: dict[str, Any] = Depends(requiere_admin),
+) -> dict[str, Any]:
+    estados: dict[str, str] = {}
+    for nombre, es_rag in (("ferreteria_rag", True), ("ferreteria_usuarios", False)):
+        try:
+            consultar_uno("SELECT 1 AS ok", rag=es_rag)
+            estados[nombre] = "operativa"
+        except (BaseDeDatosNoDisponible, ErrorPostgres) as exc:
+            logger.warning("Estado no disponible para %s: %s", nombre, exc)
+            estados[nombre] = "no disponible"
+
+    return {
+        "bases": estados,
+        "ingesta": {
+            "formatos": sorted(etl_service.EXTENSIONES_PERMITIDAS),
+            "max_archivo_mb": etl_service.MAX_ARCHIVO_MB,
+            "max_archivos": etl_service.MAX_ARCHIVOS_INGESTA,
+            "max_filas_archivo": etl_service.MAX_FILAS_ARCHIVO,
+            "max_paginas_pdf": etl_service.MAX_PAGINAS_PDF,
+        },
+        "imagen_perfil_max_mb": perfil_service.MAX_IMAGEN_PERFIL_BYTES // (1024 * 1024),
+    }
 
 
 @router.post(

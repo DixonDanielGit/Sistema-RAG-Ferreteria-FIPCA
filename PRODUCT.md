@@ -61,10 +61,19 @@ roles, recuperación de contraseña por enlace de un solo uso, auditoría inmuta
 en `bitacora`, y una vista de asistente que funciona de punta a punta con un
 motor provisional (el RAG real llega en la Semana 5 del cronograma).
 
+La administración de cuentas corresponde al rol administrador; cada persona
+puede mantener su perfil y fotografía. Las cuentas se desactivan, no se borran,
+para conservar la atribución de acciones y la auditoría. La configuración
+muestra versión y vigencia de sesión; el diagnóstico técnico queda reservado a
+administración.
+
 Restricciones durables:
 
 - Dos bases PostgreSQL separadas: catálogo (`ferreteria_rag`) y usuarios
   (`ferreteria_usuarios`).
+- La fotografía de perfil se conserva en `ferreteria_usuarios`, con carga
+  limitada a JPEG, PNG o WebP de hasta 2 MB y un avatar local cuando no existe
+  imagen.
 - IVA fijo en 16 % con restricción en la base; no se edita desde la interfaz.
 - El stock mínimo es un umbral global: el cliente eliminó la columna por
   redundante.
@@ -82,9 +91,9 @@ stock mínimo por categoría y proveedor de correo definitivo.
 
 - Nombre comercial: **FERRE-INVERSIONES PEREZ C.A.**, marca **FIPCA**, RIF
   J-29775553-5.
-- El identificativo del cliente (`paleta.jpg`) es la referencia de color
-  vinculante: azul profundo con un rayo magenta y el logotipo en dorado crema.
-  El cliente pidió expresamente guiarse por esa paleta, en modo claro y oscuro.
+- La referencia de color vigente es
+  `paleta_de_colores_y_gu_a_de_dise_o.md`: azul noche/cobalto, cian y violeta.
+  La interfaz conserva la paleta en modo claro y oscuro.
 - El logotipo en uso es una vectorización de los tres hexágonos del
   identificativo; no es el archivo original del cliente y debe reemplazarse
   cuando lo entregue en vector.
@@ -94,7 +103,8 @@ stock mínimo por categoría y proveedor de correo definitivo.
 
 - Requisitos funcionales y no funcionales del cliente en `prompts/`.
 - Esquema real de la base en `init.sql`, con datos semilla de roles.
-- Identificativo fotografiado en `paleta.jpg` (referencia de color y forma).
+- Guía de color `paleta_de_colores_y_gu_a_de_dise_o.md` y fotografía de marca
+  `nueva_paleta_de_colores.jpeg` (referencia de color y forma).
 - Diagrama entidad-relación del cliente en `MER sistema.png`.
 - Ausencias que no se deben rellenar con invención: **no hay catálogo real de
   productos todavía**, ni precios, ni testimonios, ni métricas de uso. Cualquier

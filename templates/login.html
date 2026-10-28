@@ -17,7 +17,6 @@
         registrado.
       </p>
       <ul class="acceso__lista">
-        <li>Control de stock</li>
         <li>Asistente con IA</li>
         <li>Auditoría inmutable</li>
       </ul>
@@ -53,7 +52,7 @@
 
       <div class="fipca-aviso" id="aviso" role="alert" aria-live="polite" hidden></div>
 
-      <form id="form-login" novalidate autocomplete="on">
+      <form id="form-login" autocomplete="on">
         <div class="fipca-campo">
           <label class="fipca-campo__etiqueta" for="identificador">Usuario o correo</label>
           <input
@@ -66,9 +65,7 @@
             maxlength="255"
             required
             autofocus
-            aria-describedby="error-identificador"
           />
-          <p class="fipca-campo__error" id="error-identificador" aria-live="polite"></p>
         </div>
 
         <div class="fipca-campo">
@@ -82,7 +79,6 @@
               autocomplete="current-password"
               maxlength="128"
               required
-              aria-describedby="error-password"
             />
             <button class="fipca-campo__ver" type="button" data-ver-password
                     aria-label="Mostrar contraseña" aria-pressed="false">
@@ -93,7 +89,6 @@
               </svg>
             </button>
           </div>
-          <p class="fipca-campo__error" id="error-password" aria-live="polite"></p>
         </div>
 
         <div class="acceso__acciones">

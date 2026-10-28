@@ -11,12 +11,21 @@
     var panelListo = document.getElementById("panel-listo");
     var campoToken = document.getElementById("token");
     var password = document.getElementById("password");
-    var confirmacion = document.getElementById("confirmacion");
     var boton = document.getElementById("btn-guardar");
     var giro = document.getElementById("giro-restablecer");
 
     var token = (campoToken.value || "").trim();
-    if (!/^[A-Za-z0-9_-]{16,200}$/.test(token)) {
+    var tokenValido = token.length >= 16 && token.length <= 200;
+    for (var indice = 0; tokenValido && indice < token.length; indice += 1) {
+      var caracter = token.charCodeAt(indice);
+      tokenValido =
+        (caracter >= 48 && caracter <= 57) ||
+        (caracter >= 65 && caracter <= 90) ||
+        (caracter >= 97 && caracter <= 122) ||
+        caracter === 45 ||
+        caracter === 95;
+    }
+    if (!tokenValido) {
       panelSinToken.hidden = false;
       return;
     }
@@ -25,30 +34,7 @@
     formulario.addEventListener("submit", async function (evento) {
       evento.preventDefault();
       Fipca.aviso(aviso, "");
-      Fipca.errorCampo(password, "");
-      Fipca.errorCampo(confirmacion, "");
-
       var clave = password.value;
-      var repetida = confirmacion.value;
-      var valido = true;
-
-      if (clave.length < 8) {
-        Fipca.errorCampo(password, "Use al menos 8 caracteres.");
-        valido = false;
-      } else if (!/[A-Za-z]/.test(clave) || !/\d/.test(clave)) {
-        Fipca.errorCampo(password, "Combine letras y numeros.");
-        valido = false;
-      }
-
-      if (repetida !== clave) {
-        Fipca.errorCampo(confirmacion, "Las contrasenas no coinciden.");
-        valido = false;
-      }
-
-      if (!valido) {
-        (clave.length < 8 ? password : confirmacion).focus();
-        return;
-      }
 
       Fipca.cargando(boton, giro, true, "Guardando...");
       try {

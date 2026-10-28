@@ -7,6 +7,8 @@ sobre el catálogo real de productos.
 - **Backend:** Python 3.11+ / FastAPI / Uvicorn / Pydantic
 - **Base de datos:** PostgreSQL 16 + `pgvector`
 - **Frontend:** Jinja2 + Bootstrap 5 + JavaScript vanilla (fetch/AJAX)
+- **Interfaz:** SweetAlert2 global y DataTables Responsive en tablas; recursos
+  locales en `app/static/vendor/` sin dependencia de CDN
 - **IA:** embeddings locales (Semana 4) + modelo generativo (Semana 5)
 - **Infraestructura:** Docker + Docker Compose
 
@@ -14,6 +16,12 @@ sobre el catálogo real de productos.
 > para piloto** — incluye embeddings locales y búsqueda vectorial. Falta validar
 > relevancia y latencia con una muestra del catálogo de desarrollo. El chat sigue
 > provisional hasta la integración RAG de Semana 5.
+
+Las versiones fuente de las dependencias JavaScript se fijan en `package.json`.
+Los archivos de distribución y sus licencias están incluidos en
+`app/static/vendor/`, por lo que ejecutar la interfaz no requiere Node.js ni
+conexión a un CDN. Se incluyen jQuery 3.7.1, DataTables 2.3.4, Responsive
+3.0.7 y SweetAlert2 11.26.25.
 
 ## Requisitos
 
@@ -183,6 +191,13 @@ iniciar sesión y `-b cookies.txt` en las llamadas siguientes.
 | POST | `/api/v1/auth/login` | público | Valida credenciales y entrega JWT + cookies |
 | POST | `/api/v1/auth/register` | admin (o público si no hay cuentas) | Alta de usuarios |
 | GET | `/api/v1/auth/me` | autenticado | Datos de la cuenta actual |
+| PUT | `/api/v1/auth/me` | autenticado | Actualiza nombre, apellido, usuario, correo y cédula propios |
+| GET | `/api/v1/auth/me/imagen` | autenticado | Obtiene la imagen de perfil propia |
+| POST / DELETE | `/api/v1/auth/me/imagen` | autenticado | Guarda o quita la imagen propia |
+| GET | `/api/v1/auth/usuarios` | admin | Lista cuentas sin hashes ni imágenes |
+| PATCH | `/api/v1/auth/usuarios/{id}/rol` | admin | Cambia el rol de una cuenta |
+| PATCH | `/api/v1/auth/usuarios/{id}/estado` | admin | Activa o desactiva una cuenta |
+| GET | `/api/v1/auth/configuracion/admin` | admin | Consulta estado de bases y límites técnicos |
 | POST | `/api/v1/auth/logout` | autenticado | Registra el cierre y borra la cookie |
 | GET | `/api/v1/auth/roles` | admin | Catálogo de roles |
 | POST | `/api/v1/auth/recuperar` | público | Envía (o registra) el enlace de recuperación |
@@ -201,6 +216,11 @@ Reglas de autenticación:
 - El token incluye el rol; cada ruta decide el permiso (`admin` / `ventas`).
 - La cuenta se relee de la base en cada petición: desactivar un usuario
   invalida sus tokens de inmediato.
+- Las pantallas `/usuarios`, `/perfil` y `/configuracion` están disponibles
+  según el rol. Las cuentas se desactivan en vez de borrarse; el último
+  administrador activo no puede desactivarse ni perder su rol.
+- La foto de perfil se almacena como WebP normalizado en `BYTEA`; se reciben
+  JPEG, PNG o WebP de hasta 2 MB. Sin foto se muestra el avatar local.
 - El asistente responde hoy con un aviso de motor provisional; el contrato
   (`respuesta`, `fuentes`, `aviso`, `modelo`) no cambia cuando llegue el RAG.
 
@@ -242,7 +262,7 @@ El esquema se define en `init.sql` y crea dos bases:
 | Base | Tablas | Uso |
 |---|---|---|
 | `ferreteria_rag` | `archivos_subidos`, `proveedores`, `categoria`, `productos` | Catálogo e insumos del motor RAG (incluye `descripcion_vectorial vector(384)` e índice HNSW) |
-| `ferreteria_usuarios` | `rol`, `usuarios`, `bitacora` | Autenticación, roles y auditoría inmutable |
+| `ferreteria_usuarios` | `rol`, `usuarios`, `bitacora` | Autenticación, perfiles con imagen y auditoría inmutable |
 | `ferreteria` | — | Base de mantenimiento (la usa pgAdmin para conectarse) |
 
 ### Dos roles de base de datos
@@ -276,7 +296,12 @@ embeddings previos, aborta sin convertirlos:
 venv\Scripts\python.exe scripts\aplicar_migracion.py 2_5
 venv\Scripts\python.exe scripts\aplicar_migracion.py 3_0
 venv\Scripts\python.exe scripts\aplicar_migracion.py 4_0
+venv\Scripts\python.exe scripts\aplicar_migracion.py 5_0
 ```
+
+La migración `5_0` agrega la imagen de perfil y protege la unicidad sin
+distinguir mayúsculas; se ejecuta en `ferreteria_usuarios` y conserva los datos.
+Debe aplicarse antes de desplegar una versión que use las vistas de cuenta.
 
 ### Piloto local de embeddings (Semana 4)
 
@@ -344,7 +369,8 @@ del objetivo de 4,25 s.
 Las pruebas de integración **no tocan las bases de desarrollo**: al iniciar la
 sesión clonan `ferreteria_rag` y `ferreteria_usuarios` como
 `ferreteria_rag_test` y `ferreteria_usuarios_test`, y las eliminan al terminar.
-La copia de prueba recibe las migraciones ETL y vectorial automáticamente; la
+La copia de prueba recibe automáticamente las migraciones ETL, vectorial y de
+perfil de usuario; la
 base de desarrollo no se altera. Si PostgreSQL no responde, esas pruebas se
 omiten en lugar de fallar.
 
