@@ -8,7 +8,7 @@ from typing import Any, Iterable
 
 from psycopg2.extras import execute_values
 
-from app.db.session import consultar_todos, cursor_rag, ejecutar
+from app.db.session import consultar_todos, consultar_uno, cursor_rag, ejecutar
 
 
 def _serializar_vector(vector: list[float]) -> str:
@@ -70,6 +70,61 @@ def actualizar_estado_archivo(
         (estado, filas_ok, filas_error, detalle, estado, id_archivo),
         rag=True,
     )
+
+
+def obtener_archivo(id_archivo: int) -> dict[str, Any] | None:
+    """Devuelve los datos de un archivo subido, sin exponer su ruta interna."""
+    return consultar_uno(
+        """
+        SELECT id_archivo, nombre, tipo, fecha_de_subida, tamano_bytes,
+               estado, filas_ok, filas_error, detalle
+          FROM archivos_subidos
+         WHERE id_archivo = %s
+        """,
+        (id_archivo,),
+        rag=True,
+    )
+
+
+def eliminar_catalogo(id_archivo: int) -> dict[str, Any] | None:
+    """Elimina un catalogo y todos sus productos en una sola transaccion.
+
+    Solicitud del cliente: un catalogo puede quitarse incluso si ya fue
+    procesado; el asistente deja de contar con los productos que provienen
+    de el. Los productos se borran primero (la llave foranea aparte es
+    ``ON DELETE SET NULL``, que dejaria huerfanos) y, si todo sale bien, se
+    confirma el borrado del registro del archivo. Devuelve ``None`` cuando
+    el archivo no existe.
+    """
+    with cursor_rag() as cursor:
+        cursor.execute(
+            """
+            SELECT nombre, ruta
+              FROM archivos_subidos
+             WHERE id_archivo = %s
+               FOR UPDATE
+            """,
+            (id_archivo,),
+        )
+        fila = cursor.fetchone()
+        if fila is None:
+            return None
+
+        cursor.execute(
+            "DELETE FROM productos WHERE id_archivo = %s",
+            (id_archivo,),
+        )
+        productos_eliminados = cursor.rowcount
+        cursor.execute(
+            "DELETE FROM archivos_subidos WHERE id_archivo = %s",
+            (id_archivo,),
+        )
+        return {
+            "id_archivo": id_archivo,
+            "nombre": fila["nombre"],
+            "ruta_original": fila["ruta"],
+            "productos_eliminados": productos_eliminados,
+        }
 
 
 def insertar_o_actualizar_productos(

@@ -65,6 +65,23 @@
     </div>
   </section>
   {% endif %}
+
+  <section class="cuenta-seccion" aria-labelledby="desarrollador-titulo">
+    <div class="cuenta-seccion__cabecera">
+      <h2 id="desarrollador-titulo">Desarrollador</h2>
+      <p>Información de contacto y repositorio del proyecto.</p>
+    </div>
+    <dl class="configuracion-datos">
+      <div>
+        <dt>Nombre del desarrollador</dt>
+        <dd>{{ desarrollador }}</dd>
+      </div>
+      <div>
+        <dt>Cuenta de GitHub</dt>
+        <dd>{{ desarrollador_github }}</dd>
+      </div>
+    </dl>
+  </section>
 </div>
 {% endblock %}
 

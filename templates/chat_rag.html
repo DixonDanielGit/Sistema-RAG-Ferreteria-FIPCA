@@ -31,13 +31,13 @@
       <input class="visually-hidden" type="file" id="archivos" multiple
              accept=".pdf,.xlsx,.docx,.txt" tabindex="-1" />
 
-      <button class="fuentes__agregar" type="button" id="boton-archivos">
+      {# <button class="fuentes__agregar" type="button" id="boton-archivos">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
              stroke-linecap="round" aria-hidden="true">
           <path d="M12 5v14M5 12h14" />
         </svg>
         Agregar archivo
-      </button>
+      </button> #}
 
       <button class="fuentes__zona" type="button" id="zona-archivos">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
@@ -45,19 +45,32 @@
           <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5" />
           <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" />
         </svg>
-        <strong>Arrastre sus archivos aquí</strong>
+        <strong>Agregue sus archivos aquí</strong>
         <span>PDF, XLSX, DOCX o TXT</span>
         <span>Hasta 20 archivos de 20 MB</span>
       </button>
 
-      <button class="fuentes__agregar" type="button" id="procesar-archivos" disabled>
-        Procesar catálogo
-      </button>
+      <p class="fuentes__estado" id="estado-fuentes" role="status" hidden>
+        <span class="fuentes__cargando" aria-hidden="true"></span>
+        <span id="texto-estado-fuentes"></span>
+      </p>
 
       <p class="fuentes__error" id="error-fuentes" role="alert" aria-live="polite"></p>
       {% endif %}
 
-      <ul class="fuentes__lista" id="lista-fuentes" aria-live="polite">
+      <div class="fuentes__busqueda" id="busqueda-fuentes" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+             stroke-linecap="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.8-3.8" />
+        </svg>
+        <label class="visually-hidden" for="buscar-fuentes">Buscar catálogos</label>
+        <input class="fuentes__buscador" type="search" id="buscar-fuentes"
+               placeholder="Buscar catálogo…" autocomplete="off" />
+      </div>
+
+      <ul class="fuentes__lista" id="lista-fuentes" aria-live="polite"
+          data-puede-eliminar="{{ '1' if es_admin else '' }}">
         <li class="fuentes__vacio" id="fuentes-vacio">
           <strong>Sin archivos todavía</strong>
           {% if es_admin %}
@@ -66,12 +79,18 @@
           Un administrador todavía no ha cargado el catálogo.
           {% endif %}
         </li>
+        <li class="fuentes__vacio" id="fuentes-sin-coincidencias" hidden>
+          <strong>Sin coincidencias</strong>
+          Ningún archivo coincide con la búsqueda.
+        </li>
       </ul>
     </div>
 
     <p class="fuentes__nota">
-      Los catálogos se validan individualmente. Los archivos que no cumplan el
-      formato requerido se reportan sin detener el resto del lote.
+      Los catálogos se suben y procesan automáticamente al elegirlos. 
+      Esto puede tardar unos segundos o minutos según el tamaño del archivo.
+      Mientras termina la carga no se pueden agregar más archivos,
+      para no saturar el sistema.
     </p>
   </aside>
 

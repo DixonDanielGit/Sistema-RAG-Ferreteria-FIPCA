@@ -141,13 +141,20 @@
     };
 
     if (opciones.cuerpo !== undefined) {
-      cabeceras["X-CSRF-Token"] = Fipca.csrf();
       if (opciones.cuerpo instanceof FormData) {
         configuracion.body = opciones.cuerpo;
       } else {
         cabeceras["Content-Type"] = "application/json";
         configuracion.body = JSON.stringify(opciones.cuerpo);
       }
+    }
+
+    /* El servidor exige CSRF en todo metodo que cambia estado, con o sin
+       cuerpo: los DELETE sin cuerpo tambien necesitan la cabecera. */
+    var metodosSeguros = { GET: true, HEAD: true, OPTIONS: true, TRACE: true };
+    var metodo = (opciones.metodo || "GET").toUpperCase();
+    if (!metodosSeguros[metodo]) {
+      cabeceras["X-CSRF-Token"] = Fipca.csrf();
     }
 
     var respuesta;

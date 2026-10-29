@@ -26,6 +26,15 @@ class ArchivoIngesta(BaseModel):
     detalle: str | None = None
 
 
+class RespuestaEliminacionArchivo(BaseModel):
+    """Resultado de retirar un catalogo y sus datos asociados."""
+
+    id_archivo: int
+    nombre: str
+    productos_eliminados: int = Field(ge=0)
+    archivo_original_eliminado: bool
+
+
 class RespuestaIngesta(BaseModel):
     """Resumen de un lote de archivos de catalogo."""
 

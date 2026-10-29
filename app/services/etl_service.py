@@ -639,3 +639,60 @@ def procesar_archivo(nombre: str, contenido: bytes, id_usuario: int) -> dict[str
         detalle=_detalle(errores),
     )
     return dict(resultado)
+
+
+def _eliminar_archivo_original(ruta_relativa: str | None) -> bool:
+    """Quita el original del disco; el nombre nunca proviene del cliente.
+
+    La ruta guardada en la base es un nombre generado con UUID. Se resuelve
+    y se exige que siga siendo hijo directo de ``UPLOADS_DIR`` antes de
+    borrar; cualquier otra ruta se ignora.
+    """
+    if not ruta_relativa or not ruta_relativa.strip():
+        return False
+
+    directorio = get_settings().uploads_dir.resolve()
+    estaticos = (Path(__file__).resolve().parents[1] / "static").resolve()
+    if directorio == estaticos or estaticos in directorio.parents:
+        raise RuntimeError("UPLOADS_DIR no puede estar dentro del directorio de estaticos")
+
+    try:
+        ruta = (directorio / ruta_relativa).resolve()
+    except (OSError, ValueError):
+        logger.warning("Ruta de original invalida: %r", ruta_relativa[:255])
+        return False
+    if ruta.parent != directorio:
+        logger.warning(
+            "Ruta de original fuera de %s; no se elimina: %r",
+            directorio,
+            ruta_relativa[:255],
+        )
+        return False
+
+    try:
+        ruta.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("No se pudo eliminar el original %s: %s", ruta.name, exc)
+        return False
+    return True
+
+
+def eliminar_catalogo_completo(id_archivo: int) -> dict[str, Any] | None:
+    """Retira un catalogo del sistema, haya sido procesado o no.
+
+    Elimina en una transaccion los productos cargados por ese archivo y su
+    registro en ``archivos_subidos``; despues borra el original del disco.
+    Devuelve ``None`` cuando el catalogo no existe.
+    """
+    resultado_base = inventario_model.eliminar_catalogo(id_archivo)
+    if resultado_base is None:
+        return None
+
+    ruta_original = resultado_base.pop("ruta_original")
+    return {
+        "id_archivo": resultado_base["id_archivo"],
+        "nombre": resultado_base["nombre"],
+        "productos_eliminados": resultado_base["productos_eliminados"],
+        "archivo_original_eliminado": _eliminar_archivo_original(ruta_original),
+    }
+

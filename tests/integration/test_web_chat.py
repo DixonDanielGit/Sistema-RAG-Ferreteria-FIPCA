@@ -79,11 +79,32 @@ class TestPanelDeFuentes:
         html = navegador.get("/chat").text
 
         assert 'id="panel-fuentes"' in html
-        assert "Agregar archivo" in html
+        assert "Agregue sus archivos aquí" in html
         assert 'id="archivos"' in html
         assert 'accept=".pdf,.xlsx,.docx,.txt"' in html
-        assert "Arrastre sus archivos aquí" in html
-        assert 'id="procesar-archivos"' in html
+        assert "PDF, XLSX, DOCX o TXT" in html
+
+    def test_la_carga_es_automatica_sin_boton_de_procesar(self, navegador, sesion):
+        """La subida arranca sola al elegir archivos: no existe el boton
+        "Procesar catalogo" y hay linea de estado con la cola de carga."""
+        html = navegador.get("/chat").text
+
+        assert "Procesar catálogo" not in html
+        assert 'id="procesar-archivos"' not in html
+        assert 'id="estado-fuentes"' in html
+        assert 'id="texto-estado-fuentes"' in html
+
+    def test_fuentes_tiene_buscador_de_catalogos(self, navegador, sesion):
+        """La seccion de documentos incluye un campo de busqueda con su
+        aviso de "sin coincidencias" para cuando el filtro no encuentre nada."""
+        html = navegador.get("/chat").text
+
+        assert 'id="busqueda-fuentes"' in html
+        assert 'id="buscar-fuentes"' in html
+        assert 'type="search"' in html
+        assert "Buscar catálogo…" in html
+        assert 'id="fuentes-sin-coincidencias"' in html
+        assert "Ningún archivo coincide con la búsqueda." in html
 
     def test_carga_el_script_del_panel(self, navegador, sesion):
         assert "/static/js/fuentes.js" in navegador.get("/chat").text
@@ -96,7 +117,10 @@ class TestPanelDeFuentes:
 
     def test_el_panel_explica_la_validacion_y_el_historial(self, navegador, sesion):
         html = navegador.get("/chat").text
-        assert "Los catálogos se validan individualmente" in html
+        assert (
+            "Los catálogos se suben y procesan automáticamente al elegirlos" in html
+        )
+        assert "Mientras termina la carga no se pueden agregar más archivos" in html
         assert "PDF, XLSX, DOCX o TXT" in html
 
     def test_ventas_no_ve_los_controles_de_carga(self, navegador, sesion_ventas):
@@ -106,6 +130,13 @@ class TestPanelDeFuentes:
         assert 'id="archivos"' not in html
         assert "Agregar archivo" not in html
         assert "Un administrador todavía no ha cargado el catálogo." in html
+
+    def test_ventas_tambien_buscador_en_fuentes(self, navegador, sesion_ventas):
+        """El buscador es de consulta: el rol de ventas tambien lo ve."""
+        html = navegador.get("/chat").text
+
+        assert 'id="buscar-fuentes"' in html
+        assert 'id="fuentes-sin-coincidencias"' in html
 
 
 class TestEndpointProvisional:

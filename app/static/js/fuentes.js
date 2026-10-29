@@ -29,6 +29,17 @@
 
   /* Icono de quitar, creado con DOM para no usar innerHTML con datos. */
   function iconoQuitar() {
+    return iconoTrazado("M6 6l12 12M18 6L6 18");
+  }
+
+  /* Icono de bote de basura para eliminar catalogos guardados. */
+  function iconoEliminar() {
+    return iconoTrazado(
+      "M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"
+    );
+  }
+
+  function iconoTrazado(trazo) {
     var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 24 24");
     svg.setAttribute("fill", "none");
@@ -37,9 +48,9 @@
     svg.setAttribute("stroke-linecap", "round");
     svg.setAttribute("aria-hidden", "true");
 
-    var trazo = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    trazo.setAttribute("d", "M6 6l12 12M18 6L6 18");
-    svg.appendChild(trazo);
+    var camino = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    camino.setAttribute("d", trazo);
+    svg.appendChild(camino);
     return svg;
   }
 
@@ -53,7 +64,11 @@
     var cuenta = document.getElementById("cuenta-fuentes");
     var cuentaMovil = document.getElementById("cuenta-fuentes-movil");
     var error = document.getElementById("error-fuentes");
-    var procesar = document.getElementById("procesar-archivos");
+    var estadoSubida = document.getElementById("estado-fuentes");
+    var textoEstado = document.getElementById("texto-estado-fuentes");
+    var entradaBusqueda = document.getElementById("buscar-fuentes");
+    var busqueda = document.getElementById("busqueda-fuentes");
+    var sinCoincidencias = document.getElementById("fuentes-sin-coincidencias");
     var zona = document.getElementById("zona-archivos");
     var boton = document.getElementById("boton-archivos");
     var abrir = document.getElementById("abrir-fuentes");
@@ -64,13 +79,47 @@
     var archivos = [];
     var historial = [];
     var subiendo = false;
+    var eliminando = false;
     var arrastre = 0;
+    var consulta = "";
+    var puedeEliminar = Boolean(lista && lista.dataset.puedeEliminar);
+
+    /* La busqueda ignora mayusculas y tildes: "martillo" encuentra
+       "Martínez", y "excel" encuentra archivos XLSX que lleven "Excel". */
+    function normalizar(texto) {
+      return String(texto || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+    }
+
+    function esVisible(archivo) {
+      if (!consulta) return true;
+      return normalizar(archivo.nombre).indexOf(consulta) !== -1;
+    }
+
+    function ocupacion() {
+      return subiendo || eliminando;
+    }
 
     function aviso(texto, tipo) {
       if (!error) return;
       error.textContent = texto;
       if (texto) error.setAttribute("data-tipo", tipo || "error");
       else error.removeAttribute("data-tipo");
+    }
+
+    /* Estado global de la carga: texto con spinner mientras la cola sube.
+       Avanza uno a uno para no saturar el servidor (estilo Notebook). */
+    function mensajeEstado(texto) {
+      if (!estadoSubida) return;
+      if (texto) {
+        if (textoEstado) textoEstado.textContent = texto;
+        estadoSubida.hidden = false;
+      } else {
+        estadoSubida.hidden = true;
+        if (textoEstado) textoEstado.textContent = "";
+      }
     }
 
     function actualizar() {
@@ -80,10 +129,25 @@
       }
       if (cuentaMovil) cuentaMovil.textContent = String(total);
       if (vacio) vacio.hidden = total > 0;
-      if (procesar) procesar.disabled = archivos.length === 0 || subiendo;
-      if (boton) boton.disabled = subiendo;
-      if (zona) zona.disabled = subiendo;
-      if (entrada) entrada.disabled = subiendo;
+      /* El buscador solo tiene sentido con archivos que filtrar; sin ellos
+         se oculta y se limpia para no dejar un filtro dormido. */
+      if (busqueda) {
+        if (total === 0) {
+          busqueda.hidden = true;
+          consulta = "";
+          if (entradaBusqueda && entradaBusqueda.value) entradaBusqueda.value = "";
+        } else {
+          busqueda.hidden = false;
+        }
+      }
+      if (boton) boton.disabled = ocupacion();
+      if (zona) zona.disabled = ocupacion();
+      if (entrada) entrada.disabled = ocupacion();
+      if (lista) {
+        lista.querySelectorAll(".fuentes__eliminar").forEach(function (nodo) {
+          nodo.disabled = ocupacion();
+        });
+      }
     }
 
     function pintar() {
@@ -118,7 +182,11 @@
           String(archivo.ext || archivo.tipo || "").toUpperCase(),
           formatear(tamano),
         ];
-        if (!esLocal) {
+        if (esLocal) {
+          /* Estados de la cola de subida automatica. */
+          var etiqueta = { cola: "En cola", subiendo: "Subiendo…" }[archivo.estado];
+          detalles.push(etiqueta || ETIQUETAS_ESTADO[archivo.estado]);
+        } else {
           detalles.push(ETIQUETAS_ESTADO[archivo.estado] || "Estado desconocido");
           if (archivo.filas_ok || archivo.filas_error) {
             detalles.push(
@@ -133,37 +201,82 @@
         fila.appendChild(icono);
         fila.appendChild(datos);
         if (esLocal) {
-          var quitar = document.createElement("button");
-          quitar.type = "button";
-          quitar.className = "fuentes__quitar";
-          quitar.dataset.indice = String(indice);
-          quitar.setAttribute("aria-label", "Quitar " + archivo.nombre);
-          quitar.appendChild(iconoQuitar());
-          fila.appendChild(quitar);
-        } else if (archivo.detalle) {
-          var detalle = document.createElement("span");
-          detalle.className = "fuentes__meta";
-          detalle.textContent = archivo.detalle.slice(0, 180);
-          fila.title = archivo.detalle;
-          datos.appendChild(detalle);
+          /* La cola no se puede mutar mientras sube: los indices y el limite
+             por lote dejarian de ser consistentes. */
+          if (!subiendo) {
+            var quitar = document.createElement("button");
+            quitar.type = "button";
+            quitar.className = "fuentes__quitar";
+            quitar.dataset.indice = String(indice);
+            quitar.setAttribute("aria-label", "Quitar " + archivo.nombre);
+            quitar.appendChild(iconoQuitar());
+            fila.appendChild(quitar);
+          } else if (archivo.estado === "subiendo") {
+            var giro = document.createElement("span");
+            giro.className = "fuentes__cargando";
+            giro.setAttribute("aria-hidden", "true");
+            fila.appendChild(giro);
+          }
+        } else {
+          if (archivo.detalle) {
+            var detalle = document.createElement("span");
+            detalle.className = "fuentes__meta";
+            detalle.textContent = archivo.detalle.slice(0, 180);
+            fila.title = archivo.detalle;
+            datos.appendChild(detalle);
+          }
+          if (puedeEliminar && archivo.id_archivo) {
+            var eliminar = document.createElement("button");
+            eliminar.type = "button";
+            eliminar.className = "fuentes__eliminar";
+            eliminar.dataset.idArchivo = String(archivo.id_archivo);
+            eliminar.disabled = ocupacion();
+            eliminar.setAttribute(
+              "aria-label",
+              "Eliminar el catálogo " + archivo.nombre +
+                " y sus productos asociados"
+            );
+            eliminar.appendChild(iconoEliminar());
+            fila.appendChild(eliminar);
+          }
         }
         lista.appendChild(fila);
       }
 
+      var visibles = 0;
       historial.forEach(function (archivo, indice) {
+        if (!esVisible(archivo)) return;
+        visibles += 1;
         agregarFila(archivo, indice, false);
       });
       archivos.forEach(function (archivo, indice) {
+        if (!esVisible(archivo)) return;
+        visibles += 1;
         agregarFila(archivo, indice, true);
       });
+      /* Con filtro activo y lista llena pero sin resultados, se anuncia
+         para no dejar un panel en blanco sin explicacion. */
+      if (sinCoincidencias) {
+        sinCoincidencias.hidden = !(consulta && visibles === 0);
+      }
     }
 
     function agregar(seleccion) {
+      /* Notebook-style: hasta que la cola no termina no se aceptan mas
+         archivos, para no colapsar la API con cargas en paralelo. */
+      if (subiendo) {
+        aviso(
+          "Espere a que terminen de subirse los archivos en cola " +
+            "antes de agregar más."
+        );
+        return;
+      }
       var extensionesInvalidas = 0;
       var archivosVacios = 0;
       var archivosGrandes = 0;
       var repetidos = 0;
       var sobrantes = 0;
+      var agregados = 0;
 
       Array.prototype.forEach.call(seleccion, function (archivo) {
         var ext = extension(archivo.name);
@@ -194,8 +307,10 @@
           nombre: archivo.name,
           tamano: archivo.size,
           ext: ext,
+          estado: "cola",
           archivo: archivo,
         });
+        agregados += 1;
       });
 
       var mensajes = [];
@@ -218,6 +333,73 @@
 
       pintar();
       actualizar();
+      /* Subida automatica: nada de botones, se procesa apenas se agrega
+         un archivo valido (aunque el lote tenga que revisar otros). */
+      if (agregados) subirCola();
+    }
+
+    async function subirCola() {
+      if (subiendo || !archivos.length) return;
+      subiendo = true;
+      aviso("");
+      pintar();
+      actualizar();
+
+      var cargados = 0;
+      var incidencias = [];
+      try {
+        for (var i = 0; i < archivos.length; i++) {
+          var item = archivos[i];
+          item.estado = "subiendo";
+          pintar();
+          mensajeEstado(
+            "Subiendo y procesando archivo " + (i + 1) + " de " +
+              archivos.length + "…"
+          );
+
+          var formulario = new FormData();
+          formulario.append("archivos", item.archivo, item.nombre);
+          try {
+            var respuesta = await Fipca.pedir("/api/v1/inventario/ingesta", {
+              metodo: "POST",
+              cuerpo: formulario,
+            });
+            var resultado = respuesta.resultados[0];
+            item.estado = resultado.estado;
+            item.detalle = resultado.detalle || "";
+            cargados += respuesta.archivos_ok + respuesta.archivos_parciales;
+            if (resultado.estado !== "ok") {
+              incidencias.push(
+                resultado.nombre + ": " + (resultado.detalle || "sin detalle")
+              );
+            }
+          } catch (fallo) {
+            item.estado = "error";
+            item.detalle = fallo.message || "No se pudo subir el archivo.";
+            incidencias.push(item.nombre + ": " + item.detalle);
+          }
+        }
+
+        if (incidencias.length) {
+          aviso(
+            cargados + " archivo(s) cargado(s); los demás requieren revisión. " +
+              incidencias.join(". ").slice(0, 700),
+            "error"
+          );
+        } else {
+          aviso(
+            cargados + " archivo(s) cargado(s) y procesado(s) correctamente.",
+            "exito"
+          );
+        }
+      } finally {
+        subiendo = false;
+        mensajeEstado("");
+        archivos = [];
+        await cargarHistorial();
+        pintar();
+        actualizar();
+      }
     }
 
     function abrirSelector() {
@@ -231,6 +413,15 @@
       entrada.addEventListener("change", function () {
         agregar(entrada.files);
         entrada.value = "";
+      });
+    }
+
+    /* Buscador del panel: filtra sin recargar ni volver a pedir el
+       historial, igual que lo hace la lista de chat del asistente. */
+    if (entradaBusqueda) {
+      entradaBusqueda.addEventListener("input", function () {
+        consulta = normalizar(entradaBusqueda.value).trim();
+        pintar();
       });
     }
 
@@ -271,7 +462,14 @@
     document.addEventListener("drop", evitarNavegacion);
 
     if (lista) {
+      /* dataset.idArchivo crea el atributo data-id-archivo: el selector CSS
+         debe ir con guiones o nunca coincidira con el boton. */
       lista.addEventListener("click", function (evento) {
+        var eliminar = evento.target.closest("[data-id-archivo]");
+        if (eliminar) {
+          eliminarCatalogo(eliminar);
+          return;
+        }
         var quitar = evento.target.closest("[data-indice]");
         if (!quitar) return;
         var indice = Number(quitar.dataset.indice);
@@ -291,6 +489,91 @@
       });
     }
 
+    /* Solicitud del cliente: un catalogo se puede eliminar incluso cuando ya
+       fue procesado; la API tambien quita sus productos de la base y borra el
+       original del disco. Se pide confirmacion porque no hay deshacer. */
+    async function eliminarCatalogo(botonEliminar) {
+      if (ocupacion()) return;
+      var idArchivo = Number(botonEliminar.dataset.idArchivo);
+      if (!idArchivo) return;
+
+      var fila = botonEliminar.closest(".fuentes__archivo");
+      var nodoNombre = fila ? fila.querySelector(".fuentes__nombre") : null;
+      var nombre = nodoNombre && nodoNombre.textContent
+        ? nodoNombre.textContent.trim()
+        : "";
+      var cargadas = 0;
+      var historialEncontrado = historial.find(function (archivo) {
+        return Number(archivo.id_archivo) === idArchivo;
+      });
+      if (historialEncontrado) cargadas = Number(historialEncontrado.filas_ok || 0);
+
+      var descripcion = nombre
+        ? "Se eliminará el catálogo «" + nombre + "»"
+        : "Se eliminará el catálogo";
+      if (cargadas > 0) {
+        descripcion +=
+          " junto con " + cargadas + " producto" + (cargadas === 1 ? "" : "s") +
+          " que provienen de él";
+      }
+      descripcion +=
+        ", incluso si ya fue procesado. Esta acción no se puede deshacer.";
+
+      var proseguir = false;
+      if (window.Swal && window.Swal.fire) {
+        var confirmacion = await window.Swal.fire({
+          icon: "warning",
+          title: "¿Eliminar el catálogo?",
+          text: descripcion,
+          showCancelButton: true,
+          confirmButtonText: "Eliminar catálogo",
+          cancelButtonText: "Conservar",
+          reverseButtons: true,
+          focusCancel: true,
+          buttonsStyling: false,
+          customClass: {
+            popup: "fipca-alerta",
+            confirmButton: "btn-fipca",
+            cancelButton: "btn-fipca btn-fipca--fantasma",
+            actions: "fipca-alerta__acciones",
+          },
+        });
+        proseguir = confirmacion.isConfirmed;
+      } else if (window.confirm) {
+        proseguir = window.confirm(descripcion);
+      }
+      if (!proseguir) return;
+
+      eliminando = true;
+      aviso("");
+      actualizar();
+      botonEliminar.disabled = true;
+
+      try {
+        var resultado = await Fipca.pedir(
+          "/api/v1/inventario/archivos/" + idArchivo,
+          { metodo: "DELETE" }
+        );
+        var unidad =
+          resultado.productos_eliminados === 1 ? " producto" : " productos";
+        await Fipca.aviso(
+          null,
+          "Catálogo eliminado junto con " +
+            resultado.productos_eliminados + unidad + ".",
+          "exito"
+        );
+      } catch (error) {
+        aviso(error.message || "No se pudo eliminar el catálogo.");
+      } finally {
+        eliminando = false;
+        await cargarHistorial();
+        actualizar();
+        var restantes = lista.querySelectorAll(".fuentes__eliminar");
+        if (restantes.length) restantes[0].focus();
+        else if (boton && !boton.disabled) boton.focus();
+      }
+    }
+
     async function cargarHistorial() {
       try {
         historial = await Fipca.pedir("/api/v1/inventario/archivos");
@@ -299,58 +582,6 @@
       } catch (fallo) {
         aviso("No se pudo consultar el historial de catálogos.");
       }
-    }
-
-    if (procesar) {
-      procesar.addEventListener("click", async function () {
-        if (subiendo || archivos.length === 0) return;
-        subiendo = true;
-        aviso("");
-        actualizar();
-
-        var formulario = new FormData();
-        archivos.forEach(function (archivo) {
-          formulario.append("archivos", archivo.archivo, archivo.nombre);
-        });
-
-        try {
-          var respuesta = await Fipca.pedir("/api/v1/inventario/ingesta", {
-            metodo: "POST",
-            cuerpo: formulario,
-          });
-          var cargados = respuesta.archivos_ok + respuesta.archivos_parciales;
-          var conProblemas =
-            respuesta.archivos_parciales +
-            respuesta.archivos_error +
-            respuesta.archivos_rechazados;
-          archivos = [];
-          var resumen = cargados + " archivo(s) cargado(s)";
-          if (conProblemas) {
-            var incidencias = respuesta.resultados
-              .filter(function (resultado) {
-                return (
-                  resultado.estado === "parcial" ||
-                  resultado.estado === "error" ||
-                  resultado.estado === "rechazado"
-                );
-              })
-              .map(function (resultado) {
-                return resultado.nombre + ": " + (resultado.detalle || "sin detalle");
-              })
-              .join(". ")
-              .slice(0, 700);
-            resumen += "; " + conProblemas + " archivo(s) requieren revisión. " + incidencias;
-          }
-          aviso(resumen, conProblemas ? "error" : "exito");
-          await cargarHistorial();
-        } catch (fallo) {
-          aviso(fallo.message || "No se pudo procesar el lote.");
-        } finally {
-          subiendo = false;
-          pintar();
-          actualizar();
-        }
-      });
     }
 
     /* Cajon del telefono: se abre sobre la conversacion y se cierra con la

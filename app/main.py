@@ -72,8 +72,20 @@ def crear_aplicacion() -> FastAPI:
     aplicacion.include_router(web.router)
 
     if DIRECTORIO_ESTATICOS.is_dir():
+        # El navegador cachea los estaticos con expiracion heuristica cuando la
+        # respuesta no trae Cache-Control: quedaban desatualizados tras
+        # reconstruir el contenedor y el usuario seguia viendo JS viejo. Con
+        # no-cache siempre revendica (ETag) y solo baja cuando cambio.
+        class EstaticosRevalidables(StaticFiles):
+            def file_response(self, *args, **kwargs):  # type: ignore[override]
+                respuesta = super().file_response(*args, **kwargs)
+                respuesta.headers["Cache-Control"] = "no-cache"
+                return respuesta
+
         aplicacion.mount(
-            "/static", StaticFiles(directory=str(DIRECTORIO_ESTATICOS)), name="static"
+            "/static",
+            EstaticosRevalidables(directory=str(DIRECTORIO_ESTATICOS)),
+            name="static",
         )
 
     @aplicacion.exception_handler(BaseDeDatosNoDisponible)

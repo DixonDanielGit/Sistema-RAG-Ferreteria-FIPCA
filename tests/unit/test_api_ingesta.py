@@ -99,3 +99,65 @@ def test_lista_archivos_consulta_modelo_con_limite(monkeypatch):
 
     assert respuesta.status_code == 200
     assert respuesta.json() == []
+
+
+def test_ingesta_en_proceso_bloquea_otra_con_409(monkeypatch):
+    """La subida automatica es una por una: una segunda peticion concurrente
+    no debe colarse (409), ni ejecutar un solo archivo."""
+
+    def procesar(*_):
+        raise AssertionError("Nada debe procesarse con la cerradura ocupada")
+
+    monkeypatch.setattr(inventario.etl_service, "procesar_archivo", procesar)
+    cliente = TestClient(_app())
+    cerradura = inventario._cerradura_ingesta
+    cerradura.acquire()
+    try:
+        respuesta = cliente.post(
+            "/api/v1/inventario/ingesta",
+            files=[("archivos", ("catalogo.txt", b"codigo;nombre;precio", "text/plain"))],
+        )
+    finally:
+        cerradura.release()
+
+    assert respuesta.status_code == 409
+    assert "carga de catalogo" in respuesta.json()["detail"]
+
+
+def test_cerradura_se_libera_tras_fallo_del_proceso(monkeypatch):
+    def procesar(*_):
+        raise ValueError("fallo inesperado")
+
+    monkeypatch.setattr(inventario.etl_service, "procesar_archivo", procesar)
+    cliente = TestClient(_app(), raise_server_exceptions=False)
+
+    fallida = cliente.post(
+        "/api/v1/inventario/ingesta",
+        files=[("archivos", ("malo.txt", b"x", "text/plain"))],
+    )
+
+    assert fallida.status_code == 500
+    assert not inventario._cerradura_ingesta.locked()
+
+    monkeypatch.setattr(
+        inventario.etl_service,
+        "procesar_archivo",
+        lambda nombre, contenido, id_usuario: {
+            "id_archivo": 1,
+            "nombre": nombre,
+            "tipo": "txt",
+            "tamano_bytes": len(contenido),
+            "estado": "ok",
+            "filas_ok": 1,
+            "filas_error": 0,
+            "detalle": None,
+        },
+    )
+
+    posterior = cliente.post(
+        "/api/v1/inventario/ingesta",
+        files=[("archivos", ("bueno.txt", b"y", "text/plain"))],
+    )
+
+    assert posterior.status_code == 200
+    assert posterior.json()["archivos_ok"] == 1

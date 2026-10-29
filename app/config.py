@@ -57,7 +57,9 @@ class Settings:
 
     nombre: str = "Sistema de Inventario e IA RAG"
     empresa: str = "FERRE-INVERSIONES PEREZ C.A."
-    version: str = "0.2.0"
+    version: str = "0.3.0 Beta Experimental"
+    desarrollador: str = "Dixon Bastias"
+    desarrollador_github: str = "DixonDanielGit"
     entorno: str = field(default_factory=lambda: os.getenv("ENTORNO", "desarrollo").strip().lower())
 
     # Base de datos
