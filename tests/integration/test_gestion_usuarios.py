@@ -281,7 +281,20 @@ class TestVistasDeCuenta:
         assert "/static/img/avatar-default.svg" in html
         assert "/static/js/perfil.js" in html
         assert 'id="modal-perfil"' in html
+        assert "modal-lg modal-dialog-scrollable perfil-modal-dialog" in html
         assert 'id="abrir-modal-perfil"' in html
+        assert 'id="abrir-modal-usuario"' not in html
+        assert 'id="form-perfil" novalidate' in html
+        assert 'class="perfil-modal__datos"' in html
+        assert 'class="perfil-modal__lateral"' in html
+        assert html.count("input-validar") == 5
+        assert all(
+            f'name="{campo}"' in html
+            for campo in ("nombre", "apellido", "cedula", "usuario", "correo")
+        )
+        assert 'id="perfil-resumen-usuario"' in html
+        assert 'id="perfil-resumen-cedula"' in html
+        assert 'id="perfil-resumen-correo"' in html
 
     def test_admin_ve_gestion_de_usuarios(self, cliente, crear_cuenta):
         cuenta = crear_cuenta()
@@ -292,9 +305,16 @@ class TestVistasDeCuenta:
         html = cliente.get("/usuarios").text
         assert 'id="form-usuario"' in html
         assert 'id="modal-usuario"' in html
+        assert html.count("<form") == 1
+        assert 'id="form-usuario2"' not in html
+        assert 'name="passwordConf"' in html
+        assert "input-validar" in html
         assert 'id="filas-usuarios"' in html
         assert "/static/js/usuarios.js" in html
-        assert "/static/vendor/datatables.responsive.min.js" in html
+        assert "/static/vendor/datatables.dataTables.min.js" in html
+        assert 'class="datatable-contenedor"' in html
+        assert 'class="datatable-tabla-scroll"' in html
+        assert "/static/vendor/datatables.responsive.min.js" not in html
         assert 'id="tabla-usuarios"' in html
         assert 'id="fipca-menu-toggle"' in html
         assert 'aria-label="Cerrar sesión"' in html

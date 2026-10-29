@@ -53,6 +53,17 @@ class TestVistaDelChat:
     def test_carga_el_script_del_chat(self, navegador, sesion):
         assert "/static/js/chat.js" in navegador.get("/chat").text
 
+    def test_chat_prepara_controles_de_paneles_para_pc(self, navegador, sesion):
+        html = navegador.get("/chat").text
+
+        assert 'id="alternar-fuentes-pc"' in html
+        assert 'aria-controls="panel-fuentes"' in html
+        assert 'id="alternar-sesiones-pc"' in html
+        assert 'aria-controls="panel-sesiones"' in html
+        assert 'id="panel-sesiones"' in html
+        assert "Ejemplos visuales" in html
+        assert "la gestión de sesiones" in html
+
     def test_la_navegacion_marca_el_modulo_activo(self, navegador, sesion):
         assert 'aria-current="page"' in navegador.get("/chat").text
 
@@ -109,6 +120,13 @@ class TestPanelDeFuentes:
     def test_carga_el_script_del_panel(self, navegador, sesion):
         assert "/static/js/fuentes.js" in navegador.get("/chat").text
 
+    def test_admin_puede_seleccionar_varios_catalogos(self, navegador, sesion):
+        html = navegador.get("/chat").text
+
+        assert 'id="seleccionar-visibles"' in html
+        assert 'id="eliminar-seleccionados"' in html
+        assert "Marcar visibles" in html
+
     def test_el_boton_del_telefono_controla_el_panel(self, navegador, sesion):
         html = navegador.get("/chat").text
 
@@ -128,6 +146,8 @@ class TestPanelDeFuentes:
 
         assert 'id="panel-fuentes"' in html
         assert 'id="archivos"' not in html
+        assert 'id="seleccionar-visibles"' not in html
+        assert 'id="eliminar-seleccionados"' not in html
         assert "Agregar archivo" not in html
         assert "Un administrador todavía no ha cargado el catálogo." in html
 

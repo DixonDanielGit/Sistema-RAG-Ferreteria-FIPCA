@@ -86,6 +86,65 @@ def test_elimina_catalogo_procesado_con_sus_productos_y_archivo(
             cursor.execute("DELETE FROM archivos_subidos WHERE id_archivo = %s", (id_archivo,))
 
 
+def test_elimina_lote_existente_y_reporta_catalogo_ausente(
+    conexion_rag_limpieza,
+):
+    id_primero, ruta_primero = _archivo_procesado(conexion_rag_limpieza)
+    id_segundo, ruta_segundo = _archivo_procesado(conexion_rag_limpieza)
+    almacen = etl_service.get_settings().uploads_dir
+    almacen.mkdir(parents=True, exist_ok=True)
+    (almacen / ruta_primero).write_bytes(b"primer catalogo")
+    (almacen / ruta_segundo).write_bytes(b"segundo catalogo")
+    with conexion_rag_limpieza.cursor() as cursor:
+        cursor.execute("SELECT COALESCE(MAX(id_archivo), 0) + 5000 FROM archivos_subidos")
+        inexistente = cursor.fetchone()[0]
+
+    try:
+        resultado = etl_service.eliminar_catalogos_completos(
+            [id_primero, inexistente, id_segundo]
+        )
+
+        assert [item["id_archivo"] for item in resultado["eliminados"]] == [
+            id_primero,
+            id_segundo,
+        ]
+        assert [item["productos_eliminados"] for item in resultado["eliminados"]] == [
+            2,
+            2,
+        ]
+        assert all(
+            item["archivo_original_eliminado"]
+            for item in resultado["eliminados"]
+        )
+        assert resultado["ids_no_encontrados"] == [inexistente]
+
+        with conexion_rag_limpieza.cursor() as cursor:
+            cursor.execute(
+                "SELECT COUNT(*) FROM archivos_subidos WHERE id_archivo = ANY(%s)",
+                ([id_primero, id_segundo],),
+            )
+            assert cursor.fetchone()[0] == 0
+            cursor.execute(
+                "SELECT COUNT(*) FROM productos WHERE id_archivo = ANY(%s)",
+                ([id_primero, id_segundo],),
+            )
+            assert cursor.fetchone()[0] == 0
+        assert not (almacen / ruta_primero).exists()
+        assert not (almacen / ruta_segundo).exists()
+    finally:
+        with conexion_rag_limpieza.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM productos WHERE id_archivo = ANY(%s)",
+                ([id_primero, id_segundo],),
+            )
+            cursor.execute(
+                "DELETE FROM archivos_subidos WHERE id_archivo = ANY(%s)",
+                ([id_primero, id_segundo],),
+            )
+        (almacen / ruta_primero).unlink(missing_ok=True)
+        (almacen / ruta_segundo).unlink(missing_ok=True)
+
+
 def test_producto_rehomed_a_otro_catalogo_sobrevive(conexion_rag_limpieza):
     """Un codigo reinsertado desde otro archivo queda en ese archivo."""
     id_viejo, _ = _archivo_procesado(conexion_rag_limpieza)

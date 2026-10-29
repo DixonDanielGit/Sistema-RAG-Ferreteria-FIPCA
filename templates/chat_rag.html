@@ -69,6 +69,22 @@
                placeholder="Buscar catálogo…" autocomplete="off" />
       </div>
 
+      {% if es_admin %}
+      <div class="fuentes__acciones-lote" id="acciones-lote" hidden>
+        <label class="fuentes__seleccionar-visibles">
+          <input type="checkbox" id="seleccionar-visibles"
+                 aria-label="Seleccionar todos los catálogos visibles" />
+          <span>Marcar visibles</span>
+        </label>
+        <span class="fuentes__contador-seleccion" id="contador-seleccion"
+              role="status" aria-live="polite">0 seleccionados</span>
+        <button class="fuentes__eliminar-lote" type="button"
+                id="eliminar-seleccionados" disabled>
+          Eliminar
+        </button>
+      </div>
+      {% endif %}
+
       <ul class="fuentes__lista" id="lista-fuentes" aria-live="polite"
           data-puede-eliminar="{{ '1' if es_admin else '' }}">
         <li class="fuentes__vacio" id="fuentes-vacio">
@@ -103,6 +119,28 @@
         </p>
       </div>
       <div class="chat__acciones">
+        <button class="chat__panel-boton chat__panel-boton--pc" type="button"
+                id="alternar-fuentes-pc" aria-controls="panel-fuentes"
+                aria-expanded="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+               aria-hidden="true">
+            <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H10l2 2h6.5A1.5 1.5 0 0 1 20 7.5v11a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5z" />
+            <path d="M8 10h8M8 14h5" />
+          </svg>
+          Fuentes
+        </button>
+        <button class="chat__panel-boton chat__panel-boton--pc" type="button"
+                id="alternar-sesiones-pc" aria-controls="panel-sesiones"
+                aria-expanded="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+               aria-hidden="true">
+            <path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H19v15H7.5A2.5 2.5 0 0 0 5 20.5z" />
+            <path d="M5 5.5v15M9 7h6M9 11h6" />
+          </svg>
+          Sesiones
+        </button>
         <button class="chat__fuentes-boton" type="button" id="abrir-fuentes"
                 aria-controls="panel-fuentes" aria-expanded="false">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
@@ -175,6 +213,58 @@
          style="max-width: 780px; margin: var(--esp-1) auto 0"></p>
     </div>
   </div>
+
+  <aside class="chat__sesiones" id="panel-sesiones"
+         aria-labelledby="titulo-sesiones">
+    <div class="chat__sesiones-cabecera">
+      <div>
+        <h2 id="titulo-sesiones">Sesiones</h2>
+        <span class="chat__sesiones-etiqueta">Vista previa</span>
+      </div>
+    </div>
+    <p class="chat__sesiones-nota">
+      Ejemplos visuales. Sus conversaciones se mostrarán aquí cuando se habilite
+      la gestión de sesiones.
+    </p>
+    <ul class="chat__sesiones-lista" aria-label="Ejemplos de sesiones">
+      <li class="chat__sesion-ejemplo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H19v15H7.5A2.5 2.5 0 0 0 5 20.5z" />
+          <path d="M5 5.5v15M9 7h6M9 11h5" />
+        </svg>
+        <span>
+          <strong>Consulta de inventario</strong>
+          <small>Ejemplo de sesión</small>
+        </span>
+      </li>
+      <li class="chat__sesion-ejemplo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H19v15H7.5A2.5 2.5 0 0 0 5 20.5z" />
+          <path d="M5 5.5v15M9 7h6M9 11h5" />
+        </svg>
+        <span>
+          <strong>Productos disponibles</strong>
+          <small>Ejemplo de sesión</small>
+        </span>
+      </li>
+      <li class="chat__sesion-ejemplo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H19v15H7.5A2.5 2.5 0 0 0 5 20.5z" />
+          <path d="M5 5.5v15M9 7h6M9 11h5" />
+        </svg>
+        <span>
+          <strong>Precios de productos</strong>
+          <small>Ejemplo de sesión</small>
+        </span>
+      </li>
+    </ul>
+  </aside>
 </div>
 {% endblock %}
 

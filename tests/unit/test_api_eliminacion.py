@@ -85,3 +85,96 @@ def test_ids_negativos_no_se_procesan(monkeypatch):
     cliente = TestClient(_app())
 
     assert cliente.delete("/api/v1/inventario/archivos/0").status_code == 422
+
+
+def test_admin_elimina_catalogos_seleccionados_y_reporta_ausentes(monkeypatch):
+    llamadas = []
+
+    def eliminar(ids_archivos):
+        llamadas.append(ids_archivos)
+        return {
+            "eliminados": [
+                {
+                    "id_archivo": 7,
+                    "nombre": "Catalogo A.xlsx",
+                    "productos_eliminados": 3,
+                    "archivo_original_eliminado": True,
+                },
+                {
+                    "id_archivo": 9,
+                    "nombre": "Catalogo C.txt",
+                    "productos_eliminados": 0,
+                    "archivo_original_eliminado": False,
+                },
+            ],
+            "ids_no_encontrados": [8],
+        }
+
+    monkeypatch.setattr(
+        inventario.etl_service, "eliminar_catalogos_completos", eliminar
+    )
+    cliente = TestClient(_app())
+
+    respuesta = cliente.post(
+        "/api/v1/inventario/archivos/eliminacion-multiple",
+        json={"ids_archivos": [7, 8, 9]},
+    )
+
+    assert respuesta.status_code == 200
+    assert respuesta.json() == {
+        "eliminados": [
+            {
+                "id_archivo": 7,
+                "nombre": "Catalogo A.xlsx",
+                "productos_eliminados": 3,
+                "archivo_original_eliminado": True,
+            },
+            {
+                "id_archivo": 9,
+                "nombre": "Catalogo C.txt",
+                "productos_eliminados": 0,
+                "archivo_original_eliminado": False,
+            },
+        ],
+        "ids_no_encontrados": [8],
+    }
+    assert llamadas == [[7, 8, 9]]
+
+
+def test_eliminar_catalogos_requiere_administrador(monkeypatch):
+    llamada = False
+
+    def eliminar(*_):
+        nonlocal llamada
+        llamada = True
+        return {"eliminados": [], "ids_no_encontrados": []}
+
+    monkeypatch.setattr(
+        inventario.etl_service, "eliminar_catalogos_completos", eliminar
+    )
+    cliente = TestClient(_app(rechazar=True))
+
+    respuesta = cliente.post(
+        "/api/v1/inventario/archivos/eliminacion-multiple",
+        json={"ids_archivos": [3, 5]},
+    )
+
+    assert respuesta.status_code == 403
+    assert not llamada
+
+
+def test_eliminar_catalogos_valida_minimo_ids_positivos_y_sin_duplicados(
+    monkeypatch,
+):
+    def eliminar(*_):
+        raise AssertionError("Los IDs invalidos no deben llegar al servicio")
+
+    monkeypatch.setattr(
+        inventario.etl_service, "eliminar_catalogos_completos", eliminar
+    )
+    cliente = TestClient(_app())
+    ruta = "/api/v1/inventario/archivos/eliminacion-multiple"
+
+    assert cliente.post(ruta, json={"ids_archivos": [1]}).status_code == 422
+    assert cliente.post(ruta, json={"ids_archivos": [1, 1]}).status_code == 422
+    assert cliente.post(ruta, json={"ids_archivos": [0, 2]}).status_code == 422

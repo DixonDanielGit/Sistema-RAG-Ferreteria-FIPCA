@@ -696,3 +696,22 @@ def eliminar_catalogo_completo(id_archivo: int) -> dict[str, Any] | None:
         "archivo_original_eliminado": _eliminar_archivo_original(ruta_original),
     }
 
+
+def eliminar_catalogos_completos(ids_archivos: list[int]) -> dict[str, Any]:
+    """Elimina catalogos existentes del lote y reporta los IDs ausentes."""
+    resultado_base = inventario_model.eliminar_catalogos(ids_archivos)
+    eliminados = []
+    for catalogo in resultado_base["catalogos"]:
+        ruta_original = catalogo.pop("ruta_original")
+        eliminados.append(
+            {
+                **catalogo,
+                "archivo_original_eliminado": _eliminar_archivo_original(
+                    ruta_original
+                ),
+            }
+        )
+    return {
+        "eliminados": eliminados,
+        "ids_no_encontrados": resultado_base["ids_no_encontrados"],
+    }

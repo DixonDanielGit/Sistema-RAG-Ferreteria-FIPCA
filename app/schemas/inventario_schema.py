@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 EstadoArchivo = Literal["pendiente", "procesando", "ok", "parcial", "error", "rechazado"]
 
@@ -33,6 +33,31 @@ class RespuestaEliminacionArchivo(BaseModel):
     nombre: str
     productos_eliminados: int = Field(ge=0)
     archivo_original_eliminado: bool
+
+
+class SolicitudEliminacionCatalogos(BaseModel):
+    """IDs de catalogos seleccionados para eliminacion en lote."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ids_archivos: list[Annotated[int, Field(ge=1)]] = Field(
+        min_length=2,
+        max_length=100,
+    )
+
+    @field_validator("ids_archivos")
+    @classmethod
+    def validar_ids_unicos(cls, ids: list[int]) -> list[int]:
+        if len(set(ids)) != len(ids):
+            raise ValueError("Los catalogos seleccionados no pueden repetirse")
+        return ids
+
+
+class RespuestaEliminacionCatalogos(BaseModel):
+    """Resultados del borrado y IDs que ya no existian."""
+
+    eliminados: list[RespuestaEliminacionArchivo]
+    ids_no_encontrados: list[int]
 
 
 class RespuestaIngesta(BaseModel):

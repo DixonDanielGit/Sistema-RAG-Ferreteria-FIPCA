@@ -1032,8 +1032,50 @@ body.cuerpo-chat main {
   margin-left: auto;
 }
 
-/* En escritorio las fuentes estan siempre a la vista; este boton solo
-   aparece en el telefono para abrir el panel. */
+.chat__panel-boton {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: var(--esp-2);
+  min-height: 36px;
+  padding: 0 var(--esp-3);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio-sm);
+  background: var(--superficie);
+  color: var(--texto);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--transicion),
+    border-color var(--transicion),
+    color var(--transicion);
+}
+
+.chat__panel-boton:hover {
+  border-color: var(--accion-borde);
+  background: var(--accion-suave);
+  color: var(--accion-texto-suave);
+}
+
+.chat__panel-boton:focus-visible {
+  outline: 3px solid var(--anillo);
+  outline-offset: 2px;
+}
+
+.chat__panel-boton[aria-expanded="false"] {
+  background: var(--superficie-alt);
+  color: var(--texto-suave);
+}
+
+.chat__panel-boton svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* En telefono este boton abre el panel; en escritorio se usan los controles
+   de paneles que aparecen junto al estado del asistente. */
 .chat__fuentes-boton {
   display: none;
   align-items: center;
@@ -1092,6 +1134,98 @@ body.cuerpo-chat main {
   height: 7px;
   border-radius: 50%;
   background: currentColor;
+}
+
+.chat__sesiones {
+  display: none;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--esp-3);
+  padding: var(--esp-4) var(--esp-3);
+  border-left: 1px solid var(--borde);
+  background: var(--superficie);
+  overflow-y: auto;
+}
+
+.chat__sesiones-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--esp-2);
+}
+
+.chat__sesiones-cabecera h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.chat__sesiones-etiqueta {
+  display: inline-flex;
+  margin-top: var(--esp-1);
+  padding: 2px var(--esp-2);
+  border-radius: 999px;
+  background: var(--accion-suave);
+  color: var(--accion-texto-suave);
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
+.chat__sesiones-nota {
+  margin: 0;
+  color: var(--texto-suave);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.chat__sesiones-lista {
+  display: flex;
+  flex-direction: column;
+  gap: var(--esp-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chat__sesion-ejemplo {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--esp-2);
+  min-width: 0;
+  padding: var(--esp-2);
+  border: 1px solid transparent;
+  border-radius: var(--radio-sm);
+  color: var(--texto-suave);
+}
+
+.chat__sesion-ejemplo svg {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--accion-texto-suave);
+}
+
+.chat__sesion-ejemplo span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chat__sesion-ejemplo strong {
+  overflow: hidden;
+  color: var(--texto);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat__sesion-ejemplo small {
+  color: var(--texto-suave);
+  font-size: 0.68rem;
 }
 
 .chat__hilo {
@@ -1568,7 +1702,7 @@ body.cuerpo-chat main {
 .fuentes__lista {
   display: flex;
   flex-direction: column;
-  gap: var(--esp-2);
+  gap: var(--esp-1);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1578,18 +1712,101 @@ body.cuerpo-chat main {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--esp-2);
-  padding: var(--esp-2);
+  gap: var(--esp-1);
+  padding: var(--esp-1) var(--esp-2);
   border: 1px solid var(--borde);
   border-radius: var(--radio-sm);
   background: var(--superficie);
 }
 
+.fuentes__acciones-lote {
+  display: flex;
+  gap: var(--esp-2);
+  align-items: center;
+  justify-content: space-between;
+  min-height: 36px;
+}
+
+.fuentes__seleccionar-visibles,
+.fuentes__selector-contenedor {
+  display: flex;
+  align-items: center;
+  gap: var(--esp-2);
+  min-height: 32px;
+  cursor: pointer;
+}
+
+.fuentes__seleccionar-visibles {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.fuentes__seleccionar-visibles input,
+.fuentes__selector {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accion-superficie);
+  cursor: pointer;
+}
+
+.fuentes__seleccionar-visibles input:focus-visible,
+.fuentes__selector:focus-visible {
+  outline: 3px solid var(--anillo);
+  outline-offset: 2px;
+}
+
+.fuentes__contador-seleccion {
+  color: var(--texto-suave);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.fuentes__eliminar-lote {
+  min-height: 32px;
+  padding: 0 var(--esp-2);
+  border: 0;
+  border-radius: var(--radio-sm);
+  background: var(--error-superficie);
+  color: var(--error-texto);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.fuentes__eliminar-lote:hover:not(:disabled) {
+  background: var(--error-superficie);
+}
+
+.fuentes__eliminar-lote:focus-visible {
+  outline: 3px solid var(--anillo);
+  outline-offset: 2px;
+}
+
+.fuentes__eliminar-lote:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+.fuentes__eliminar-lote:disabled {
+  background: var(--superficie-alt);
+  color: var(--texto-suave);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.fuentes__acciones-archivo {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
 .fuentes__icono {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   border-radius: var(--radio-sm);
   background: var(--azul-superficie);
   color: var(--azul-texto);
@@ -1601,17 +1818,22 @@ body.cuerpo-chat main {
 .fuentes__datos {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 0;
   min-width: 0;
 }
 
-.fuentes__nombre {
+.fuentes__datos > .fuentes__nombre,
+.fuentes__datos > .fuentes__meta {
+  max-width: 100%;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fuentes__nombre {
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--texto);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .fuentes__meta {
@@ -1646,8 +1868,8 @@ body.cuerpo-chat main {
 .fuentes__eliminar {
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border: 0;
   border-radius: var(--radio-sm);
@@ -1909,6 +2131,14 @@ body.cuerpo-chat main {
     display: grid;
   }
 
+  .fuentes__selector-contenedor,
+  .fuentes__eliminar {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+
   .fuentes__velo {
     display: block;
     position: fixed;
@@ -1927,6 +2157,35 @@ body.cuerpo-chat main {
 
   .chat__burbuja {
     max-width: 88%;
+  }
+}
+
+@media (min-width: 1200px) {
+  .chat {
+    grid-template-columns:
+      minmax(250px, 292px)
+      minmax(0, 1fr)
+      minmax(220px, 260px);
+  }
+
+  .chat__panel-boton--pc {
+    display: inline-flex;
+  }
+
+  .chat__sesiones {
+    display: flex;
+  }
+
+  .chat--sin-fuentes {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 260px);
+  }
+
+  .chat--sin-sesiones {
+    grid-template-columns: minmax(250px, 292px) minmax(0, 1fr);
+  }
+
+  .chat--sin-fuentes.chat--sin-sesiones {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -2219,8 +2478,6 @@ body.cuerpo-chat main {
 }
 
 /* Espaciado compacto en el modal de usuario para evitar huecos excesivos entre inputs */
-#form-usuario .modal-body,
-#form-usuario2 .modal-body,
 .cuenta-modal .modal-body.formulario-compacto {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2229,8 +2486,6 @@ body.cuerpo-chat main {
   padding: var(--esp-3) var(--esp-5);
 }
 
-#form-usuario .modal-body .cuenta-campo,
-#form-usuario2 .modal-body .cuenta-campo,
 .cuenta-modal .modal-body.formulario-compacto .cuenta-campo {
   margin-bottom: 0;
 }
@@ -2358,8 +2613,7 @@ body.cuerpo-chat main {
   width: min(330px, 100%);
 }
 
-.cuenta-tabla-contenedor {
-  overflow-x: auto;
+.datatable-contenedor {
   border: 1px solid var(--borde);
   border-radius: var(--radio-md);
 }
@@ -2924,24 +3178,38 @@ body.cuerpo-chat main {
   min-width: 0;
 }
 
-/* DataTables toma la paleta semantica de la interfaz en ambos temas. */
-.cuenta-tabla-contenedor {
-  overflow: hidden;
+/* DataTables comparte controles y superficies sin recortar contenido. */
+.datatable-contenedor {
+  min-width: 0;
+  max-width: 100%;
+  background: var(--superficie);
+  overflow: visible;
 }
 
-.cuenta-tabla-contenedor .dt-container {
+.datatable-contenedor .dt-container {
+  width: 100%;
+  min-width: 0;
   color: var(--texto);
 }
 
-.cuenta-tabla-contenedor .dt-layout-row {
+.datatable-contenedor
+  .dt-container
+  .dt-layout-row
+  .dt-layout-cell:not(:empty) {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.datatable-contenedor .dt-layout-row {
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--esp-3);
   margin: var(--esp-3) 0;
   padding: 0 var(--esp-3);
 }
 
-.cuenta-tabla-contenedor .dt-search,
-.cuenta-tabla-contenedor .dt-length {
+.datatable-contenedor .dt-search,
+.datatable-contenedor .dt-length {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -2949,8 +3217,8 @@ body.cuerpo-chat main {
   color: var(--texto-suave);
 }
 
-.cuenta-tabla-contenedor .dt-search input,
-.cuenta-tabla-contenedor .dt-length select {
+.datatable-contenedor .dt-search input,
+.datatable-contenedor .dt-length select {
   min-height: 40px;
   margin-left: 0;
   padding: 0 var(--esp-3);
@@ -2961,34 +3229,44 @@ body.cuerpo-chat main {
   font: inherit;
 }
 
-.cuenta-tabla-contenedor table.dataTable {
+.datatable-tabla-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.datatable-tabla-scroll table.dataTable {
+  min-width: 760px;
+}
+
+.datatable-contenedor table.dataTable {
   width: 100% !important;
   margin: 0 !important;
   border-collapse: collapse !important;
   color: var(--texto);
 }
 
-.cuenta-tabla-contenedor table.dataTable thead th {
+.datatable-contenedor table.dataTable thead th {
   border-bottom: 1px solid var(--borde);
   background: var(--superficie-alt);
   color: var(--texto-suave);
 }
 
-.cuenta-tabla-contenedor table.dataTable tbody td {
+.datatable-contenedor table.dataTable tbody td {
   border-bottom: 1px solid var(--borde);
   background: var(--superficie);
   color: var(--texto);
 }
 
-.cuenta-tabla-contenedor table.dataTable tbody tr:hover > * {
+.datatable-contenedor table.dataTable tbody tr:hover > * {
   box-shadow: inset 0 0 0 9999px var(--accion-suave);
 }
 
-.cuenta-tabla-contenedor .dt-info {
+.datatable-contenedor .dt-info {
   color: var(--texto-suave);
 }
 
-.cuenta-tabla-contenedor .dt-paging .dt-paging-button {
+.datatable-contenedor .dt-paging .dt-paging-button {
   min-width: 40px;
   min-height: 40px;
   margin: 2px;
@@ -2998,14 +3276,14 @@ body.cuerpo-chat main {
   color: var(--texto) !important;
 }
 
-.cuenta-tabla-contenedor .dt-paging .dt-paging-button:hover,
-.cuenta-tabla-contenedor .dt-paging .dt-paging-button.current {
+.datatable-contenedor .dt-paging .dt-paging-button:hover,
+.datatable-contenedor .dt-paging .dt-paging-button.current {
   border-color: var(--accion-borde);
   background: var(--accion-suave);
   color: var(--accion-texto-suave) !important;
 }
 
-.cuenta-tabla-contenedor .dt-paging .dt-paging-button.disabled {
+.datatable-contenedor .dt-paging .dt-paging-button.disabled {
   color: var(--texto-suave) !important;
   opacity: 0.6;
 }
@@ -3022,187 +3300,206 @@ body.cuerpo-chat main {
   margin: 0;
 }
 
-/* perfil sección */
- /* Contenedor centralizado para evitar tarjeta demasiado ancha */
-  .perfil-contenedor-compacto {
-    max-width: 680px;
-    margin: 0 auto;
-    padding: 1.5rem 1rem;
-  }
+.perfil-contenedor-compacto {
+  max-width: 760px;
+  margin: 0 auto;
+}
 
-  /* Tarjeta Principal */
-  .perfil-card {
-    background: var(--fondo);
-    border-radius: 16px;
-    border: 1px solid var(--borde);
-    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05),
-      0 8px 10px -6px rgba(0, 0, 0, 0.01);
-    overflow: hidden;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-  }
+.perfil-cabecera {
+  align-items: center;
+  gap: var(--esp-4);
+}
 
-  /* Encabezado con Degradado Impeccable */
-  .perfil-card__header {
-    background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 50%, #06b6d4 100%);
-    padding: 2.5rem 2rem 2rem 2rem;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    position: relative;
-  }
+.perfil-card {
+  overflow: hidden;
+  padding: 0;
+  background: var(--superficie);
+  box-shadow: var(--sombra-1);
+}
 
-  .perfil-card__avatar-wrapper {
-    position: relative;
-    margin-bottom: 1rem;
-  }
+.perfil-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--esp-5);
+  padding: var(--esp-6);
+  background: var(--azul-superficie);
+  color: var(--azul-texto);
+}
 
-  .perfil-card__avatar {
-    width: 96px;
-    height: 96px;
-    border-radius: 50%;
-    object-fit: cover;
-    border: 4px solid var(--borde-fuerte);
-    box-shadow: 0 4px 14px var(--sombra);
-    background-color: var(--fondo);
-  }
+.perfil-card__avatar-wrapper {
+  flex: 0 0 auto;
+}
 
-  .perfil-card__name {
-    color: #ffffff;
-    font-size: 1.35rem;
-    font-weight: 700;
-    margin-bottom: 0.5rem;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-  }
+.perfil-card__avatar {
+  display: block;
+  width: 104px;
+  height: 104px;
+  border: 3px solid rgba(255, 255, 255, 0.82);
+  border-radius: 50%;
+  background: var(--superficie);
+  object-fit: cover;
+}
 
-  /* Badges de Rol */
-  .perfil-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.35rem 0.85rem;
-    border-radius: 20px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    backdrop-filter: blur(8px);
-  }
+.perfil-card__identity {
+  min-width: 0;
+}
 
-  .perfil-badge--admin {
-    background: rgba(255, 255, 255, 0.25);
-    color: #ffffff;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-  }
+.perfil-card__name {
+  margin: 0 0 var(--esp-2);
+  color: inherit;
+  font-size: clamp(1.35rem, 3vw, 1.7rem);
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
 
-  .perfil-badge--sales {
-    background: rgba(255, 255, 255, 0.2);
-    color: #ffffff;
-    border: 1px solid rgba(255, 255, 255, 0.25);
-  }
+.perfil-badge {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: var(--esp-2);
+  padding: 0 var(--esp-3);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--azul-texto);
+  font-size: 0.84rem;
+  font-weight: 650;
+}
 
-  /* Cuerpo de la Tarjeta con Íconos */
-  .perfil-card__body {
-    padding: 1.75rem 2rem;
-  }
+.perfil-card__body {
+  padding: var(--esp-5);
+}
 
-  .perfil-info-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1.25rem;
-    margin: 0;
-  }
+.perfil-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--esp-3);
+  margin: 0;
+}
 
-  .perfil-info-item {
-    display: flex;
-    align-items: center;
-    gap: 0.85rem;
-    padding: 0.85rem;
-    background-color: var(--superficie);
-    border-radius: var(--radio-sm);
-    border: 1px solid #f1f5f9;
-  }
+.perfil-info-item {
+  min-width: 0;
+  padding: var(--esp-3) var(--esp-4);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio-sm);
+  background: var(--superficie-alt);
+}
 
-  .perfil-info-item--full {
-    grid-column: span 2;
-  }
+.perfil-info-item--full,
+.campo-full {
+  grid-column: 1 / -1;
+}
 
-  .perfil-info-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 38px;
-    height: 38px;
-    border-radius: 8px;
-    background: var(--accion-superficie-hover);
-    color: var(--accion);
-    flex-shrink: 0;
-  }
+.perfil-info-item dt {
+  margin: 0 0 var(--esp-1);
+  color: var(--texto-suave);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
 
-  .perfil-info-content dt {
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: #64748b;
-    font-weight: 600;
-    margin: 0;
-  }
+.perfil-info-item dd {
+  margin: 0;
+  color: var(--texto);
+  font-size: 0.95rem;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
 
-  .perfil-info-content dd {
-    font-size: 0.95rem;
-    color: #1e293b;
-    font-weight: 600;
-    margin: 0;
-  }
+.perfil-modal-custom .modal-body {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.85fr);
+  align-content: start;
+  align-items: start;
+  gap: var(--esp-5);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 
-  /* Botón de editar más pequeño (Compacto) */
-  .btn-fipca--sm {
-    padding: 0.35rem 0.75rem;
-    font-size: 0.85rem;
-    border-radius: 6px;
-  }
+.perfil-modal-custom .cuenta-formulario {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
 
-  /* Modal y Formulario */
-  .form-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1rem;
-  }
+.perfil-modal-custom .modal-footer {
+  flex: 0 0 auto;
+}
 
-  .campo-full {
-    grid-column: span 2;
-  }
+.perfil-modal-dialog {
+  --bs-modal-width: 860px;
+}
 
-  .perfil-rol-banner {
-    background: #f8fafc;
-    border-left: 4px solid #4f46e5;
-    padding: 0.85rem 1rem;
-    border-radius: 6px;
-    margin: 1.25rem 0;
-  }
+.perfil-modal-custom .form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--esp-3) var(--esp-4);
+}
 
-  .perfil-rol-banner__info {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .perfil-info-value {
-    color: var(--texto);
-  }
+.perfil-modal__datos,
+.perfil-modal__lateral {
+  min-width: 0;
+}
 
-  /* Responsividad para móviles */
-  @media (max-width: 576px) {
-    .perfil-info-grid {
-      grid-template-columns: 1fr;
-    }
-    .perfil-info-item--full {
-      grid-column: span 1;
-    }
-    .form-grid {
-      grid-template-columns: 1fr;
-    }
-    .campo-full {
-      grid-column: span 1;
-    }
-  }
+.perfil-modal__lateral {
+  display: grid;
+  align-content: start;
+  gap: var(--esp-4);
+}
+
+.perfil-modal-custom .cuenta-campo {
+  margin-bottom: 0;
+}
+
+.perfil-rol-banner {
+  display: grid;
+  gap: var(--esp-1);
+  padding: var(--esp-3) var(--esp-4);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio-sm);
+  background: var(--superficie-alt);
+  color: var(--texto);
+}
+
+.perfil-rol-banner__info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--esp-3);
+}
+
+.perfil-rol-banner__info span,
+.perfil-rol-banner small {
+  color: var(--texto-suave);
+}
+
+.perfil-rol-banner__info strong {
+  color: var(--texto);
+}
+
+.perfil-modal__foto {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--esp-4);
+  padding-top: var(--esp-4);
+  border-top: 1px solid var(--borde);
+}
+
+.perfil-modal__foto-datos {
+  min-width: 0;
+}
+
+.perfil-modal__foto-datos > p,
+.perfil-modal__nota {
+  margin: var(--esp-1) 0 var(--esp-2);
+  color: var(--texto-suave);
+  font-size: 0.86rem;
+}
 
 
 
@@ -3409,25 +3706,113 @@ body.cuerpo-chat main {
   }
 
 
-@media (max-width: 640px) {
-  .cuenta-tabla-contenedor .dt-layout-row {
+@media (max-width: 767.98px) {
+  .datatable-tabla-scroll {
+    overflow: visible;
+  }
+
+  .datatable-contenedor table.dataTable,
+  .datatable-contenedor table.dataTable thead,
+  .datatable-contenedor table.dataTable tbody,
+  .datatable-contenedor table.dataTable tbody tr {
+    display: block;
+    width: 100% !important;
+  }
+
+  .datatable-contenedor table.dataTable {
+    min-width: 0 !important;
+  }
+
+  .datatable-contenedor table.dataTable thead {
+    position: absolute;
+    width: 1px !important;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    clip-path: inset(50%);
+  }
+
+  .datatable-contenedor table.dataTable tbody {
+    display: grid;
+    gap: var(--esp-3);
+  }
+
+  .datatable-contenedor table.dataTable tbody tr {
+    overflow: hidden;
+    border: 1px solid var(--borde);
+    border-radius: var(--radio-md);
+    background: var(--superficie);
+  }
+
+  .datatable-contenedor table.dataTable tbody td {
+    display: grid;
+    grid-template-columns: minmax(5.5rem, 0.65fr) minmax(0, 1.35fr);
+    align-items: center;
+    gap: var(--esp-3);
+    padding: var(--esp-3);
+    border-bottom: 1px solid var(--borde);
+    overflow-wrap: anywhere;
+  }
+
+  .datatable-contenedor table.dataTable tbody td::before {
+    content: attr(data-label);
+    color: var(--texto-suave);
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+
+  .datatable-contenedor table.dataTable tbody tr td:last-child {
+    border-bottom: 0;
+  }
+
+  .datatable-contenedor table.dataTable tbody td[colspan] {
+    display: block;
+  }
+
+  .datatable-contenedor table.dataTable tbody td[colspan]::before {
+    content: none;
+  }
+
+  .datatable-contenedor table.dataTable tbody tr:hover > * {
+    box-shadow: none;
+  }
+
+  .cuenta-tabla__acciones {
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+
+  .cuenta-tabla__acciones .btn-fipca {
+    min-height: 44px;
+  }
+
+  .datatable-contenedor .dt-layout-row {
     align-items: stretch;
     flex-direction: column;
     padding: 0 var(--esp-2);
   }
 
-  .cuenta-tabla-contenedor .dt-search {
+  .datatable-contenedor
+    .dt-container
+    .dt-layout-row
+    .dt-layout-cell:not(:empty) {
+    width: 100%;
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  .datatable-contenedor .dt-search {
+    width: 100%;
     align-items: stretch;
     flex-direction: column;
   }
 
-  .cuenta-tabla-contenedor .dt-search input {
+  .datatable-contenedor .dt-search input {
     width: 100%;
+    max-width: 100%;
     margin: 0;
-  }
-
-  .cuenta-tabla__acciones {
-    flex-wrap: wrap;
   }
 
   .perfil-modal__foto-datos > p,
@@ -3496,5 +3881,51 @@ body.cuerpo-chat main {
 
   .configuracion-tema .btn-fipca {
     width: 100%;
+  }
+}
+
+@media (max-width: 470px) {
+  .cuenta-formulario,
+  .cuenta-modal .modal-body,
+  .formulario-compacto,
+  .form-grid,
+  .perfil-info-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .form-grid .campo-full {
+    grid-column: 1;
+  }
+
+  .perfil-card__header {
+    align-items: center;
+    flex-direction: column;
+    padding: var(--esp-5);
+    text-align: center;
+  }
+
+  .perfil-card__avatar {
+    width: 88px;
+    height: 88px;
+  }
+
+  .perfil-card__body {
+    padding: var(--esp-4);
+  }
+
+  .perfil-rol-banner__info {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .perfil-modal__foto {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .perfil-modal-custom .modal-body {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

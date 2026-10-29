@@ -69,10 +69,18 @@
     var entradaBusqueda = document.getElementById("buscar-fuentes");
     var busqueda = document.getElementById("busqueda-fuentes");
     var sinCoincidencias = document.getElementById("fuentes-sin-coincidencias");
+    var accionesLote = document.getElementById("acciones-lote");
+    var seleccionarVisibles = document.getElementById("seleccionar-visibles");
+    var contadorSeleccion = document.getElementById("contador-seleccion");
+    var eliminarSeleccionados = document.getElementById("eliminar-seleccionados");
     var zona = document.getElementById("zona-archivos");
     var boton = document.getElementById("boton-archivos");
     var abrir = document.getElementById("abrir-fuentes");
     var cerrar = document.getElementById("cerrar-fuentes");
+    var alternarFuentesPc = document.getElementById("alternar-fuentes-pc");
+    var alternarSesionesPc = document.getElementById("alternar-sesiones-pc");
+    var panelSesiones = document.getElementById("panel-sesiones");
+    var chat = panel.closest(".chat");
     var velo = document.getElementById("velo-fuentes");
     var principal = document.querySelector(".chat__principal");
 
@@ -80,9 +88,62 @@
     var historial = [];
     var subiendo = false;
     var eliminando = false;
+    var seleccionados = Object.create(null);
     var arrastre = 0;
     var consulta = "";
     var puedeEliminar = Boolean(lista && lista.dataset.puedeEliminar);
+    var escritorio = window.matchMedia("(min-width: 1200px)");
+
+    function actualizarPanelesEscritorio() {
+      if (!chat) return;
+      var fuentesVisibles = !panel.hidden;
+      var sesionesVisibles = panelSesiones && !panelSesiones.hidden;
+      chat.classList.toggle("chat--sin-fuentes", !fuentesVisibles);
+      chat.classList.toggle("chat--sin-sesiones", !sesionesVisibles);
+      if (alternarFuentesPc) {
+        alternarFuentesPc.setAttribute("aria-expanded", String(fuentesVisibles));
+        alternarFuentesPc.setAttribute(
+          "aria-label",
+          (fuentesVisibles ? "Ocultar" : "Mostrar") + " panel de fuentes"
+        );
+      }
+      if (alternarSesionesPc) {
+        alternarSesionesPc.setAttribute("aria-expanded", String(sesionesVisibles));
+        alternarSesionesPc.setAttribute(
+          "aria-label",
+          (sesionesVisibles ? "Ocultar" : "Mostrar") + " panel de sesiones"
+        );
+      }
+    }
+
+    if (alternarFuentesPc) {
+      alternarFuentesPc.addEventListener("click", function () {
+        if (!escritorio.matches) return;
+        panel.hidden = !panel.hidden;
+        actualizarPanelesEscritorio();
+      });
+    }
+
+    if (alternarSesionesPc && panelSesiones) {
+      alternarSesionesPc.addEventListener("click", function () {
+        if (!escritorio.matches) return;
+        panelSesiones.hidden = !panelSesiones.hidden;
+        actualizarPanelesEscritorio();
+      });
+    }
+
+    function adaptarEscritorio(evento) {
+      if (evento.matches) return;
+      panel.hidden = false;
+      actualizarPanelesEscritorio();
+    }
+
+    if (escritorio.addEventListener) {
+      escritorio.addEventListener("change", adaptarEscritorio);
+    } else {
+      escritorio.addListener(adaptarEscritorio);
+    }
+    actualizarPanelesEscritorio();
 
     /* La busqueda ignora mayusculas y tildes: "martillo" encuentra
        "Martínez", y "excel" encuentra archivos XLSX que lleven "Excel". */
@@ -100,6 +161,38 @@
 
     function ocupacion() {
       return subiendo || eliminando;
+    }
+
+    function actualizarLote() {
+      if (!accionesLote || !lista) return;
+      var selectores = Array.prototype.slice.call(
+        lista.querySelectorAll("[data-seleccionar-id]")
+      );
+      var seleccionadosVisibles = selectores.filter(function (selector) {
+        return selector.checked;
+      }).length;
+      var totalSeleccionados = Object.keys(seleccionados).length;
+
+      accionesLote.hidden = historial.length === 0;
+      if (seleccionarVisibles) {
+        seleccionarVisibles.disabled = ocupacion() || selectores.length === 0;
+        seleccionarVisibles.checked =
+          selectores.length > 0 && seleccionadosVisibles === selectores.length;
+        seleccionarVisibles.indeterminate =
+          seleccionadosVisibles > 0 &&
+          seleccionadosVisibles < selectores.length;
+      }
+      if (contadorSeleccion) {
+        contadorSeleccion.textContent = totalSeleccionados + " seleccionados";
+      }
+      if (eliminarSeleccionados) {
+        eliminarSeleccionados.disabled =
+          ocupacion() || totalSeleccionados < 2;
+        eliminarSeleccionados.setAttribute(
+          "aria-label",
+          "Eliminar " + totalSeleccionados + " catálogos seleccionados"
+        );
+      }
     }
 
     function aviso(texto, tipo) {
@@ -147,7 +240,11 @@
         lista.querySelectorAll(".fuentes__eliminar").forEach(function (nodo) {
           nodo.disabled = ocupacion();
         });
+        lista.querySelectorAll("[data-seleccionar-id]").forEach(function (nodo) {
+          nodo.disabled = ocupacion();
+        });
       }
+      actualizarLote();
     }
 
     function pintar() {
@@ -226,6 +323,23 @@
             datos.appendChild(detalle);
           }
           if (puedeEliminar && archivo.id_archivo) {
+            var acciones = document.createElement("span");
+            acciones.className = "fuentes__acciones-archivo";
+            var contenedorSelector = document.createElement("label");
+            contenedorSelector.className = "fuentes__selector-contenedor";
+            var selector = document.createElement("input");
+            selector.type = "checkbox";
+            selector.className = "fuentes__selector";
+            selector.dataset.seleccionarId = String(archivo.id_archivo);
+            selector.checked = Boolean(seleccionados[String(archivo.id_archivo)]);
+            selector.disabled = ocupacion();
+            selector.setAttribute(
+              "aria-label",
+              "Seleccionar catálogo " + archivo.nombre
+            );
+            contenedorSelector.appendChild(selector);
+            acciones.appendChild(contenedorSelector);
+
             var eliminar = document.createElement("button");
             eliminar.type = "button";
             eliminar.className = "fuentes__eliminar";
@@ -237,7 +351,8 @@
                 " y sus productos asociados"
             );
             eliminar.appendChild(iconoEliminar());
-            fila.appendChild(eliminar);
+            acciones.appendChild(eliminar);
+            fila.appendChild(acciones);
           }
         }
         lista.appendChild(fila);
@@ -259,6 +374,7 @@
       if (sinCoincidencias) {
         sinCoincidencias.hidden = !(consulta && visibles === 0);
       }
+      actualizarLote();
     }
 
     function agregar(seleccion) {
@@ -425,6 +541,18 @@
       });
     }
 
+    if (seleccionarVisibles) {
+      seleccionarVisibles.addEventListener("change", function () {
+        lista.querySelectorAll("[data-seleccionar-id]").forEach(function (selector) {
+          var idArchivo = selector.dataset.seleccionarId;
+          if (seleccionarVisibles.checked) seleccionados[idArchivo] = true;
+          else delete seleccionados[idArchivo];
+        });
+        pintar();
+        actualizar();
+      });
+    }
+
     /* Arrastrar y soltar sobre la zona punteada. El contador evita que el
        resaltado parpadee al pasar sobre los elementos hijos. */
     if (zona) {
@@ -486,6 +614,14 @@
         } else if (boton) {
           boton.focus();
         }
+      });
+      lista.addEventListener("change", function (evento) {
+        var selector = evento.target.closest("[data-seleccionar-id]");
+        if (!selector) return;
+        var idArchivo = selector.dataset.seleccionarId;
+        if (selector.checked) seleccionados[idArchivo] = true;
+        else delete seleccionados[idArchivo];
+        actualizarLote();
       });
     }
 
@@ -554,6 +690,7 @@
           "/api/v1/inventario/archivos/" + idArchivo,
           { metodo: "DELETE" }
         );
+        delete seleccionados[String(idArchivo)];
         var unidad =
           resultado.productos_eliminados === 1 ? " producto" : " productos";
         await Fipca.aviso(
@@ -574,9 +711,120 @@
       }
     }
 
+    async function eliminarCatalogosSeleccionados() {
+      if (ocupacion()) return;
+      var ids = Object.keys(seleccionados).map(Number);
+      if (ids.length < 2) return;
+
+      var catalogosSeleccionados = historial.filter(function (archivo) {
+        return seleccionados[String(archivo.id_archivo)];
+      });
+      var nombres = catalogosSeleccionados.map(function (archivo) {
+        return archivo.nombre;
+      });
+      var nombresVisibles = nombres.slice(0, 4).join(", ");
+      if (nombres.length > 4) {
+        nombresVisibles += " y " + (nombres.length - 4) + " más";
+      }
+      var descripcion =
+        "Se eliminarán " + ids.length + " catálogos" +
+        (nombresVisibles ? ": " + nombresVisibles : "") +
+        ". También se retirarán sus productos asociados" +
+        " y los archivos originales. Esta acción no se puede deshacer.";
+
+      var proseguir = false;
+      if (window.Swal && window.Swal.fire) {
+        var confirmacion = await window.Swal.fire({
+          icon: "warning",
+          title: "¿Eliminar los catálogos seleccionados?",
+          text: descripcion,
+          showCancelButton: true,
+          confirmButtonText: "Eliminar catálogos",
+          cancelButtonText: "Conservar",
+          reverseButtons: true,
+          focusCancel: true,
+          buttonsStyling: false,
+          customClass: {
+            popup: "fipca-alerta",
+            confirmButton: "btn-fipca",
+            cancelButton: "btn-fipca btn-fipca--fantasma",
+            actions: "fipca-alerta__acciones",
+          },
+        });
+        proseguir = confirmacion.isConfirmed;
+      } else if (window.confirm) {
+        proseguir = window.confirm(descripcion);
+      }
+      if (!proseguir) return;
+
+      eliminando = true;
+      aviso("");
+      actualizar();
+      eliminarSeleccionados.disabled = true;
+
+      try {
+        var resultado = await Fipca.pedir(
+          "/api/v1/inventario/archivos/eliminacion-multiple",
+          {
+            metodo: "POST",
+            cuerpo: { ids_archivos: ids },
+          }
+        );
+        ids.forEach(function (idArchivo) {
+          delete seleccionados[String(idArchivo)];
+        });
+        var cantidad = resultado.eliminados.length;
+        var productos = resultado.eliminados.reduce(function (total, archivo) {
+          return total + archivo.productos_eliminados;
+        }, 0);
+        var mensaje = cantidad
+          ? "Se eliminaron " + cantidad +
+            (cantidad === 1 ? " catálogo y " : " catálogos y ") +
+            productos + (productos === 1 ? " producto." : " productos.")
+          : "No se eliminó ningún catálogo.";
+        if (resultado.ids_no_encontrados.length) {
+          var faltantes = resultado.ids_no_encontrados.map(function (idArchivo) {
+            var archivo = catalogosSeleccionados.find(function (item) {
+              return Number(item.id_archivo) === idArchivo;
+            });
+            return archivo ? archivo.nombre : "ID " + idArchivo;
+          });
+          mensaje += " No se encontraron: " + faltantes.join(", ") + ".";
+        }
+        aviso(
+          mensaje,
+          resultado.ids_no_encontrados.length ? "error" : "exito"
+        );
+      } catch (fallo) {
+        aviso(fallo.message || "No se pudieron eliminar los catálogos.");
+      } finally {
+        eliminando = false;
+        await cargarHistorial();
+        actualizar();
+        var restantes = lista.querySelectorAll(".fuentes__eliminar");
+        if (restantes.length) restantes[0].focus();
+        else if (boton && !boton.disabled) boton.focus();
+      }
+    }
+
+    if (eliminarSeleccionados) {
+      eliminarSeleccionados.addEventListener(
+        "click",
+        eliminarCatalogosSeleccionados
+      );
+    }
+
     async function cargarHistorial() {
       try {
-        historial = await Fipca.pedir("/api/v1/inventario/archivos");
+        var nuevosArchivos = await Fipca.pedir("/api/v1/inventario/archivos");
+        var idsDisponibles = Object.create(null);
+        nuevosArchivos.forEach(function (archivo) {
+          idsDisponibles[String(archivo.id_archivo)] = true;
+        });
+        Object.keys(seleccionados).forEach(function (idArchivo) {
+          if (!idsDisponibles[idArchivo]) delete seleccionados[idArchivo];
+        });
+        historial = nuevosArchivos;
         pintar();
         actualizar();
       } catch (fallo) {
@@ -590,6 +838,7 @@
 
     function abrirPanel() {
       if (!movil.matches) return;
+      panel.hidden = false;
       panel.setAttribute("data-abierto", "true");
       if (velo) velo.hidden = false;
       if (abrir) abrir.setAttribute("aria-expanded", "true");
@@ -625,9 +874,11 @@
       movil.addEventListener("change", function (evento) {
         if (evento.matches) return;
         panel.removeAttribute("data-abierto");
+        panel.hidden = false;
         if (velo) velo.hidden = true;
         if (principal) principal.inert = false;
         if (abrir) abrir.setAttribute("aria-expanded", "false");
+        actualizarPanelesEscritorio();
       });
     }
 

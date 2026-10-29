@@ -24,7 +24,9 @@ from app.models import inventario as inventario_model
 from app.schemas.inventario_schema import (
     ArchivoIngesta,
     RespuestaEliminacionArchivo,
+    RespuestaEliminacionCatalogos,
     RespuestaIngesta,
+    SolicitudEliminacionCatalogos,
 )
 from app.services import etl_service
 
@@ -119,6 +121,36 @@ async def ingesta(
         archivos_error=estados.count("error"),
         archivos_rechazados=estados.count("rechazado"),
     )
+
+
+@router.post(
+    "/archivos/eliminacion-multiple",
+    response_model=RespuestaEliminacionCatalogos,
+    summary="Eliminar varios catalogos seleccionados",
+    responses={
+        403: {"description": "Solo administradores pueden eliminar catalogos"},
+    },
+)
+async def eliminar_archivos(
+    request: Request,
+    solicitud: SolicitudEliminacionCatalogos,
+    usuario: dict[str, Any] = Depends(requiere_admin),
+) -> dict[str, Any]:
+    """Elimina los catalogos existentes seleccionados y reporta los ausentes."""
+    resultado = await run_in_threadpool(
+        etl_service.eliminar_catalogos_completos,
+        solicitud.ids_archivos,
+    )
+    for catalogo in resultado["eliminados"]:
+        registrar_evento(
+            request,
+            (
+                f"eliminacion de catalogo: {catalogo['nombre']} "
+                f"({catalogo['productos_eliminados']} productos)"
+            ),
+            id_usuario=usuario["id"],
+        )
+    return resultado
 
 
 @router.delete(

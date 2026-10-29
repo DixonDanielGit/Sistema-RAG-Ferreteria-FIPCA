@@ -127,6 +127,72 @@ def eliminar_catalogo(id_archivo: int) -> dict[str, Any] | None:
         }
 
 
+def eliminar_catalogos(ids_archivos: list[int]) -> dict[str, Any]:
+    """Elimina en una transaccion todos los catalogos existentes del lote."""
+    ids_unicos = list(dict.fromkeys(ids_archivos))
+    if not ids_unicos:
+        return {"catalogos": [], "ids_no_encontrados": []}
+
+    with cursor_rag() as cursor:
+        cursor.execute(
+            """
+            SELECT id_archivo, nombre, ruta
+              FROM archivos_subidos
+             WHERE id_archivo = ANY(%s)
+             ORDER BY id_archivo
+               FOR UPDATE
+            """,
+            (ids_unicos,),
+        )
+        filas = cursor.fetchall()
+        por_id = {fila["id_archivo"]: fila for fila in filas}
+        ids_existentes = [id_archivo for id_archivo in ids_unicos if id_archivo in por_id]
+        ids_no_encontrados = [
+            id_archivo for id_archivo in ids_unicos if id_archivo not in por_id
+        ]
+        if not ids_existentes:
+            return {"catalogos": [], "ids_no_encontrados": ids_no_encontrados}
+
+        cursor.execute(
+            """
+            DELETE FROM productos
+             WHERE id_archivo = ANY(%s)
+            RETURNING id_archivo
+            """,
+            (ids_existentes,),
+        )
+        productos_por_archivo: dict[int, int] = {}
+        for fila in cursor.fetchall():
+            id_archivo = fila["id_archivo"]
+            productos_por_archivo[id_archivo] = (
+                productos_por_archivo.get(id_archivo, 0) + 1
+            )
+
+        cursor.execute(
+            """
+            DELETE FROM archivos_subidos
+             WHERE id_archivo = ANY(%s)
+            RETURNING id_archivo
+            """,
+            (ids_existentes,),
+        )
+        eliminados = {fila["id_archivo"] for fila in cursor.fetchall()}
+        catalogos = [
+            {
+                "id_archivo": id_archivo,
+                "nombre": por_id[id_archivo]["nombre"],
+                "ruta_original": por_id[id_archivo]["ruta"],
+                "productos_eliminados": productos_por_archivo.get(id_archivo, 0),
+            }
+            for id_archivo in ids_existentes
+            if id_archivo in eliminados
+        ]
+        return {
+            "catalogos": catalogos,
+            "ids_no_encontrados": ids_no_encontrados,
+        }
+
+
 def insertar_o_actualizar_productos(
     id_archivo: int, productos: Iterable[dict[str, Any]]
 ) -> int:

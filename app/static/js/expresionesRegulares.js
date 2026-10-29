@@ -217,6 +217,17 @@ export function validarCampo(
         const valorPassword = inputPassword ? inputPassword.value : "";
 
         if (valor === "") {
+            if (!input.required) {
+                if (pError) {
+                    pError.textContent = "";
+                    pError.classList.add("d-none");
+                }
+                actualizarEstadoInput(input, "limpio");
+                chulitoYX(check, error, "vacio");
+                if (campos) campos[campo] = true;
+                return true;
+            }
+
             if (pError) {
                 pError.textContent = "Por favor confirme la contraseña.";
                 pError.classList.remove("d-none");

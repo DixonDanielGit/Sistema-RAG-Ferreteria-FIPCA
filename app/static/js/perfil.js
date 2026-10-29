@@ -1,9 +1,12 @@
 /* Edicion del perfil y de la fotografia de la cuenta actual. */
+import { inicializarValidacionFormulario } from "/static/js/expresionesRegulares.js";
+
 (function () {
   "use strict";
 
   var form = document.getElementById("form-perfil");
   if (!form) return;
+  var validador = inicializarValidacionFormulario(form);
 
   var modalElemento = document.getElementById("modal-perfil");
   var modal = window.bootstrap.Modal.getOrCreateInstance(modalElemento);
@@ -18,6 +21,8 @@
   var urlTemporal = null;
   var archivoSeleccionado = null;
   var fuenteGuardada = imagenes[0].getAttribute("src");
+  var avisoValidacion =
+    "Revise los campos marcados y corrija el formato antes de guardar.";
 
   function mostrarImagen(fuente) {
     imagenes.forEach(function (elemento) {
@@ -47,7 +52,10 @@
 
   form.addEventListener("submit", async function (evento) {
     evento.preventDefault();
-    if (!form.reportValidity()) return;
+    if (!validador.verificar()) {
+      await window.Fipca.aviso(null, avisoValidacion, "error");
+      return;
+    }
 
     var boton = form.querySelector('button[type="submit"]');
     var giro = boton.querySelector(".spinner-border");
@@ -94,6 +102,7 @@
       }
 
       liberarVistaPrevia();
+      validador.limpiar();
       modal.hide();
       await window.Fipca.aviso(null, "Los cambios del perfil se guardaron.", "exito");
     } catch (error) {
@@ -196,7 +205,10 @@
     if (campoInicial) campoInicial.focus();
   });
 
-  modalElemento.addEventListener("hidden.bs.modal", liberarVistaPrevia);
+  modalElemento.addEventListener("hidden.bs.modal", function () {
+    liberarVistaPrevia();
+    validador.limpiar();
+  });
 
   window.addEventListener("beforeunload", function () {
     if (urlTemporal) URL.revokeObjectURL(urlTemporal);

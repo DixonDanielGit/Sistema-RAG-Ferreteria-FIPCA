@@ -67,6 +67,12 @@ Para evitar espacios excesivos entre filas de campos en un modal:
    - `gap: var(--esp-2) var(--esp-4);` (8px de separación vertical y 24px horizontal).
    - `margin-bottom: 0;` en los `.cuenta-campo` internos.
 
+En pantallas de **470 px o menos**, todos los campos deben presentarse en una
+sola columna. `estilos.css` aplica este estándar a `.cuenta-formulario`,
+`.cuenta-modal .modal-body`, `.formulario-compacto` y `.form-grid`; los
+formularios de una sola columna conservan su distribución. Mantenga este
+breakpoint al añadir nuevas rejillas o filas de campos.
+
 ---
 
 ## 4. Registro y Configuración de Nuevas Expresiones Regulares
@@ -88,7 +94,9 @@ export const expresiones = {
 
 ### Campos con Comportamientos Especiales:
 - **`passwordConf`**: Valida automáticamente que su valor sea idéntico al campo con `name="password"`. Además, cuando se edita el campo `password`, el validador vuelve a verificar en tiempo real `passwordConf`.
+- Si `passwordConf` es opcional y está vacío (por ejemplo, al editar una cuenta sin cambiar su contraseña), no bloquea el envío. Cuando es obligatorio, conserva su validación de coincidencia y expresión regular.
 - **`<select>`**: Valida que la opción seleccionada no sea cadena vacía ni `"selection"` y cumpla la expresión regular asignada.
+- El formulario de perfil valida `nombre`, `apellido`, `cedula`, `usuario` y `correo` con las reglas existentes antes de enviar el `PUT`. `novalidate` permite que los errores se muestren junto a cada campo mediante el validador común; no sustituye la validación del servidor.
 
 ---
 

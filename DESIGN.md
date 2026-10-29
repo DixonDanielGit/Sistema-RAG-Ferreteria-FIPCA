@@ -265,8 +265,9 @@ Reglas:
 - **Usuarios:** tabla de cuentas con búsqueda, ordenamiento, paginación y
   expansión responsive; alta y edición ocurren en un modal. Las acciones
   permiten activar o desactivar sin borrar el historial.
-- **Perfil:** fotografía y resumen personal en la página; los cambios de datos
-  y fotografía se realizan en un modal con vista previa.
+- **Perfil:** fotografía, rol y datos personales en una ficha compacta con
+  superficies y colores de tema; los cambios de datos y fotografía se realizan
+  en un modal con vista previa y validación en vivo.
 - **Configuración:** versión y vigencia de sesión para ambos roles; diagnóstico
   de bases y límites de ingesta solo para administración.
 - **Asistente:** dos columnas. El panel de fuentes ocupa 292 px a la izquierda y
@@ -281,7 +282,8 @@ Reglas:
   desborde), 900 px (paneles y rejillas) y 640 px (cabecera del chat). En móvil,
   los enlaces quedan dentro del menú desplegable; el panel de fuentes pasa a
   cajón deslizante con velo y se abre desde el botón "Fuentes". Los controles
-  de navegación conservan objetivos táctiles de 44 px.
+  de navegación conservan objetivos táctiles de 44 px. A 470 px o menos, los
+  campos de todos los formularios se apilan en una columna.
 - **Objetivos táctiles:** 44 px mínimos en móvil, incluidos los botones de tema
   y las sugerencias del asistente.
 

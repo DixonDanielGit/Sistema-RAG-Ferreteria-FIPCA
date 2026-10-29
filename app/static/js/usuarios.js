@@ -1,8 +1,5 @@
 /* Administracion de cuentas con modal y DataTables Responsive. */
-import {
-  inicializarValidacionFormulario,
-  limpiarValidacionFormulario,
-} from "/static/js/expresionesRegulares.js";
+import { inicializarValidacionFormulario } from "/static/js/expresionesRegulares.js";
 
 (function () {
   "use strict";
@@ -12,27 +9,21 @@ import {
 
   var lista = [];
   var conteo = document.getElementById("conteo-usuarios");
-  var formularioEdicion = document.getElementById("form-usuario");
-  var campoPasswordEdicion = document.getElementById("campo-password-inicial");
-  var modalEdicionElemento = document.getElementById("modal-usuario");
-  var modalEdicion = modalEdicionElemento
-    ? window.bootstrap.Modal.getOrCreateInstance(modalEdicionElemento)
-    : null;
-  var tituloModalEdicion = document.getElementById("modal-usuario-titulo");
-  var ayudaModalEdicion = document.getElementById("modal-usuario-ayuda");
-  var etiquetaGuardarEdicion = document.getElementById(
-    "guardar-usuario-etiqueta"
-  );
   var tablaDatos;
-
-  // Modal y formulario de Registro (con validaciones interactivas)
-  var formRegistro = document.getElementById("form-usuario2");
-  var modalRegistroElemento = document.getElementById("exampleModal");
-  var modalRegistro = modalRegistroElemento
-    ? window.bootstrap.Modal.getOrCreateInstance(modalRegistroElemento)
+  var formulario = document.getElementById("form-usuario");
+  var modalElemento = document.getElementById("modal-usuario");
+  var modal = modalElemento
+    ? window.bootstrap.Modal.getOrCreateInstance(modalElemento)
     : null;
-  var validadorRegistro = formRegistro
-    ? inicializarValidacionFormulario(formRegistro)
+  var campoPassword = document.getElementById("campo-password-inicial");
+  var campoPasswordConf = document.getElementById(
+    "campo-password-confirmacion"
+  );
+  var tituloModal = document.getElementById("modal-usuario-titulo");
+  var ayudaModal = document.getElementById("modal-usuario-ayuda");
+  var etiquetaGuardar = document.getElementById("guardar-usuario-etiqueta");
+  var validador = formulario
+    ? inicializarValidacionFormulario(formulario)
     : null;
 
   function escapar(valor) {
@@ -77,7 +68,6 @@ import {
     return [
       {
         data: null,
-        responsivePriority: 2,
         render: function (_dato, tipo, usuario) {
           var valor = usuario.nombre + " " + usuario.apellido;
           if (tipo !== "display") return valor;
@@ -86,7 +76,6 @@ import {
       },
       {
         data: null,
-        responsivePriority: 3,
         render: function (_dato, tipo, usuario) {
           if (tipo !== "display") return usuario.usuario + " " + usuario.cedula;
           return (
@@ -99,10 +88,9 @@ import {
           );
         },
       },
-      { data: "correo", render: texto, responsivePriority: 4 },
+      { data: "correo", render: texto },
       {
         data: "rol",
-        responsivePriority: 5,
         render: function (valor, tipo) {
           if (tipo !== "display") return valor;
           return valor === "admin" ? "Administrador" : "Ventas";
@@ -110,7 +98,6 @@ import {
       },
       {
         data: "activo",
-        responsivePriority: 6,
         render: function (activo, tipo) {
           if (tipo !== "display") return activo ? "Activa" : "Inactiva";
           return (
@@ -126,7 +113,6 @@ import {
         data: null,
         orderable: false,
         searchable: false,
-        responsivePriority: 1,
         render: function (_dato, tipo, usuario) {
           return tipo === "display" ? plantillaAcciones(usuario) : "";
         },
@@ -140,11 +126,14 @@ import {
       columns: columnas(),
       autoWidth: false,
       deferRender: true,
-      responsive: {
-        details: {
-          type: "inline",
-          target: "tr",
-        },
+      createdRow: function (fila) {
+        var encabezados = tabla.tHead && tabla.tHead.rows[0];
+        if (!encabezados) return;
+        Array.prototype.forEach.call(fila.cells, function (celda, indice) {
+          var encabezado = encabezados.cells[indice];
+          var etiqueta = encabezado ? encabezado.textContent.trim() : "";
+          if (etiqueta) celda.setAttribute("data-label", etiqueta);
+        });
       },
       order: [[0, "asc"]],
       pageLength: 10,
@@ -196,49 +185,50 @@ import {
     });
   }
 
-  function abrirCreacion() {
-    if (formRegistro) {
-      formRegistro.reset();
-      if (validadorRegistro) {
-        validadorRegistro.limpiar();
-      }
+  function configurarModo(edicion, usuario) {
+    if (!formulario) return;
+
+    formulario.reset();
+    delete formulario.dataset.id;
+    if (validador) validador.limpiar();
+
+    if (edicion && usuario) {
+      formulario.dataset.id = String(usuario.id);
+      ["nombre", "apellido", "cedula", "usuario", "correo", "rol"].forEach(
+        function (campo) {
+          if (formulario.elements[campo]) {
+            formulario.elements[campo].value = usuario[campo];
+          }
+        }
+      );
     }
-    if (modalRegistro) {
-      modalRegistro.show();
+
+    if (campoPassword) campoPassword.hidden = edicion;
+    if (campoPasswordConf) campoPasswordConf.hidden = edicion;
+    formulario.elements.password.required = !edicion;
+    formulario.elements.passwordConf.required = !edicion;
+
+    if (tituloModal) {
+      tituloModal.textContent = edicion ? "Editar usuario" : "Registrar usuario";
+    }
+    if (ayudaModal) {
+      ayudaModal.textContent = edicion
+        ? "Actualice los datos y el rol de acceso de esta cuenta."
+        : "Complete los datos para dar de alta una nueva cuenta en el sistema.";
+    }
+    if (etiquetaGuardar) {
+      etiquetaGuardar.textContent = edicion ? "Guardar cambios" : "Registrar";
     }
   }
 
+  function abrirCreacion() {
+    configurarModo(false);
+    if (modal) modal.show();
+  }
+
   function abrirEdicion(usuario) {
-    if (!formularioEdicion) return;
-    formularioEdicion.reset();
-    formularioEdicion.dataset.id = String(usuario.id);
-    ["nombre", "apellido", "cedula", "usuario", "correo", "rol"].forEach(
-      function (campo) {
-        if (formularioEdicion.elements[campo]) {
-          formularioEdicion.elements[campo].value = usuario[campo];
-        }
-      }
-    );
-    if (campoPasswordEdicion) {
-      campoPasswordEdicion.hidden = true;
-    }
-    if (formularioEdicion.elements.password) {
-      formularioEdicion.elements.password.required = false;
-      formularioEdicion.elements.password.value = "";
-    }
-    if (tituloModalEdicion) {
-      tituloModalEdicion.textContent = "Editar usuario";
-    }
-    if (ayudaModalEdicion) {
-      ayudaModalEdicion.textContent =
-        "Actualice los datos y el rol de acceso de esta cuenta.";
-    }
-    if (etiquetaGuardarEdicion) {
-      etiquetaGuardarEdicion.textContent = "Guardar cambios";
-    }
-    if (modalEdicion) {
-      modalEdicion.show();
-    }
+    configurarModo(true, usuario);
+    if (modal) modal.show();
   }
 
   async function cargarUsuarios() {
@@ -257,13 +247,11 @@ import {
     botonAbrir.addEventListener("click", abrirCreacion);
   }
 
-  // Enviar formulario de Registro (con validaciones dinámicas)
-  if (formRegistro) {
-    formRegistro.addEventListener("submit", async function (evento) {
+  if (formulario) {
+    formulario.addEventListener("submit", async function (evento) {
       evento.preventDefault();
 
-      // Verificar todas las validaciones antes de procesar
-      var esValido = validadorRegistro ? validadorRegistro.verificar() : true;
+      var esValido = validador ? validador.verificar() : true;
       if (!esValido) {
         await window.Fipca.aviso(
           null,
@@ -273,9 +261,10 @@ import {
         return;
       }
 
-      var password = formRegistro.elements.password.value;
-      var passwordConf = formRegistro.elements.passwordConf.value;
-      if (password !== passwordConf) {
+      var id = formulario.dataset.id;
+      var password = formulario.elements.password.value;
+      var passwordConf = formulario.elements.passwordConf.value;
+      if (!id && password !== passwordConf) {
         await window.Fipca.aviso(
           null,
           "Las contraseñas no coinciden.",
@@ -284,96 +273,41 @@ import {
         return;
       }
 
-      var boton = formRegistro.querySelector('button[type="submit"]');
+      var boton = formulario.querySelector('button[type="submit"]');
       var giro = boton ? boton.querySelector(".spinner-border") : null;
 
       var datos = {
-        cedula: formRegistro.elements.cedula.value.trim(),
-        nombre: formRegistro.elements.nombre.value.trim(),
-        apellido: formRegistro.elements.apellido.value.trim(),
-        usuario: formRegistro.elements.usuario.value.trim(),
-        correo: formRegistro.elements.correo.value.trim(),
-        password: password,
-        rol: formRegistro.elements.rol.value,
+        cedula: formulario.elements.cedula.value.trim(),
+        nombre: formulario.elements.nombre.value.trim(),
+        apellido: formulario.elements.apellido.value.trim(),
+        usuario: formulario.elements.usuario.value.trim(),
+        correo: formulario.elements.correo.value.trim(),
+        rol: formulario.elements.rol.value,
       };
+      if (!id) datos.password = password;
 
       if (boton && giro) {
-        window.Fipca.cargando(boton, giro, true, "Registrando…");
-      }
-
-      try {
-        await window.Fipca.pedir("/api/v1/auth/register", {
-          metodo: "POST",
-          cuerpo: datos,
-        });
-
-        if (modalRegistro) {
-          modalRegistro.hide();
-        }
-        formRegistro.reset();
-        if (validadorRegistro) {
-          validadorRegistro.limpiar();
-        }
-
-        await window.Fipca.aviso(
-          null,
-          "La cuenta se creó correctamente.",
-          "exito"
+        window.Fipca.cargando(
+          boton,
+          giro,
+          true,
+          id ? "Guardando…" : "Registrando…"
         );
-        await cargarUsuarios();
-      } catch (error) {
-        await window.Fipca.aviso(null, error.message, "error");
-      } finally {
-        if (boton && giro) {
-          window.Fipca.cargando(boton, giro, false);
-        }
       }
-    });
 
-    if (modalRegistroElemento) {
-      modalRegistroElemento.addEventListener("shown.bs.modal", function () {
-        var primerInput = formRegistro.querySelector(
-          'input:not([type="hidden"]):not([disabled])'
-        );
-        if (primerInput) primerInput.focus();
-      });
-
-      modalRegistroElemento.addEventListener("hidden.bs.modal", function () {
-        formRegistro.reset();
-        if (validadorRegistro) {
-          validadorRegistro.limpiar();
-        }
-      });
-    }
-  }
-
-  // Enviar formulario de Edición (modal-usuario)
-  if (formularioEdicion) {
-    formularioEdicion.addEventListener("submit", async function (evento) {
-      evento.preventDefault();
-      if (!formularioEdicion.reportValidity()) return;
-
-      var boton = formularioEdicion.querySelector('button[type="submit"]');
-      var giro = boton ? boton.querySelector(".spinner-border") : null;
-      var id = formularioEdicion.dataset.id;
-      var datos = {};
-      new FormData(formularioEdicion).forEach(function (valor, clave) {
-        datos[clave] = valor;
-      });
-
-      if (boton && giro) {
-        window.Fipca.cargando(boton, giro, true, "Guardando…");
-      }
       try {
         await window.Fipca.pedir(
           id
             ? "/api/v1/auth/usuarios/" + encodeURIComponent(id)
             : "/api/v1/auth/register",
-          { metodo: id ? "PUT" : "POST", cuerpo: datos }
+          {
+            metodo: id ? "PUT" : "POST",
+            cuerpo: datos,
+          }
         );
-        if (modalEdicion) {
-          modalEdicion.hide();
-        }
+
+        if (modal) modal.hide();
+
         await window.Fipca.aviso(
           null,
           id
@@ -391,12 +325,15 @@ import {
       }
     });
 
-    if (modalEdicionElemento) {
-      modalEdicionElemento.addEventListener("shown.bs.modal", function () {
-        var campoInicial = formularioEdicion.querySelector(
+    if (modalElemento) {
+      modalElemento.addEventListener("shown.bs.modal", function () {
+        var campoInicial = formulario.querySelector(
           'input:not([type="hidden"]):not([disabled])'
         );
         if (campoInicial) campoInicial.focus();
+      });
+      modalElemento.addEventListener("hidden.bs.modal", function () {
+        configurarModo(false);
       });
     }
   }
