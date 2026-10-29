@@ -22,7 +22,6 @@
     {% if usuario and usuario.rol == 'admin' %}
     <a class="fipca-nav__enlace" href="/usuarios"
        {% if activo == 'usuarios' %}aria-current="page"{% endif %}>Usuarios</a>
-    <a class="fipca-nav__enlace fipca-nav__enlace--api" href="/docs" rel="noopener">API</a>
     {% endif %}
     <a class="fipca-nav__enlace" href="/perfil"
        {% if activo == 'perfil' %}aria-current="page"{% endif %}>Perfil</a>
