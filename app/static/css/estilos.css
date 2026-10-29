@@ -1484,7 +1484,7 @@ body.cuerpo-chat main {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
   padding: var(--esp-4) var(--esp-3);
   border: 1px dashed var(--borde-fuerte);
   border-radius: var(--radio-md);
