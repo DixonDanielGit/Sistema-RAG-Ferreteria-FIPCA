@@ -3022,6 +3022,187 @@ body.cuerpo-chat main {
   margin: 0;
 }
 
+/* perfil sección */
+ /* Contenedor centralizado para evitar tarjeta demasiado ancha */
+  .perfil-contenedor-compacto {
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 1.5rem 1rem;
+  }
+
+  /* Tarjeta Principal */
+  .perfil-card {
+    background: var(--fondo);
+    border-radius: 16px;
+    border: 1px solid var(--borde);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05),
+      0 8px 10px -6px rgba(0, 0, 0, 0.01);
+    overflow: hidden;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  /* Encabezado con Degradado Impeccable */
+  .perfil-card__header {
+    background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 50%, #06b6d4 100%);
+    padding: 2.5rem 2rem 2rem 2rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    position: relative;
+  }
+
+  .perfil-card__avatar-wrapper {
+    position: relative;
+    margin-bottom: 1rem;
+  }
+
+  .perfil-card__avatar {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 4px solid var(--borde-fuerte);
+    box-shadow: 0 4px 14px var(--sombra);
+    background-color: var(--fondo);
+  }
+
+  .perfil-card__name {
+    color: #ffffff;
+    font-size: 1.35rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  }
+
+  /* Badges de Rol */
+  .perfil-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.85rem;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    backdrop-filter: blur(8px);
+  }
+
+  .perfil-badge--admin {
+    background: rgba(255, 255, 255, 0.25);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+  }
+
+  .perfil-badge--sales {
+    background: rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+  }
+
+  /* Cuerpo de la Tarjeta con Íconos */
+  .perfil-card__body {
+    padding: 1.75rem 2rem;
+  }
+
+  .perfil-info-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.25rem;
+    margin: 0;
+  }
+
+  .perfil-info-item {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 0.85rem;
+    background-color: var(--superficie);
+    border-radius: var(--radio-sm);
+    border: 1px solid #f1f5f9;
+  }
+
+  .perfil-info-item--full {
+    grid-column: span 2;
+  }
+
+  .perfil-info-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+    background: var(--accion-superficie-hover);
+    color: var(--accion);
+    flex-shrink: 0;
+  }
+
+  .perfil-info-content dt {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #64748b;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .perfil-info-content dd {
+    font-size: 0.95rem;
+    color: #1e293b;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  /* Botón de editar más pequeño (Compacto) */
+  .btn-fipca--sm {
+    padding: 0.35rem 0.75rem;
+    font-size: 0.85rem;
+    border-radius: 6px;
+  }
+
+  /* Modal y Formulario */
+  .form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+  }
+
+  .campo-full {
+    grid-column: span 2;
+  }
+
+  .perfil-rol-banner {
+    background: #f8fafc;
+    border-left: 4px solid #4f46e5;
+    padding: 0.85rem 1rem;
+    border-radius: 6px;
+    margin: 1.25rem 0;
+  }
+
+  .perfil-rol-banner__info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .perfil-info-value {
+    color: var(--texto);
+  }
+
+  /* Responsividad para móviles */
+  @media (max-width: 576px) {
+    .perfil-info-grid {
+      grid-template-columns: 1fr;
+    }
+    .perfil-info-item--full {
+      grid-column: span 1;
+    }
+    .form-grid {
+      grid-template-columns: 1fr;
+    }
+    .campo-full {
+      grid-column: span 1;
+    }
+  }
 
 
 
@@ -3255,6 +3436,8 @@ body.cuerpo-chat main {
     color: var(--texto-suave);
     font-size: 0.86rem;
   }
+
+  
 
   /* Campos del formulario de cuentas */
   .cuenta-campo {
