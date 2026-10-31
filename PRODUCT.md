@@ -8,7 +8,8 @@ web
 
 ## Users
 
-Dos roles reales, definidos en los requisitos del cliente:
+Los roles son perfiles de acceso configurables desde Configuración por una
+persona con el rol protegido `admin`. La instalación inicial incluye:
 
 - **Administrador** (dueño o encargado): da de alta cuentas, carga catálogos de
   proveedores, ajusta inventario y revisa la auditoría. Trabaja en la oficina del
@@ -17,6 +18,12 @@ Dos roles reales, definidos en los requisitos del cliente:
 - **Ventas** (vendedor de mostrador): atiende clientes de pie, entre una consulta
   y otra, y necesita saber si hay stock, cuánto cuesta y dónde está. Usa el mismo
   PC del mostrador y, cuando va al depósito, una tablet o un celular.
+
+El administrador puede crear otros perfiles y asignarles capacidades de una
+lista cerrada del sistema. `admin` conserva acceso total y no se puede editar ni
+eliminar; los demás roles no pueden administrar roles. Las capacidades vigentes
+incluyen gestión de usuarios, carga y eliminación de catálogos y consulta del
+diagnóstico técnico.
 
 El trabajo a resolver es siempre el mismo: responder "¿tiene esto?, ¿cuánto
 cuesta?, ¿cuántos quedan?" sin caminar al depósito ni abrir el archivo del
@@ -56,21 +63,26 @@ bitácora inmutable que registra quién tocó qué.
 
 ## Capabilities and Constraints
 
-Implementado y verificado al momento de escribir esto: autenticación con JWT y
-roles, recuperación de contraseña por enlace de un solo uso, auditoría inmutable
-en `bitacora`, y una vista de asistente que funciona de punta a punta con un
-motor provisional (el RAG real llega en la Semana 5 del cronograma).
+Implementado y verificado al momento de escribir esto: autenticación con JWT,
+roles configurables y autorización por capacidades consultadas en cada
+solicitud, recuperación de contraseña por enlace de un solo uso, auditoría
+inmutable en `bitacora`, y una vista de asistente que funciona de punta a punta
+con un motor provisional (el RAG real llega en la Semana 5 del cronograma).
 
-La administración de cuentas corresponde al rol administrador; cada persona
-puede mantener su perfil y fotografía. Las cuentas se desactivan, no se borran,
-para conservar la atribución de acciones y la auditoría. La configuración
-muestra versión y vigencia de sesión; el diagnóstico técnico queda reservado a
-administración.
+La administración de roles y permisos corresponde exclusivamente al rol
+administrador. La administración de cuentas y otras capacidades pueden
+delegarse mediante los roles configurables; solo `admin` puede asignar ese rol
+protegido. Cada persona puede mantener su perfil y fotografía. Las cuentas se
+desactivan, no se borran, para conservar la atribución de acciones y la
+auditoría. La configuración muestra versión y vigencia de sesión; el
+diagnóstico técnico requiere la capacidad `configuracion:diagnostico`.
 
 Restricciones durables:
 
 - Dos bases PostgreSQL separadas: catálogo (`ferreteria_rag`) y usuarios
   (`ferreteria_usuarios`).
+- La base de usuarios mantiene `rol`, `permiso` y `rol_permiso`; la migración
+  `6_0` amplía el esquema sin borrar las cuentas existentes.
 - La fotografía de perfil se conserva en `ferreteria_usuarios`, con carga
   limitada a JPEG, PNG o WebP de hasta 2 MB y un avatar local cuando no existe
   imagen.
@@ -102,7 +114,7 @@ stock mínimo por categoría y proveedor de correo definitivo.
 ## Evidence on Hand
 
 - Requisitos funcionales y no funcionales del cliente en `prompts/`.
-- Esquema real de la base en `init.sql`, con datos semilla de roles.
+- Esquema real de las bases en `init.sql`, con roles iniciales y capacidades.
 - Guía de color `paleta_de_colores_y_gu_a_de_dise_o.md` y fotografía de marca
   `nueva_paleta_de_colores.jpeg` (referencia de color y forma).
 - Diagrama entidad-relación del cliente en `MER sistema.png`.

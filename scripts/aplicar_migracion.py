@@ -29,6 +29,7 @@ MIGRACIONES = {
     "3_0": ("database_url_rag", "ferreteria_rag"),
     "4_0": ("database_url_rag", "ferreteria_rag"),
     "5_0": ("database_url_usuarios", "ferreteria_usuarios"),
+    "6_0": ("database_url_usuarios", "ferreteria_usuarios"),
 }
 
 

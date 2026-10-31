@@ -41,8 +41,8 @@ export const expresiones = {
             "La cédula debe contener entre 6 y 9 dígitos numéricos (ej: 12345678 o V-12345678).",
     },
     rol: {
-        expresion: /^(admin|ventas)$/,
-        mensajeError: "Por favor, seleccione un rol válido (Administrador o Ventas).",
+        expresion: /^[a-z][a-z0-9_-]{1,49}$/,
+        mensajeError: "Por favor, seleccione un rol válido.",
     },
     categoria: {
         expresion: /^[A-ZÁÉÍÓÚÑ][a-zA-ZáéíóúñÁÉÍÓÚÑ\s]{2,49}$/,

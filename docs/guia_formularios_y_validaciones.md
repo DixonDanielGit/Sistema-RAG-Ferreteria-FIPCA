@@ -102,13 +102,15 @@ export const expresiones = {
 
 La validación del navegador es una ayuda de experiencia de usuario; las solicitudes también deben validarse en el servidor. Para cuentas y autenticación, las responsabilidades se ubican así:
 
-- `app/schemas/usuario_schema.py`: formato y normalización de campos de entrada (cédula, nombre, usuario, correo, rol y token), límites y rechazo de campos extra. Los validadores compartidos se reutilizan en registro, perfil, administración y recuperación.
+- `app/schemas/usuario_schema.py`: formato y normalización de campos de entrada (cédula, nombre, usuario, correo, clave de rol y token), límites y rechazo de campos extra. Los validadores compartidos se reutilizan en registro, perfil, administración y recuperación. Los nombres de rol admiten claves minúsculas de 2 a 50 caracteres; la existencia del rol se confirma contra la base.
+- `app/schemas/usuario_schema.py` y `app/core/permisos.py`: los formularios de rol validan que cada capacidad pertenezca al catálogo fijo de la aplicación; una capacidad arbitraria se rechaza antes de modificar la base.
 - `app/main.py`: convierte los errores de validación de FastAPI a una respuesta JSON consistente (`ok`, `mensaje`, `detail` y `errores` por campo), sin devolver valores enviados ni detalles internos.
 - `app/static/js/comun.js`: `Fipca.pedir()` convierte esos errores estructurados en un mensaje legible; `Fipca.aviso()` los muestra con SweetAlert2. Los formularios de usuarios y perfil también reúnen los mensajes de expresión regular que ya aparecen junto a cada campo antes de cancelar el envío.
 - `app/core/security.py`: política común de fortaleza de contraseñas y funciones de hashing. El inicio de sesión no vuelve a aplicar la política de alta, para no bloquear credenciales existentes.
 - `app/api/v1/auth.py`: reglas del flujo que dependen del estado de la cuenta y respuestas HTTP, como el alta inicial del administrador o los conflictos de datos duplicados.
-- `app/models/usuario.py` y `init.sql`: consultas y restricciones persistentes de unicidad; estas últimas también protegen frente a solicitudes concurrentes.
-- `tests/unit/test_usuario_schema.py` y `tests/integration/test_auth_login.py`, `tests/integration/test_gestion_usuarios.py`: verifican las reglas directamente y a través de la API.
+- `app/models/usuario.py` y `init.sql`: consultas, relación `rol_permiso` y restricciones persistentes de unicidad; estas últimas también protegen frente a solicitudes concurrentes. La migración incremental es `scripts/migracion_6_0.sql`.
+- `app/api/deps.py`: vuelve a leer las capacidades vigentes en cada petición; cambiar o revocar una capacidad no requiere emitir otro JWT.
+- `tests/unit/test_usuario_schema.py` y `tests/integration/test_auth_login.py`, `tests/integration/test_gestion_usuarios.py`, `tests/integration/test_gestion_roles.py`: verifican las reglas directamente y a través de la API.
 
 Al añadir un campo, coloque su validación de forma sintáctica en el esquema Pydantic correspondiente y su regla dependiente de base de datos en el flujo/modelo apropiado. No dependa de `expresionesRegulares.js` como control de seguridad ni duplique las mismas reglas en las rutas.
 

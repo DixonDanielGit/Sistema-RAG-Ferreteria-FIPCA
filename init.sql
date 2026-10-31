@@ -170,14 +170,54 @@ COMMENT ON DATABASE ferreteria_rag IS
 CREATE TABLE rol (
     id_rol SERIAL PRIMARY KEY,
     nombre VARCHAR(50) NOT NULL UNIQUE,
-    descripcion TEXT
+    descripcion TEXT,
+    protegido BOOLEAN NOT NULL DEFAULT FALSE
 );
 
--- Semilla minima: sin estos roles el login no puede asignar permisos.
-INSERT INTO rol (nombre, descripcion) VALUES
-    ('admin', 'Acceso total: inventario, usuarios, bitacora e ingesta ETL'),
-    ('ventas', 'Consulta de productos, chat RAG y disponibilidad')
+CREATE UNIQUE INDEX uq_rol_nombre_lower ON rol (LOWER(nombre));
+
+-- Capacidades cerradas que pueden asignarse a roles no administrativos.
+CREATE TABLE permiso (
+    id_permiso SERIAL PRIMARY KEY,
+    clave VARCHAR(80) NOT NULL UNIQUE,
+    nombre VARCHAR(100) NOT NULL,
+    descripcion TEXT NOT NULL,
+    orden SMALLINT NOT NULL DEFAULT 0
+);
+
+INSERT INTO permiso (clave, nombre, descripcion, orden) VALUES
+    ('usuarios:gestionar', 'Gestionar usuarios', 'Consultar y administrar cuentas del sistema.', 10),
+    ('catalogos:ingestar', 'Cargar catalogos', 'Cargar catalogos de productos y consultar su procesamiento.', 20),
+    ('catalogos:eliminar', 'Eliminar catalogos', 'Eliminar catalogos y los productos que contienen.', 30),
+    ('configuracion:diagnostico', 'Consultar diagnostico', 'Consultar estado de bases de datos y limites tecnicos.', 40)
+ON CONFLICT (clave) DO UPDATE SET
+    nombre = EXCLUDED.nombre,
+    descripcion = EXCLUDED.descripcion,
+    orden = EXCLUDED.orden;
+
+CREATE TABLE rol_permiso (
+    id_rol INT NOT NULL,
+    id_permiso INT NOT NULL,
+    PRIMARY KEY (id_rol, id_permiso),
+    CONSTRAINT fk_rol_permiso_rol
+        FOREIGN KEY (id_rol) REFERENCES rol(id_rol) ON DELETE CASCADE,
+    CONSTRAINT fk_rol_permiso_permiso
+        FOREIGN KEY (id_permiso) REFERENCES permiso(id_permiso) ON DELETE RESTRICT
+);
+
+-- Semilla inicial: el rol admin siempre es de sistema y ventas conserva el
+-- acceso de consulta que tenia antes de introducir permisos configurables.
+INSERT INTO rol (nombre, descripcion, protegido) VALUES
+    ('admin', 'Acceso total a las funciones administrativas del sistema', TRUE),
+    ('ventas', 'Consulta de productos, chat RAG y disponibilidad', FALSE)
 ON CONFLICT (nombre) DO NOTHING;
+
+INSERT INTO rol_permiso (id_rol, id_permiso)
+SELECT r.id_rol, p.id_permiso
+  FROM rol r
+ CROSS JOIN permiso p
+ WHERE LOWER(r.nombre) = 'admin'
+ON CONFLICT (id_rol, id_permiso) DO NOTHING;
 
 -- Tabla: usuarios
 CREATE TABLE usuarios (
@@ -279,8 +319,11 @@ COMMENT ON DATABASE ferreteria_usuarios IS
 GRANT CONNECT ON DATABASE ferreteria_usuarios TO app_ferreteria;
 GRANT USAGE ON SCHEMA public TO app_ferreteria;
 
--- Roles: solo lectura. Los roles del sistema no se editan en caliente.
-GRANT SELECT ON rol TO app_ferreteria;
+-- El catalogo de capacidades es de solo lectura para la API. Los roles y su
+-- relacion con las capacidades se administran por endpoints autorizados.
+GRANT SELECT ON permiso TO app_ferreteria;
+GRANT SELECT, INSERT, UPDATE, DELETE ON rol TO app_ferreteria;
+GRANT SELECT, INSERT, DELETE ON rol_permiso TO app_ferreteria;
 
 -- Usuarios: alta y modificacion. Sin DELETE: las cuentas se desactivan
 -- (activo = FALSE) para conservar la trazabilidad de la auditoria.

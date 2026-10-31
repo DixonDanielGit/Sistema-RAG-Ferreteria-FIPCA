@@ -19,7 +19,7 @@
        {% if activo == 'dashboard' %}aria-current="page"{% endif %}>Panel</a>
     <a class="fipca-nav__enlace" href="/chat"
        {% if activo == 'chat' %}aria-current="page"{% endif %}>Asistente</a>
-    {% if usuario and usuario.rol == 'admin' %}
+    {% if usuario and 'usuarios:gestionar' in usuario.permisos %}
     <a class="fipca-nav__enlace" href="/usuarios"
        {% if activo == 'usuarios' %}aria-current="page"{% endif %}>Usuarios</a>
     {% endif %}
@@ -31,7 +31,7 @@
 
   <div class="fipca-nav__usuario">
     <strong>{{ usuario.nombre }} {{ usuario.apellido }}</strong>
-    <span>{{ 'Administrador' if usuario.rol == 'admin' else 'Ventas' }}</span>
+    <span>{{ 'Administrador' if usuario.rol == 'admin' else (usuario.rol|replace('_', ' ')|replace('-', ' ')|title) }}</span>
   </div>
 
   <button class="fipca-tema" type="button" data-tema-toggle

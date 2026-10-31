@@ -206,7 +206,7 @@ class TestRoles:
         )
 
         assert respuesta.status_code == 200
-        assert {rol["nombre"] for rol in respuesta.json()} == {"admin", "ventas"}
+        assert {"admin", "ventas"} <= {rol["nombre"] for rol in respuesta.json()}
 
     def test_ventas_no_puede_listar_roles(self, cliente, crear_cuenta, token_de):
         cuenta = crear_cuenta(usuario="vendedor", rol="ventas")
@@ -322,14 +322,20 @@ class TestRegistro:
     )
     def test_datos_invalidos_devuelven_422(self, cliente, crear_cuenta, token_de, cambio):
         admin = crear_cuenta(rol="admin")
+        datos = datos_registro(
+            usuario="registro.nuevo",
+            correo="registro.nuevo@ferreteria.test",
+            cedula="V-22334455",
+        )
+        datos.update(cambio)
 
         respuesta = cliente.post(
             REGISTRO,
-            json=datos_registro(**cambio),
+            json=datos,
             headers={"Authorization": f"Bearer {token_de(admin)}"},
         )
 
-        assert respuesta.status_code == 422
+        assert respuesta.status_code == (400 if cambio.get("rol") else 422)
 
 
 def test_endpoint_de_salud(cliente):

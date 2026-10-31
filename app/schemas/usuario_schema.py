@@ -13,17 +13,16 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.security import LONGITUD_MAXIMA, PasswordInvalida, validar_fortaleza
+from app.core.permisos import validar_capacidades
 
 PATRON_USUARIO = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{2,48}[A-Za-z0-9]")
+PATRON_ROL = re.compile(r"[a-z][a-z0-9_-]{1,49}")
 PATRON_CORREO = re.compile(
     r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*"
     r"@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}"
 )
 PATRON_CEDULA = re.compile(r"[VEJPG]?-?[0-9]{5,9}", re.IGNORECASE)
 PATRON_NOMBRE = re.compile(r"[^\W\d_](?:[^\W\d_]|[ .'-])*", re.UNICODE)
-
-ROLES_VALIDOS = ("admin", "ventas")
-
 
 class LoginRequest(BaseModel):
     """Credenciales de entrada. El identificador acepta usuario o correo."""
@@ -113,6 +112,8 @@ class UsuarioSalida(BaseModel):
     usuario: str
     correo: str
     rol: str
+    rol_descripcion: str | None = None
+    permisos: list[str] = Field(default_factory=list)
     activo: bool
     tiene_imagen: bool = False
 
@@ -150,8 +151,8 @@ def validar_correo(valor: str) -> str:
 
 def validar_rol(valor: str) -> str:
     limpio = valor.strip().lower()
-    if limpio not in ROLES_VALIDOS:
-        raise ValueError(f"Rol invalido; use uno de: {', '.join(ROLES_VALIDOS)}")
+    if not PATRON_ROL.fullmatch(limpio):
+        raise ValueError("El rol debe ser una clave de 2 a 50 caracteres: letras, numeros, guiones o guiones bajos")
     return limpio
 
 
@@ -273,3 +274,40 @@ class RolSalida(BaseModel):
     id_rol: int
     nombre: str
     descripcion: str | None = None
+    protegido: bool = False
+    usuarios_asignados: int = 0
+    permisos: list[str] = Field(default_factory=list)
+
+
+class PermisoSalida(BaseModel):
+    clave: str
+    nombre: str
+    descripcion: str
+    orden: int
+
+
+class RolCrear(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    nombre: str = Field(min_length=2, max_length=50)
+    descripcion: str = Field(default="", max_length=255)
+    permisos: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("nombre")
+    @classmethod
+    def _validar_nombre_rol(cls, valor: str) -> str:
+        return validar_rol(valor)
+
+    @field_validator("descripcion")
+    @classmethod
+    def _limpiar_descripcion(cls, valor: str) -> str:
+        return " ".join(valor.split())
+
+    @field_validator("permisos")
+    @classmethod
+    def _validar_permisos(cls, valor: list[str]) -> list[str]:
+        return validar_capacidades(valor)
+
+
+class RolConfiguracionActualizar(RolCrear):
+    pass

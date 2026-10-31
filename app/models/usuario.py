@@ -23,7 +23,15 @@ COLUMNAS_USUARIO = """
     u.correo,
     u.activo,
     (u.imagen_perfil IS NOT NULL) AS tiene_imagen,
-    r.nombre AS rol
+    r.nombre AS rol,
+    r.descripcion AS rol_descripcion,
+    ARRAY(
+        SELECT p.clave
+          FROM rol_permiso rp
+          JOIN permiso p ON p.id_permiso = rp.id_permiso
+         WHERE rp.id_rol = r.id_rol
+         ORDER BY p.orden, p.clave
+    ) AS permisos
 """
 
 
@@ -340,7 +348,98 @@ def actualizar_estado_admin(id_usuario: int, activo: bool) -> str:
 
 
 def listar_roles() -> list[dict[str, Any]]:
-    return consultar_todos("SELECT id_rol, nombre, descripcion FROM rol ORDER BY id_rol")
+    return consultar_todos(
+        """
+        SELECT r.id_rol, r.nombre, r.descripcion, r.protegido,
+               COUNT(u.id)::integer AS usuarios_asignados,
+               ARRAY(
+                   SELECT p.clave
+                     FROM rol_permiso rp
+                     JOIN permiso p ON p.id_permiso = rp.id_permiso
+                    WHERE rp.id_rol = r.id_rol
+                    ORDER BY p.orden, p.clave
+               ) AS permisos
+          FROM rol r
+          LEFT JOIN usuarios u ON u.id_rol = r.id_rol
+         GROUP BY r.id_rol
+         ORDER BY LOWER(r.nombre), r.id_rol
+        """
+    )
+
+
+def listar_permisos() -> list[dict[str, Any]]:
+    return consultar_todos(
+        "SELECT clave, nombre, descripcion, orden FROM permiso ORDER BY orden, clave"
+    )
+
+
+def crear_rol(nombre: str, descripcion: str, permisos: list[str]) -> int:
+    """Crea un rol y sus capacidades de forma atomica."""
+    with cursor_usuarios() as cur:
+        cur.execute(
+            """
+            INSERT INTO rol (nombre, descripcion)
+            VALUES (%s, %s)
+            RETURNING id_rol
+            """,
+            (nombre, descripcion or None),
+        )
+        id_rol = int(cur.fetchone()["id_rol"])
+        for clave in permisos:
+            cur.execute(
+                """
+                INSERT INTO rol_permiso (id_rol, id_permiso)
+                SELECT %s, id_permiso FROM permiso WHERE clave = %s
+                """,
+                (id_rol, clave),
+            )
+    return id_rol
+
+
+def actualizar_rol(
+    id_rol: int, nombre: str, descripcion: str, permisos: list[str]
+) -> str:
+    """Actualiza un rol editable y su conjunto de capacidades en una transaccion."""
+    with cursor_usuarios() as cur:
+        cur.execute("SELECT protegido FROM rol WHERE id_rol = %s FOR UPDATE", (id_rol,))
+        actual = cur.fetchone()
+        if actual is None:
+            return "no_encontrado"
+        if actual["protegido"]:
+            return "protegido"
+
+        cur.execute(
+            "UPDATE rol SET nombre = %s, descripcion = %s WHERE id_rol = %s",
+            (nombre, descripcion or None, id_rol),
+        )
+        cur.execute("DELETE FROM rol_permiso WHERE id_rol = %s", (id_rol,))
+        for clave in permisos:
+            cur.execute(
+                """
+                INSERT INTO rol_permiso (id_rol, id_permiso)
+                SELECT %s, id_permiso FROM permiso WHERE clave = %s
+                """,
+                (id_rol, clave),
+            )
+    return "actualizado"
+
+
+def eliminar_rol(id_rol: int) -> str:
+    """Elimina un rol no protegido y sin cuentas asignadas."""
+    with cursor_usuarios() as cur:
+        cur.execute("SELECT protegido FROM rol WHERE id_rol = %s FOR UPDATE", (id_rol,))
+        actual = cur.fetchone()
+        if actual is None:
+            return "no_encontrado"
+        if actual["protegido"]:
+            return "protegido"
+
+        cur.execute("SELECT EXISTS (SELECT 1 FROM usuarios WHERE id_rol = %s)", (id_rol,))
+        if cur.fetchone()["exists"]:
+            return "asignado"
+
+        cur.execute("DELETE FROM rol WHERE id_rol = %s", (id_rol,))
+    return "eliminado"
 
 
 def id_de_rol(nombre: str) -> int | None:

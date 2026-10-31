@@ -64,6 +64,16 @@ class TestVistaDelChat:
         assert "Ejemplos visuales" in html
         assert "la gestión de sesiones" in html
 
+    def test_chat_muestra_control_responsivo_para_sesiones(self, navegador, sesion):
+        html = navegador.get("/chat").text
+
+        assert 'id="abrir-sesiones"' in html
+        assert 'aria-controls="panel-sesiones"' in html
+        assert 'id="cerrar-sesiones"' in html
+        assert 'id="velo-sesiones"' in html
+        assert 'id="alternar-sesiones-pc"' in html
+        assert "/static/js/fuentes.js" in html
+
     def test_la_navegacion_marca_el_modulo_activo(self, navegador, sesion):
         assert 'aria-current="page"' in navegador.get("/chat").text
 

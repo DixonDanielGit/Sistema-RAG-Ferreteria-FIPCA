@@ -8,13 +8,14 @@
 {% endblock %}
 
 {% block contenido %}
+{% set etiqueta_rol = 'administrador' if usuario.rol == 'admin' else (usuario.rol|replace('_', ' ')|replace('-', ' ')|title) %}
 <div class="tablero">
   <header class="tablero__cabecera">
     <div>
       <h1>Buen día, {{ usuario.nombre }}</h1>
       <p>
         {{ empresa }} · sesión iniciada como
-        {{ 'administrador' if usuario.rol == 'admin' else 'ventas' }}
+        {{ etiqueta_rol }}
       </p>
     </div>
   </header>

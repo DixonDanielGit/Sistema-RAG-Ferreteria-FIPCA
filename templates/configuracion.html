@@ -41,19 +41,68 @@
     </dl>
   </section>
 
-  <section class="cuenta-seccion" aria-labelledby="apariencia-titulo">
-    <div class="cuenta-seccion__cabecera">
-      <h2 id="apariencia-titulo">Apariencia</h2>
-      <p>Elija el tema para este navegador. Si no selecciona uno, se respeta la preferencia del dispositivo.</p>
-    </div>
-    <div class="configuracion-tema">
-      <span>Modo claro u oscuro</span>
-      <button class="btn-fipca btn-fipca--fantasma" type="button" data-tema-toggle
-              aria-pressed="false">Cambiar tema</button>
-    </div>
-  </section>
 
   {% if usuario.rol == 'admin' %}
+  <section class="cuenta-seccion" aria-labelledby="roles-titulo">
+    <div class="cuenta-seccion__cabecera">
+      <h2 id="roles-titulo">Roles y permisos</h2>
+      <p>Cree roles para su equipo y asigne capacidades disponibles. El rol Administrador está protegido.</p>
+    </div>
+    <div class="cuenta-aviso" id="aviso-roles" role="status" aria-live="polite" hidden></div>
+    <div class="roles-admin">
+      <div class="roles-admin__lista">
+        <h3>Roles del sistema</h3>
+        <div class="datatable-tabla-scroll" role="region" aria-label="Roles configurados" tabindex="0">
+          <table class="cuenta-tabla">
+            <thead>
+              <tr>
+                <th scope="col">Rol</th>
+                <th scope="col">Capacidades</th>
+                <th scope="col">Cuentas</th>
+                <th scope="col"><span class="visually-hidden">Acciones</span></th>
+              </tr>
+            </thead>
+            <tbody id="filas-roles">
+              <tr><td colspan="4">Cargando roles…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <form class="roles-formulario" id="form-rol" novalidate>
+        <input type="hidden" name="id_rol" />
+        <h3 id="form-rol-titulo">Crear rol</h3>
+        <p id="form-rol-ayuda">Elija un nombre único y las capacidades que necesita este rol.</p>
+        <div class="cuenta-campo">
+          <label for="rol-nombre">Clave del rol</label>
+          <input class="form-control input-custom" id="rol-nombre" name="nombre"
+                 type="text" minlength="2" maxlength="50" pattern="[a-z][a-z0-9_-]{1,49}"
+                 autocomplete="off" placeholder="supervisor" required />
+          <small>Use minúsculas, números, guiones o guiones bajos.</small>
+        </div>
+        <div class="cuenta-campo">
+          <label for="rol-descripcion">Descripción</label>
+          <input class="form-control input-custom" id="rol-descripcion" name="descripcion"
+                 type="text" maxlength="255" autocomplete="off"
+                 placeholder="Atención y seguimiento de pedidos" />
+        </div>
+        <fieldset class="roles-permisos">
+          <legend>Capacidades</legend>
+          <div id="opciones-permisos" aria-live="polite">
+            <p>Cargando capacidades…</p>
+          </div>
+        </fieldset>
+        <div class="roles-formulario__acciones">
+          <button class="btn-fipca" type="submit" id="guardar-rol">Crear rol</button>
+          <button class="btn-fipca btn-fipca--fantasma" type="button"
+                  id="cancelar-edicion-rol" hidden>Cancelar edición</button>
+        </div>
+      </form>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if 'configuracion:diagnostico' in usuario.permisos %}
   <section class="cuenta-seccion" aria-labelledby="tecnico-titulo">
     <div class="cuenta-seccion__cabecera">
       <h2 id="tecnico-titulo">Estado y límites técnicos</h2>
@@ -86,7 +135,7 @@
 {% endblock %}
 
 {% block scripts %}
-{% if usuario.rol == 'admin' %}
+{% if usuario.rol == 'admin' or 'configuracion:diagnostico' in usuario.permisos %}
 <script src="/static/js/configuracion.js" defer></script>
 {% endif %}
 {% endblock %}

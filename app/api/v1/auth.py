@@ -21,7 +21,7 @@ from psycopg2 import Error as ErrorPostgres
 from psycopg2.errors import UniqueViolation
 from starlette.responses import Response as StarletteResponse
 
-from app.api.deps import puede_registrar, requiere_admin, usuario_actual
+from app.api.deps import puede_registrar, requiere_admin, requiere_permiso, usuario_actual
 from app.core import sesion
 from app.core.jwt import crear_token
 from app.core.logging import ip_de_peticion, registrar_evento
@@ -38,9 +38,12 @@ from app.schemas.usuario_schema import (
     LoginRequest,
     MensajeRespuesta,
     PerfilActualizar,
+    PermisoSalida,
     RecuperarPasswordRequest,
     RestablecerPasswordRequest,
     RolActualizar,
+    RolCrear,
+    RolConfiguracionActualizar,
     RolSalida,
     TokenRespuesta,
     UsuarioAdminActualizar,
@@ -158,6 +161,11 @@ def register(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="La primera cuenta del sistema debe tener rol administrador",
         )
+    if autorizador and autorizador["rol"] != "admin" and datos.rol == "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo un administrador puede asignar el rol admin",
+        )
 
     duplicados = usuario_model.conflictos(datos.usuario, datos.correo, datos.cedula)
     if duplicados:
@@ -218,7 +226,7 @@ def me(usuario: dict[str, Any] = Depends(usuario_actual)) -> UsuarioSalida:
     summary="Listar usuarios (administrador)",
 )
 def listar_usuarios(
-    usuario: dict[str, Any] = Depends(requiere_admin),
+    usuario: dict[str, Any] = Depends(requiere_permiso("usuarios:gestionar")),
 ) -> list[UsuarioSalida]:
     return [UsuarioSalida(**fila) for fila in usuario_model.listar_usuarios()]
 
@@ -236,8 +244,13 @@ def actualizar_usuario_admin(
     id_usuario: int,
     datos: UsuarioAdminActualizar,
     request: Request,
-    administrador: dict[str, Any] = Depends(requiere_admin),
+    administrador: dict[str, Any] = Depends(requiere_permiso("usuarios:gestionar")),
 ) -> UsuarioSalida:
+    if administrador["rol"] != "admin" and datos.rol == "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo un administrador puede asignar el rol admin",
+        )
     duplicados = usuario_model.conflictos(
         datos.usuario,
         datos.correo,
@@ -287,6 +300,87 @@ def actualizar_usuario_admin(
     return UsuarioSalida(**actualizado)
 
 
+async def _normalizar_archivo_imagen(archivo: UploadFile) -> bytes:
+    try:
+        contenido = await archivo.read(perfil_service.MAX_IMAGEN_PERFIL_BYTES + 1)
+    finally:
+        await archivo.close()
+
+    if len(contenido) > perfil_service.MAX_IMAGEN_PERFIL_BYTES:
+        raise HTTPException(status_code=413, detail="La imagen supera el limite de 2 MB")
+
+    try:
+        return perfil_service.normalizar_imagen_perfil(contenido)
+    except perfil_service.ImagenPerfilInvalida as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _respuesta_imagen_usuario(
+    id_usuario: int, detalle_si_no_existe: str = "El usuario no tiene una imagen"
+) -> StarletteResponse:
+    imagen = usuario_model.obtener_imagen(id_usuario)
+    if imagen is None:
+        raise HTTPException(status_code=404, detail=detalle_si_no_existe)
+    return StarletteResponse(
+        content=imagen,
+        media_type="image/webp",
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@router.get(
+    "/usuarios/{id_usuario}/imagen",
+    summary="Obtener la imagen de una cuenta (administrador)",
+)
+def obtener_imagen_usuario_admin(
+    id_usuario: int,
+    administrador: dict[str, Any] = Depends(requiere_permiso("usuarios:gestionar")),
+) -> StarletteResponse:
+    return _respuesta_imagen_usuario(id_usuario)
+
+
+@router.post(
+    "/usuarios/{id_usuario}/imagen",
+    response_model=MensajeRespuesta,
+    summary="Actualizar la imagen de una cuenta (administrador)",
+)
+async def actualizar_imagen_usuario_admin(
+    id_usuario: int,
+    request: Request,
+    archivo: UploadFile = File(...),
+    administrador: dict[str, Any] = Depends(requiere_permiso("usuarios:gestionar")),
+) -> MensajeRespuesta:
+    imagen = await _normalizar_archivo_imagen(archivo)
+    if not usuario_model.guardar_imagen(id_usuario, imagen):
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    registrar_evento(
+        request,
+        f"imagen de usuario {id_usuario} actualizada por administrador",
+        id_usuario=administrador["id"],
+    )
+    return MensajeRespuesta(mensaje="Imagen de usuario actualizada")
+
+
+@router.delete(
+    "/usuarios/{id_usuario}/imagen",
+    response_model=MensajeRespuesta,
+    summary="Eliminar la imagen de una cuenta (administrador)",
+)
+def eliminar_imagen_usuario_admin(
+    id_usuario: int,
+    request: Request,
+    administrador: dict[str, Any] = Depends(requiere_permiso("usuarios:gestionar")),
+) -> MensajeRespuesta:
+    if not usuario_model.eliminar_imagen(id_usuario):
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    registrar_evento(
+        request,
+        f"imagen de usuario {id_usuario} eliminada por administrador",
+        id_usuario=administrador["id"],
+    )
+    return MensajeRespuesta(mensaje="Imagen de usuario eliminada")
+
+
 @router.delete(
     "/usuarios/{id_usuario}",
     response_model=MensajeRespuesta,
@@ -297,7 +391,7 @@ def actualizar_usuario_admin(
 def eliminar_usuario_no_permitido(
     id_usuario: int,
     request: Request,
-    administrador: dict[str, Any] = Depends(requiere_admin),
+    administrador: dict[str, Any] = Depends(requiere_permiso("usuarios:gestionar")),
 ) -> MensajeRespuesta:
     """Mantiene la regla de negocio: las cuentas se desactivan, no se borran."""
     registrar_evento(
@@ -321,8 +415,13 @@ def cambiar_rol(
     id_usuario: int,
     datos: RolActualizar,
     request: Request,
-    administrador: dict[str, Any] = Depends(requiere_admin),
+    administrador: dict[str, Any] = Depends(requiere_permiso("usuarios:gestionar")),
 ) -> UsuarioSalida:
+    if administrador["rol"] != "admin" and datos.rol == "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo un administrador puede asignar el rol admin",
+        )
     resultado = usuario_model.actualizar_rol_admin(id_usuario, datos.rol)
     if resultado == "no_encontrado":
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
@@ -355,7 +454,7 @@ def cambiar_estado_usuario(
     id_usuario: int,
     datos: EstadoCuentaActualizar,
     request: Request,
-    administrador: dict[str, Any] = Depends(requiere_admin),
+    administrador: dict[str, Any] = Depends(requiere_permiso("usuarios:gestionar")),
 ) -> UsuarioSalida:
     resultado = usuario_model.actualizar_estado_admin(id_usuario, datos.activo)
     if resultado == "no_encontrado":
@@ -426,13 +525,8 @@ def actualizar_perfil(
 def obtener_imagen_perfil(
     usuario: dict[str, Any] = Depends(usuario_actual),
 ) -> StarletteResponse:
-    imagen = usuario_model.obtener_imagen(usuario["id"])
-    if imagen is None:
-        raise HTTPException(status_code=404, detail="El perfil no tiene una imagen")
-    return StarletteResponse(
-        content=imagen,
-        media_type="image/webp",
-        headers={"Cache-Control": "private, no-store"},
+    return _respuesta_imagen_usuario(
+        usuario["id"], detalle_si_no_existe="El perfil no tiene una imagen"
     )
 
 
@@ -446,19 +540,7 @@ async def actualizar_imagen_perfil(
     archivo: UploadFile = File(...),
     usuario: dict[str, Any] = Depends(usuario_actual),
 ) -> MensajeRespuesta:
-    try:
-        contenido = await archivo.read(perfil_service.MAX_IMAGEN_PERFIL_BYTES + 1)
-    finally:
-        await archivo.close()
-
-    if len(contenido) > perfil_service.MAX_IMAGEN_PERFIL_BYTES:
-        raise HTTPException(status_code=413, detail="La imagen supera el limite de 2 MB")
-
-    try:
-        imagen = perfil_service.normalizar_imagen_perfil(contenido)
-    except perfil_service.ImagenPerfilInvalida as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
+    imagen = await _normalizar_archivo_imagen(archivo)
     if not usuario_model.guardar_imagen(usuario["id"], imagen):
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     registrar_evento(request, f"imagen de perfil actualizada ({usuario['id']})", id_usuario=usuario["id"])
@@ -485,7 +567,7 @@ def eliminar_imagen_perfil(
     summary="Consultar estado de servicios y limites (administrador)",
 )
 def configuracion_admin(
-    usuario: dict[str, Any] = Depends(requiere_admin),
+    usuario: dict[str, Any] = Depends(requiere_permiso("configuracion:diagnostico")),
 ) -> dict[str, Any]:
     estados: dict[str, str] = {}
     for nombre, es_rag in (("ferreteria_rag", True), ("ferreteria_usuarios", False)):
@@ -532,10 +614,116 @@ def logout(
 @router.get(
     "/roles",
     response_model=list[RolSalida],
-    summary="Listar roles",
+    summary="Listar roles disponibles para administracion de cuentas",
 )
-def roles(usuario: dict[str, Any] = Depends(requiere_admin)) -> list[RolSalida]:
+def roles(usuario: dict[str, Any] = Depends(requiere_permiso("usuarios:gestionar"))) -> list[RolSalida]:
     return [RolSalida(**fila) for fila in usuario_model.listar_roles()]
+
+
+@router.get(
+    "/roles/permisos",
+    response_model=list[PermisoSalida],
+    summary="Listar capacidades configurables (administrador)",
+)
+def capacidades(
+    usuario: dict[str, Any] = Depends(requiere_admin),
+) -> list[PermisoSalida]:
+    return [PermisoSalida(**fila) for fila in usuario_model.listar_permisos()]
+
+
+@router.post(
+    "/roles",
+    response_model=RolSalida,
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear un rol (administrador)",
+)
+def crear_rol(
+    datos: RolCrear,
+    request: Request,
+    administrador: dict[str, Any] = Depends(requiere_admin),
+) -> RolSalida:
+    try:
+        id_rol = usuario_model.crear_rol(datos.nombre, datos.descripcion, datos.permisos)
+    except UniqueViolation as exc:
+        raise HTTPException(status_code=409, detail="Ya existe un rol con ese nombre") from exc
+
+    registrar_evento(
+        request,
+        f"rol {datos.nombre} creado con {len(datos.permisos)} capacidades",
+        id_usuario=administrador["id"],
+    )
+    creado = next(
+        (fila for fila in usuario_model.listar_roles() if fila["id_rol"] == id_rol),
+        None,
+    )
+    if creado is None:
+        logger.error("No se pudo recuperar el rol recien creado: %s", id_rol)
+        raise HTTPException(status_code=500, detail="No se pudo recuperar el rol creado")
+    return RolSalida(**creado)
+
+
+@router.put(
+    "/roles/{id_rol}",
+    response_model=RolSalida,
+    summary="Actualizar un rol (administrador)",
+)
+def actualizar_rol(
+    id_rol: int,
+    datos: RolConfiguracionActualizar,
+    request: Request,
+    administrador: dict[str, Any] = Depends(requiere_admin),
+) -> RolSalida:
+    try:
+        resultado = usuario_model.actualizar_rol(
+            id_rol, datos.nombre, datos.descripcion, datos.permisos
+        )
+    except UniqueViolation as exc:
+        raise HTTPException(status_code=409, detail="Ya existe un rol con ese nombre") from exc
+
+    if resultado == "no_encontrado":
+        raise HTTPException(status_code=404, detail="Rol no encontrado")
+    if resultado == "protegido":
+        raise HTTPException(status_code=409, detail="El rol admin esta protegido")
+
+    registrar_evento(
+        request,
+        f"rol {id_rol} actualizado con {len(datos.permisos)} capacidades",
+        id_usuario=administrador["id"],
+    )
+    actualizado = next(
+        (fila for fila in usuario_model.listar_roles() if fila["id_rol"] == id_rol),
+        None,
+    )
+    if actualizado is None:
+        logger.error("No se pudo recuperar el rol actualizado: %s", id_rol)
+        raise HTTPException(status_code=500, detail="No se pudo recuperar el rol actualizado")
+    return RolSalida(**actualizado)
+
+
+@router.delete(
+    "/roles/{id_rol}",
+    response_model=MensajeRespuesta,
+    summary="Eliminar un rol sin cuentas asignadas (administrador)",
+)
+def eliminar_rol(
+    id_rol: int,
+    request: Request,
+    administrador: dict[str, Any] = Depends(requiere_admin),
+) -> MensajeRespuesta:
+    resultado = usuario_model.eliminar_rol(id_rol)
+    if resultado == "no_encontrado":
+        raise HTTPException(status_code=404, detail="Rol no encontrado")
+    if resultado == "protegido":
+        raise HTTPException(status_code=409, detail="El rol admin esta protegido")
+    if resultado == "asignado":
+        raise HTTPException(status_code=409, detail="No se puede eliminar un rol con cuentas asignadas")
+
+    registrar_evento(
+        request,
+        f"rol {id_rol} eliminado",
+        id_usuario=administrador["id"],
+    )
+    return MensajeRespuesta(mensaje="Rol eliminado")
 
 
 @router.post(

@@ -9,7 +9,8 @@
 {% endblock %}
 
 {% block contenido %}
-{% set es_admin = usuario and usuario.rol == 'admin' %}
+{% set puede_ingestar = usuario and 'catalogos:ingestar' in usuario.permisos %}
+{% set puede_eliminar = usuario and 'catalogos:eliminar' in usuario.permisos %}
 <div class="chat">
   <div class="fuentes__velo" id="velo-fuentes" hidden></div>
 
@@ -27,7 +28,7 @@
     </div>
 
     <div class="fuentes__cuerpo">
-      {% if es_admin %}
+      {% if puede_ingestar %}
       <input class="visually-hidden" type="file" id="archivos" multiple
              accept=".pdf,.xlsx,.docx,.txt" tabindex="-1" />
 
@@ -37,7 +38,7 @@
           <path d="M12 5v14M5 12h14" />
         </svg>
         Agregar archivo
-      </button> #}
+      </button>  #}
 
       <button class="fuentes__zona" type="button" id="zona-archivos">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
@@ -69,7 +70,7 @@
                placeholder="Buscar catálogo…" autocomplete="off" />
       </div>
 
-      {% if es_admin %}
+      {% if puede_eliminar %}
       <div class="fuentes__acciones-lote" id="acciones-lote" hidden>
         <label class="fuentes__seleccionar-visibles">
           <input type="checkbox" id="seleccionar-visibles"
@@ -86,10 +87,10 @@
       {% endif %}
 
       <ul class="fuentes__lista" id="lista-fuentes" aria-live="polite"
-          data-puede-eliminar="{{ '1' if es_admin else '' }}">
+          data-puede-eliminar="{{ '1' if puede_eliminar else '' }}">
         <li class="fuentes__vacio" id="fuentes-vacio">
           <strong>Sin archivos todavía</strong>
-          {% if es_admin %}
+          {% if puede_ingestar %}
           Agregue el catálogo del proveedor para que el asistente lo consulte.
           {% else %}
           Un administrador todavía no ha cargado el catálogo.
@@ -103,7 +104,7 @@
     </div>
 
     <p class="fuentes__nota">
-      Los catálogos se suben y procesan automáticamente al elegirlos. 
+      Los catálogos se suben y procesan automáticamente al elegirlos.
       Esto puede tardar unos segundos o minutos según el tamaño del archivo.
       Mientras termina la carga no se pueden agregar más archivos,
       para no saturar el sistema.
@@ -141,6 +142,7 @@
           </svg>
           Sesiones
         </button>
+
         <button class="chat__fuentes-boton" type="button" id="abrir-fuentes"
                 aria-controls="panel-fuentes" aria-expanded="false">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
@@ -149,6 +151,18 @@
           </svg>
           <span class="visually-hidden">Fuentes</span>
           <span class="chat__fuentes-cuenta" id="cuenta-fuentes-movil">0</span>
+        </button>
+
+        <button class="chat__fuentes-boton chat__sesiones-boton" type="button"
+                id="abrir-sesiones" aria-controls="panel-sesiones"
+                aria-expanded="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+               aria-hidden="true">
+            <path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H19v15H7.5A2.5 2.5 0 0 0 5 20.5z" />
+            <path d="M5 5.5v15M9 7h6M9 11h6" />
+          </svg>
+          <span class="visually-hidden">Sesiones</span>
         </button>
         <span class="chat__estado" title="El motor de búsqueda semántica llega en la Semana 5">
           <span class="chat__punto" aria-hidden="true"></span>
@@ -215,12 +229,19 @@
   </div>
 
   <aside class="chat__sesiones" id="panel-sesiones"
-         aria-labelledby="titulo-sesiones">
+         aria-labelledby="titulo-sesiones" inert>
     <div class="chat__sesiones-cabecera">
       <div>
         <h2 id="titulo-sesiones">Sesiones</h2>
         <span class="chat__sesiones-etiqueta">Vista previa</span>
       </div>
+      <button class="chat__sesiones-cerrar" type="button" id="cerrar-sesiones"
+              aria-label="Cerrar el panel de sesiones">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+             stroke-linecap="round" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
     </div>
     <p class="chat__sesiones-nota">
       Ejemplos visuales. Sus conversaciones se mostrarán aquí cuando se habilite
@@ -265,6 +286,7 @@
       </li>
     </ul>
   </aside>
+  <div class="chat__sesiones-velo" id="velo-sesiones" hidden></div>
 </div>
 {% endblock %}
 

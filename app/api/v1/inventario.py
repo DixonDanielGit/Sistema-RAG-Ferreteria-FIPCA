@@ -18,7 +18,7 @@ from fastapi import (
 )
 from starlette.concurrency import run_in_threadpool
 
-from app.api.deps import requiere_admin, usuario_actual
+from app.api.deps import requiere_permiso, usuario_actual
 from app.core.logging import registrar_evento
 from app.models import inventario as inventario_model
 from app.schemas.inventario_schema import (
@@ -68,7 +68,7 @@ async def ingesta(
     archivos: list[UploadFile] | None = File(
         default=None, description="PDF, XLSX, DOCX o TXT"
     ),
-    usuario: dict[str, Any] = Depends(requiere_admin),
+    usuario: dict[str, Any] = Depends(requiere_permiso("catalogos:ingestar")),
 ) -> RespuestaIngesta:
     """Procesa cada archivo del lote independientemente.
 
@@ -134,7 +134,7 @@ async def ingesta(
 async def eliminar_archivos(
     request: Request,
     solicitud: SolicitudEliminacionCatalogos,
-    usuario: dict[str, Any] = Depends(requiere_admin),
+    usuario: dict[str, Any] = Depends(requiere_permiso("catalogos:eliminar")),
 ) -> dict[str, Any]:
     """Elimina los catalogos existentes seleccionados y reporta los ausentes."""
     resultado = await run_in_threadpool(
@@ -166,7 +166,7 @@ async def eliminar_archivo(
     request: Request,
     *,
     id_archivo: int = Path(ge=1, description="Identificador del archivo subido"),
-    usuario: dict[str, Any] = Depends(requiere_admin),
+    usuario: dict[str, Any] = Depends(requiere_permiso("catalogos:eliminar")),
 ) -> dict[str, Any]:
     """Retira un catalogo cargado, procesado o no, y todo lo que provino de el.
 

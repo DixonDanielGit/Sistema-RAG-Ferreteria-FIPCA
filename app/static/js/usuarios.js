@@ -8,6 +8,7 @@ import { inicializarValidacionFormulario } from "/static/js/expresionesRegulares
   if (!tabla) return;
 
   var lista = [];
+  var roles = [];
   var conteo = document.getElementById("conteo-usuarios");
   var tablaDatos;
   var formulario = document.getElementById("form-usuario");
@@ -22,6 +23,18 @@ import { inicializarValidacionFormulario } from "/static/js/expresionesRegulares
   var tituloModal = document.getElementById("modal-usuario-titulo");
   var ayudaModal = document.getElementById("modal-usuario-ayuda");
   var etiquetaGuardar = document.getElementById("guardar-usuario-etiqueta");
+  var campoImagen = document.getElementById("archivo-imagen-usuario");
+  var vistaPreviaImagen = document.getElementById(
+    "vista-previa-imagen-usuario"
+  );
+  var botonQuitarImagen = document.getElementById("quitar-imagen-usuario");
+  var notaImagen = document.getElementById("nota-imagen-usuario");
+  var avatarPredeterminado = "/static/img/avatar-default.svg";
+  var fuenteImagenGuardada = avatarPredeterminado;
+  var imagenGuardada = false;
+  var quitarImagen = false;
+  var archivoImagenSeleccionado = null;
+  var urlVistaPrevia = null;
   var validador = formulario
     ? inicializarValidacionFormulario(formulario)
     : null;
@@ -39,6 +52,35 @@ import { inicializarValidacionFormulario } from "/static/js/expresionesRegulares
         }[caracter];
       }
     );
+  }
+
+  function etiquetaRol(nombre) {
+    var conocido = {
+      admin: "Administrador",
+      ventas: "Ventas",
+    };
+    if (conocido[nombre]) return conocido[nombre];
+    return String(nombre || "")
+      .replace(/[_-]+/g, " ")
+      .replace(/\b\w/g, function (letra) {
+        return letra.toLocaleUpperCase("es-VE");
+      });
+  }
+
+  function cargarOpcionesRoles() {
+    var selector = formulario && formulario.elements.rol;
+    if (!selector) return;
+
+    var puedeAsignarAdmin = formulario.dataset.puedeAsignarAdmin === "1";
+    selector.replaceChildren();
+    roles.forEach(function (rol) {
+      if (rol.nombre === "admin" && !puedeAsignarAdmin) return;
+      var opcion = document.createElement("option");
+      opcion.value = rol.nombre;
+      opcion.textContent = etiquetaRol(rol.nombre);
+      if (rol.descripcion) opcion.title = rol.descripcion;
+      selector.appendChild(opcion);
+    });
   }
 
   function plantillaAcciones(usuario) {
@@ -93,7 +135,7 @@ import { inicializarValidacionFormulario } from "/static/js/expresionesRegulares
         data: "rol",
         render: function (valor, tipo) {
           if (tipo !== "display") return valor;
-          return valor === "admin" ? "Administrador" : "Ventas";
+          return escapar(etiquetaRol(valor));
         },
       },
       {
@@ -185,12 +227,54 @@ import { inicializarValidacionFormulario } from "/static/js/expresionesRegulares
     });
   }
 
+  function liberarVistaPrevia() {
+    if (urlVistaPrevia) URL.revokeObjectURL(urlVistaPrevia);
+    urlVistaPrevia = null;
+    archivoImagenSeleccionado = null;
+    if (campoImagen) campoImagen.value = "";
+  }
+
+  function mostrarImagen(fuente) {
+    if (vistaPreviaImagen) vistaPreviaImagen.src = fuente;
+  }
+
+  function actualizarModoEdicionTrasAlta(cuenta) {
+    formulario.dataset.id = String(cuenta.id);
+    if (campoPassword) campoPassword.hidden = true;
+    if (campoPasswordConf) campoPasswordConf.hidden = true;
+    formulario.elements.password.required = false;
+    formulario.elements.passwordConf.required = false;
+    if (tituloModal) tituloModal.textContent = "Editar usuario";
+    if (ayudaModal) {
+      ayudaModal.textContent =
+        "La cuenta se creó. Puede completar o reintentar la imagen de perfil.";
+    }
+    if (etiquetaGuardar) etiquetaGuardar.textContent = "Guardar cambios";
+  }
+
   function configurarModo(edicion, usuario) {
     if (!formulario) return;
 
+    liberarVistaPrevia();
     formulario.reset();
     delete formulario.dataset.id;
     if (validador) validador.limpiar();
+    imagenGuardada = Boolean(edicion && usuario && usuario.tiene_imagen);
+    quitarImagen = false;
+    fuenteImagenGuardada = imagenGuardada
+      ? "/api/v1/auth/usuarios/" +
+        encodeURIComponent(usuario.id) +
+        "/imagen?actualizado=" +
+        Date.now()
+      : avatarPredeterminado;
+    mostrarImagen(fuenteImagenGuardada);
+    if (botonQuitarImagen) botonQuitarImagen.hidden = !imagenGuardada;
+    if (notaImagen) {
+      notaImagen.textContent = imagenGuardada
+        ? "La imagen actual se conservará si no selecciona otra."
+        : "La imagen se guardará junto con los datos de la cuenta.";
+      notaImagen.removeAttribute("data-tipo");
+    }
 
     if (edicion && usuario) {
       formulario.dataset.id = String(usuario.id);
@@ -233,7 +317,13 @@ import { inicializarValidacionFormulario } from "/static/js/expresionesRegulares
 
   async function cargarUsuarios() {
     try {
-      lista = await window.Fipca.pedir("/api/v1/auth/usuarios");
+      var datos = await Promise.all([
+        window.Fipca.pedir("/api/v1/auth/roles"),
+        window.Fipca.pedir("/api/v1/auth/usuarios"),
+      ]);
+      roles = datos[0];
+      cargarOpcionesRoles();
+      lista = datos[1];
       tablaDatos.clear().rows.add(lista).draw();
     } catch (error) {
       tablaDatos.clear().draw();
@@ -298,8 +388,9 @@ import { inicializarValidacionFormulario } from "/static/js/expresionesRegulares
         );
       }
 
+      var eraCreacion = !id;
       try {
-        await window.Fipca.pedir(
+        var cuentaGuardada = await window.Fipca.pedir(
           id
             ? "/api/v1/auth/usuarios/" + encodeURIComponent(id)
             : "/api/v1/auth/register",
@@ -309,13 +400,54 @@ import { inicializarValidacionFormulario } from "/static/js/expresionesRegulares
           }
         );
 
+        if (!id) {
+          id = cuentaGuardada.id;
+          actualizarModoEdicionTrasAlta(cuentaGuardada);
+        }
+
+        var rutaImagen =
+          "/api/v1/auth/usuarios/" + encodeURIComponent(id) + "/imagen";
+        if (archivoImagenSeleccionado) {
+          var datosImagen = new FormData();
+          datosImagen.append("archivo", archivoImagenSeleccionado);
+          try {
+            await window.Fipca.pedir(rutaImagen, {
+              metodo: "POST",
+              cuerpo: datosImagen,
+            });
+          } catch (errorImagen) {
+            throw new Error(
+              "Los datos de la cuenta se guardaron, pero no se pudo actualizar la imagen: " +
+                errorImagen.message
+            );
+          }
+          imagenGuardada = true;
+          quitarImagen = false;
+          fuenteImagenGuardada = rutaImagen + "?actualizado=" + Date.now();
+        } else if (quitarImagen && imagenGuardada) {
+          try {
+            await window.Fipca.pedir(rutaImagen, {
+              metodo: "DELETE",
+              cuerpo: {},
+            });
+          } catch (errorImagen) {
+            throw new Error(
+              "Los datos de la cuenta se guardaron, pero no se pudo quitar la imagen: " +
+                errorImagen.message
+            );
+          }
+          imagenGuardada = false;
+          quitarImagen = false;
+          fuenteImagenGuardada = avatarPredeterminado;
+        }
+
         if (modal) modal.hide();
 
         await window.Fipca.aviso(
           null,
-          id
-            ? "Los cambios de la cuenta se guardaron."
-            : "La cuenta se creó correctamente.",
+          eraCreacion
+            ? "La cuenta se creó correctamente."
+            : "Los cambios de la cuenta se guardaron.",
           "exito"
         );
         await cargarUsuarios();
@@ -339,6 +471,79 @@ import { inicializarValidacionFormulario } from "/static/js/expresionesRegulares
         configurarModo(false);
       });
     }
+  }
+
+  if (campoImagen && vistaPreviaImagen && botonQuitarImagen) {
+    vistaPreviaImagen.addEventListener("error", function () {
+      vistaPreviaImagen.src = avatarPredeterminado;
+    });
+
+    campoImagen.addEventListener("change", function () {
+      var archivo = campoImagen.files && campoImagen.files[0];
+      archivoImagenSeleccionado = null;
+      if (urlVistaPrevia) URL.revokeObjectURL(urlVistaPrevia);
+      urlVistaPrevia = null;
+      if (!archivo) {
+        mostrarImagen(quitarImagen ? avatarPredeterminado : fuenteImagenGuardada);
+        return;
+      }
+
+      if (archivo.size > 2 * 1024 * 1024) {
+        campoImagen.value = "";
+        mostrarImagen(quitarImagen ? avatarPredeterminado : fuenteImagenGuardada);
+        notaImagen.textContent = "La imagen supera el límite de 2 MB.";
+        notaImagen.setAttribute("data-tipo", "error");
+        window.Fipca.aviso(null, "La imagen supera el límite de 2 MB.", "error");
+        return;
+      }
+
+      var tiposPorExtension = {
+        jpg: "image/jpeg",
+        jpeg: "image/jpeg",
+        png: "image/png",
+        webp: "image/webp",
+      };
+      var extension = archivo.name.split(".").pop().toLowerCase();
+      var tipoEsperado = tiposPorExtension[extension];
+      if (
+        !tipoEsperado ||
+        (archivo.type && archivo.type !== tipoEsperado)
+      ) {
+        campoImagen.value = "";
+        mostrarImagen(quitarImagen ? avatarPredeterminado : fuenteImagenGuardada);
+        notaImagen.textContent = "Seleccione una imagen JPEG, PNG o WebP.";
+        notaImagen.setAttribute("data-tipo", "error");
+        window.Fipca.aviso(
+          null,
+          "Seleccione una imagen JPEG, PNG o WebP.",
+          "error"
+        );
+        return;
+      }
+
+      archivoImagenSeleccionado = archivo;
+      quitarImagen = false;
+      botonQuitarImagen.hidden = !imagenGuardada;
+      urlVistaPrevia = URL.createObjectURL(archivo);
+      mostrarImagen(urlVistaPrevia);
+      notaImagen.textContent =
+        "Vista previa lista. Confirme para guardar la imagen.";
+      notaImagen.setAttribute("data-tipo", "seleccionada");
+    });
+
+    botonQuitarImagen.addEventListener("click", function () {
+      if (urlVistaPrevia) URL.revokeObjectURL(urlVistaPrevia);
+      urlVistaPrevia = null;
+      archivoImagenSeleccionado = null;
+      campoImagen.value = "";
+      quitarImagen = imagenGuardada;
+      mostrarImagen(avatarPredeterminado);
+      botonQuitarImagen.hidden = true;
+      notaImagen.textContent = imagenGuardada
+        ? "La imagen se quitará al guardar los cambios."
+        : "Se usará el avatar predeterminado.";
+      notaImagen.removeAttribute("data-tipo");
+    });
   }
 
   tabla.addEventListener("click", async function (evento) {
@@ -394,5 +599,6 @@ import { inicializarValidacionFormulario } from "/static/js/expresionesRegulares
   });
 
   inicializarTabla();
+  cargarOpcionesRoles();
   cargarUsuarios();
 })();

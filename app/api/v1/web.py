@@ -133,7 +133,7 @@ def usuarios(request: Request) -> HTMLResponse:
     usuario = _sesion(request)
     if usuario is None:
         return _redirigir("/login")
-    if usuario["rol"] != "admin":
+    if "usuarios:gestionar" not in usuario.get("permisos", []):
         return _redirigir("/dashboard")
     return _html(request, "usuarios.html", _contexto(request, usuario))
 

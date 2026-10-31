@@ -5,6 +5,7 @@
 {% include "_navbar.html" %}
 {% endblock %}
 {% block contenido %}
+{% set etiqueta_rol = 'Administrador' if usuario.rol == 'admin' else (usuario.rol|replace('_', ' ')|replace('-', ' ')|title) %}
 <div class="cuenta-pagina cuenta-pagina--perfil perfil-contenedor-compacto">
   <header class="cuenta-cabecera cuenta-cabecera--acciones perfil-cabecera">
     <div>
@@ -47,7 +48,7 @@
             <path d="M5 20a7 7 0 0 1 14 0" />
             {% endif %}
           </svg>
-          {{ 'Administrador' if usuario.rol == 'admin' else 'Ventas' }}
+          {{ etiqueta_rol }}
         </span>
       </div>
     </div>
@@ -134,7 +135,7 @@
             <div class="perfil-rol-banner">
               <div class="perfil-rol-banner__info">
                 <span>Rol de acceso</span>
-                <strong>{{ 'Administrador' if usuario.rol == 'admin' else 'Ventas' }}</strong>
+                <strong>{{ etiqueta_rol }}</strong>
               </div>
               <small>El rol solo puede cambiarlo un administrador.</small>
             </div>
@@ -175,7 +176,7 @@
     </div>
   </div>
 </div>
-{% endblock %} 
+{% endblock %}
 
 {% block scripts %}
 <script type="module" src="/static/js/perfil.js?v={{ version }}" defer></script>

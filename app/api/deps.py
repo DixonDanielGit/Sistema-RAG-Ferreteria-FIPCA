@@ -126,6 +126,22 @@ def requiere_admin(
     return usuario
 
 
+def requiere_permiso(clave: str):
+    """Construye una dependencia que exige una capacidad vigente de la cuenta."""
+
+    def verificar(
+        usuario: dict[str, Any] = Depends(usuario_actual),
+    ) -> dict[str, Any]:
+        if clave not in usuario.get("permisos", []):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tiene permiso para realizar esta operacion",
+            )
+        return usuario
+
+    return verificar
+
+
 def puede_registrar(
     request: Request,
     credenciales: HTTPAuthorizationCredentials | None = Depends(esquema_bearer),
@@ -134,16 +150,16 @@ def puede_registrar(
 
     * Si el sistema no tiene ninguna cuenta, permite crear la primera
       (administrador inicial) sin token: es el arranque del sistema.
-    * En cualquier otro caso exige un token con rol administrador.
+    * En cualquier otro caso exige la capacidad de gestionar usuarios.
     """
     if usuario_model.contar() == 0:
         return None
 
     usuario = _resolver_usuario(request, credenciales)
-    if usuario.get("rol") != "admin":
+    if "usuarios:gestionar" not in usuario.get("permisos", []):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Se requiere rol administrador para registrar usuarios",
+            detail="Se requiere permiso para registrar usuarios",
         )
     return usuario
 

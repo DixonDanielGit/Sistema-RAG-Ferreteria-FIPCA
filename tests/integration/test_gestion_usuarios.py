@@ -107,6 +107,59 @@ class TestAdministracionUsuarios:
         assert respuesta.json()["correo"] == "vendedor.actualizado@ferreteria.test"
         assert respuesta.json()["rol"] == "admin"
 
+    def test_admin_puede_subir_consultar_y_quitar_imagen_de_otra_cuenta(
+        self, cliente, crear_cuenta, token_de
+    ):
+        admin = crear_cuenta()
+        cuenta = crear_cuenta(usuario="vendedor", rol="ventas")
+        headers = _token(admin, token_de)
+        ruta = f"/api/v1/auth/usuarios/{cuenta['id']}/imagen"
+
+        subida = cliente.post(
+            ruta,
+            files={"archivo": ("foto.png", _png(), "image/png")},
+            headers=headers,
+        )
+        assert subida.status_code == 200
+
+        imagen = cliente.get(ruta, headers=headers)
+        assert imagen.status_code == 200
+        assert imagen.headers["content-type"] == "image/webp"
+        assert imagen.headers["cache-control"] == "private, no-store"
+        assert imagen.content.startswith(b"RIFF")
+
+        eliminacion = cliente.delete(ruta, headers=headers)
+        assert eliminacion.status_code == 200
+        assert cliente.get(ruta, headers=headers).status_code == 404
+
+    def test_gestionar_imagen_de_cuentas_requiere_permiso(
+        self, cliente, crear_cuenta, token_de
+    ):
+        admin = crear_cuenta()
+        vendedor = crear_cuenta(usuario="vendedor", rol="ventas")
+        ruta = f"/api/v1/auth/usuarios/{admin['id']}/imagen"
+        headers = _token(vendedor, token_de)
+
+        assert cliente.get(ruta, headers=headers).status_code == 403
+        assert cliente.post(
+            ruta,
+            files={"archivo": ("foto.png", _png(), "image/png")},
+            headers=headers,
+        ).status_code == 403
+        assert cliente.delete(ruta, headers=headers).status_code == 403
+
+    def test_rechaza_formatos_no_admitidos_en_imagenes_de_usuarios(
+        self, cliente, crear_cuenta, token_de
+    ):
+        admin = crear_cuenta()
+        cuenta = crear_cuenta(usuario="vendedor", rol="ventas")
+        respuesta = cliente.post(
+            f"/api/v1/auth/usuarios/{cuenta['id']}/imagen",
+            files={"archivo": ("avatar.svg", b"<svg/>", "image/svg+xml")},
+            headers=_token(admin, token_de),
+        )
+        assert respuesta.status_code == 422
+
     def test_ventas_no_puede_editar_otra_cuenta(
         self, cliente, crear_cuenta, token_de
     ):
@@ -328,5 +381,9 @@ class TestVistasDeCuenta:
         assert 'class="datatable-tabla-scroll"' in html
         assert "/static/vendor/datatables.responsive.min.js" not in html
         assert 'id="tabla-usuarios"' in html
+        assert "/static/img/avatar-default.svg" in html
+        assert 'id="vista-previa-imagen-usuario"' in html
+        assert 'id="archivo-imagen-usuario"' in html
+        assert 'id="quitar-imagen-usuario"' in html
         assert 'id="fipca-menu-toggle"' in html
         assert 'aria-label="Cerrar sesión"' in html

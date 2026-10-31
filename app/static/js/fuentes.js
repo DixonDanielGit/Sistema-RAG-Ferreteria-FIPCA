@@ -79,7 +79,10 @@
     var cerrar = document.getElementById("cerrar-fuentes");
     var alternarFuentesPc = document.getElementById("alternar-fuentes-pc");
     var alternarSesionesPc = document.getElementById("alternar-sesiones-pc");
+    var abrirSesiones = document.getElementById("abrir-sesiones");
+    var cerrarSesiones = document.getElementById("cerrar-sesiones");
     var panelSesiones = document.getElementById("panel-sesiones");
+    var veloSesiones = document.getElementById("velo-sesiones");
     var chat = panel.closest(".chat");
     var velo = document.getElementById("velo-fuentes");
     var principal = document.querySelector(".chat__principal");
@@ -92,12 +95,16 @@
     var arrastre = 0;
     var consulta = "";
     var puedeEliminar = Boolean(lista && lista.dataset.puedeEliminar);
+    var movil = window.matchMedia("(max-width: 900px)");
     var escritorio = window.matchMedia("(min-width: 1200px)");
 
     function actualizarPanelesEscritorio() {
       if (!chat) return;
       var fuentesVisibles = !panel.hidden;
-      var sesionesVisibles = panelSesiones && !panelSesiones.hidden;
+      var sesionesVisibles = panelSesiones &&
+        (escritorio.matches
+          ? !panelSesiones.hidden
+          : panelSesiones.getAttribute("data-abierto") === "true");
       chat.classList.toggle("chat--sin-fuentes", !fuentesVisibles);
       chat.classList.toggle("chat--sin-sesiones", !sesionesVisibles);
       if (alternarFuentesPc) {
@@ -132,8 +139,66 @@
       });
     }
 
+    function abrirPanelSesiones() {
+      if (!movil.matches || !panelSesiones) return;
+      panelSesiones.hidden = false;
+      panelSesiones.inert = false;
+      panelSesiones.setAttribute("data-abierto", "true");
+      if (veloSesiones) veloSesiones.hidden = false;
+      if (abrirSesiones) abrirSesiones.setAttribute("aria-expanded", "true");
+      void panelSesiones.offsetWidth;
+      if (cerrarSesiones) cerrarSesiones.focus();
+      if (principal) principal.inert = true;
+      actualizarPanelesEscritorio();
+    }
+
+    function cerrarPanelSesiones(devolverFoco) {
+      if (
+        !panelSesiones ||
+        panelSesiones.getAttribute("data-abierto") !== "true"
+      ) return;
+      panelSesiones.removeAttribute("data-abierto");
+      panelSesiones.inert = true;
+      if (veloSesiones) veloSesiones.hidden = true;
+      if (principal) principal.inert = false;
+      if (abrirSesiones) {
+        abrirSesiones.setAttribute("aria-expanded", "false");
+        if (devolverFoco) abrirSesiones.focus();
+      }
+      actualizarPanelesEscritorio();
+    }
+
+    if (abrirSesiones) {
+      abrirSesiones.addEventListener("click", abrirPanelSesiones);
+    }
+    if (cerrarSesiones) {
+      cerrarSesiones.addEventListener("click", function () {
+        cerrarPanelSesiones(true);
+      });
+    }
+    if (veloSesiones) {
+      veloSesiones.addEventListener("click", function () {
+        cerrarPanelSesiones(true);
+      });
+    }
+
+    document.addEventListener("keydown", function (evento) {
+      if (evento.key === "Escape") cerrarPanelSesiones(true);
+    });
+
     function adaptarEscritorio(evento) {
-      if (evento.matches) return;
+      cerrarPanelSesiones(false);
+      if (panelSesiones) {
+        panelSesiones.removeAttribute("data-abierto");
+        panelSesiones.inert = !evento.matches;
+      }
+      if (veloSesiones) veloSesiones.hidden = true;
+      if (abrirSesiones) abrirSesiones.setAttribute("aria-expanded", "false");
+      if (principal) principal.inert = false;
+      if (evento.matches) {
+        actualizarPanelesEscritorio();
+        return;
+      }
       panel.hidden = false;
       actualizarPanelesEscritorio();
     }
@@ -834,8 +899,6 @@
 
     /* Cajon del telefono: se abre sobre la conversacion y se cierra con la
        aspa, el velo o la tecla Escape. */
-    var movil = window.matchMedia("(max-width: 900px)");
-
     function abrirPanel() {
       if (!movil.matches) return;
       panel.hidden = false;
@@ -872,15 +935,35 @@
 
     if (movil.addEventListener) {
       movil.addEventListener("change", function (evento) {
-        if (evento.matches) return;
+        if (evento.matches) {
+          cerrarPanelSesiones(false);
+          if (panelSesiones) {
+            panelSesiones.inert = !escritorio.matches;
+          }
+          if (veloSesiones) veloSesiones.hidden = true;
+          if (abrirSesiones) {
+            abrirSesiones.setAttribute("aria-expanded", "false");
+          }
+          actualizarPanelesEscritorio();
+          return;
+        }
         panel.removeAttribute("data-abierto");
         panel.hidden = false;
         if (velo) velo.hidden = true;
         if (principal) principal.inert = false;
         if (abrir) abrir.setAttribute("aria-expanded", "false");
+        if (panelSesiones) {
+          panelSesiones.removeAttribute("data-abierto");
+          panelSesiones.inert = !escritorio.matches;
+          if (veloSesiones) veloSesiones.hidden = true;
+        }
+        if (abrirSesiones) abrirSesiones.setAttribute("aria-expanded", "false");
         actualizarPanelesEscritorio();
       });
     }
+
+    if (panelSesiones) panelSesiones.inert = escritorio.matches ? false : true;
+    actualizarPanelesEscritorio();
 
     cargarHistorial();
     actualizar();

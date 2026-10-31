@@ -268,8 +268,9 @@ Reglas:
 - **Perfil:** fotografía, rol y datos personales en una ficha compacta con
   superficies y colores de tema; los cambios de datos y fotografía se realizan
   en un modal con vista previa y validación en vivo.
-- **Configuración:** versión y vigencia de sesión para ambos roles; diagnóstico
-  de bases y límites de ingesta solo para administración.
+- **Configuración:** versión y vigencia de sesión para todos; administración de
+  roles y capacidades disponible solo para `admin`; diagnóstico de bases y
+  límites de ingesta visible a quienes tengan la capacidad correspondiente.
 - **Asistente:** dos columnas. El panel de fuentes ocupa 292 px a la izquierda y
   la conversación el resto, con el hilo centrado a 780 px y el redactor anclado
   abajo. `body.cuerpo-chat` es flex y `main` crece, sin restar alturas fijas.
@@ -280,10 +281,13 @@ Reglas:
   24–32 px; las filas de estado, a 16 px.
 - **Puntos de quiebre:** 1150 px (menú hamburguesa antes de que la navegación
   desborde), 900 px (paneles y rejillas) y 640 px (cabecera del chat). En móvil,
-  los enlaces quedan dentro del menú desplegable; el panel de fuentes pasa a
-  cajón deslizante con velo y se abre desde el botón "Fuentes". Los controles
-  de navegación conservan objetivos táctiles de 44 px. A 470 px o menos, los
-  campos de todos los formularios se apilan en una columna.
+  los enlaces quedan dentro del menú desplegable; los paneles de fuentes y
+  sesiones pasan a cajones deslizantes laterales con velo, cada uno abierto
+  desde su botón. Los controles de navegación conservan objetivos táctiles de
+  44 px. Por debajo de 450 px, los campos de los formularios se apilan en una
+  columna. Los modales extensos se ajustan a la altura visible de la pantalla:
+  el cuerpo del formulario se desplaza sin ocultar el encabezado ni las
+  acciones; entradas y botones pueden encogerse y ajustar su texto al ancho.
 - **Objetivos táctiles:** 44 px mínimos en móvil, incluidos los botones de tema
   y las sugerencias del asistente.
 
@@ -351,8 +355,8 @@ botones.
 
 Fija arriba, superficie al 90 %, borde inferior de 1 px y 48 px de alto en
 escritorio (52 px en móvil por los objetivos táctiles). Contiene marca, enlaces
-(Panel, Asistente, Usuarios solo para administradores, Perfil, Configuración y
-API solo para administradores), nombre y rol del usuario, conmutador de tema y
+(Panel, Asistente, Usuarios para quienes tengan `usuarios:gestionar`, Perfil y
+Configuración), nombre y rol del usuario, conmutador de tema y
 salida con icono y nombre accesible. Al ancho de 1150 px el menú de enlaces se
 colapsa tras un botón hamburguesa; Escape y un clic fuera lo cierran. El botón
 de salida solicita confirmación con SweetAlert2.
@@ -361,11 +365,23 @@ de salida solicita confirmación con SweetAlert2.
 
 Las cuentas se presentan con DataTables y su extensión Responsive, búsqueda,
 ordenamiento y paginación en español. Alta y edición comparten un modal; la
-edición de datos y rol se persiste de manera atómica. Las acciones de estado
+edición de datos y rol se persiste de manera atómica. El selector usa los roles
+configurados y no permite a un rol delegado asignar `admin`. Las acciones de estado
 solicitan confirmación y nunca ofrecen borrado físico. SweetAlert2 comunica
 errores, resultados y decisiones; los campos conservan validación accesible.
-Las imágenes se validan en el servidor y se guardan normalizadas como WebP; la
-interfaz ofrece vista previa y el avatar local al quitarla.
+Los formularios de alta y edición permiten seleccionar o reemplazar la imagen,
+con vista previa y el avatar local como valor predeterminado. Las imágenes se
+validan en el servidor, se guardan normalizadas como WebP y su eliminación se
+aplica al guardar los cambios.
+
+### Gestión de roles y permisos
+
+Configuración presenta a `admin` una tabla de roles con sus capacidades y
+cuentas asignadas, además de un formulario en línea para crear o editar perfiles.
+Las capacidades se eligen de un catálogo fijo; `admin` se muestra protegido y
+no ofrece acciones de edición ni eliminación. Los roles asignados a cuentas no
+se pueden eliminar. La lista y el formulario se apilan en pantallas estrechas;
+los estados de carga y error se comunican con texto accesible.
 
 ### Avisos y dependencias locales
 
@@ -397,10 +413,10 @@ Columna de 292 px a la izquierda del asistente, inspirada en la biblioteca de
 fuentes de NotebookLM. Cabecera con el título, el conteo de archivos y el aspa de
 cierre (solo móvil); debajo, el botón "Agregar archivo", una zona punteada para
 arrastrar y soltar, y la lista de archivos. Cada archivo muestra una ficha de
-extensión en azul (PDF, XLSX, CSV…), el nombre recortado con puntos suspensivos y
-su tamaño. El pie declara que la carga es una vista previa hasta la Semana 3. Los
-controles de carga solo se renderizan para el rol administrador; el resto ve la
-lista y la frase que lo explica.
+extensión en azul (PDF, XLSX, DOCX o TXT), el nombre recortado con puntos
+suspensivos y su tamaño. Los controles de carga y eliminación se renderizan
+según las capacidades `catalogos:ingestar` y `catalogos:eliminar`; las demás
+personas ven la lista y la explicación.
 
 ### Indicador de consulta
 
@@ -426,6 +442,8 @@ Una sola entrada: `entrar-mensaje`, 320 ms con curva expo-out, desplazamiento de
 - Mantener el foco visible y los 44 px táctiles aunque el diseño "se vea mejor"
   sin ellos.
 - Decir la verdad en la interfaz: si el motor es provisional, se declara.
+- Mostrar la gestión de roles solo a `admin` y mantener las capacidades también
+  validadas por el servidor.
 
 **Don't**
 

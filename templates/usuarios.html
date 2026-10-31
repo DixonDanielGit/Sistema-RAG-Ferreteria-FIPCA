@@ -103,6 +103,45 @@ estilos_extra %}
       </div>
       <form class="cuenta-formulario" id="form-usuario" novalidate>
         <div class="modal-body formulario-compacto">
+          <section class="cuenta-modal__imagen">
+            <img
+              class="perfil-foto__imagen perfil-foto__imagen--modal"
+              id="vista-previa-imagen-usuario"
+              src="/static/img/avatar-default.svg"
+              alt="Vista previa de la imagen del usuario"
+            />
+            <div class="perfil-modal__foto-datos">
+              <strong>Imagen de perfil</strong>
+              <p>JPEG, PNG o WebP · máx. 2 MB. Si no agrega una imagen, se mostrará el avatar predeterminado.</p>
+              <div class="perfil-foto__acciones">
+                <label class="btn-fipca btn-fipca--fantasma perfil-foto__seleccionar">
+                  Elegir imagen
+                  <input
+                    id="archivo-imagen-usuario"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                  />
+                </label>
+                <button
+                  class="btn-fipca btn-fipca--danger"
+                  id="quitar-imagen-usuario"
+                  type="button"
+                  hidden
+                >
+                  Usar avatar predeterminado
+                </button>
+              </div>
+              <p
+                class="perfil-modal__nota"
+                id="nota-imagen-usuario"
+                role="status"
+                aria-live="polite"
+              >
+                La imagen se guardará junto con los datos de la cuenta.
+              </p>
+            </div>
+          </section>
+
           <!-- Cédula -->
           <div class="cuenta-campo campo-custom">
             <label for="reg-cedula" class="form-label">Cédula</label>
@@ -242,9 +281,10 @@ estilos_extra %}
           <div class="cuenta-campo campo-custom">
             <label for="reg-rol" class="form-label">Rol</label>
             <div class="campo-input-contenedor">
-              <select name="rol" id="reg-rol" class="form-control input-custom input-validar" required>
+              <select name="rol" id="reg-rol" class="form-control input-custom input-validar"
+                      data-puede-asignar-admin="{{ '1' if usuario.rol == 'admin' else '0' }}"
+                      required>
                 <option value="ventas" selected>Ventas</option>
-                <option value="admin">Administrador</option>
               </select>
               <span class="icono-der" aria-hidden="true">
                 <svg class="check d-none" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">

@@ -96,8 +96,9 @@ def bases_de_prueba():
         conexion_usuarios = conexion_admin(USUARIOS_PRUEBA)
         try:
             with conexion_usuarios.cursor() as cur:
-                migracion = RAIZ / "scripts" / "migracion_5_0.sql"
-                cur.execute(migracion.read_text(encoding="utf-8"))
+                for version in ("5_0", "6_0"):
+                    migracion = RAIZ / "scripts" / f"migracion_{version}.sql"
+                    cur.execute(migracion.read_text(encoding="utf-8"))
         finally:
             conexion_usuarios.close()
     except psycopg2.Error as exc:

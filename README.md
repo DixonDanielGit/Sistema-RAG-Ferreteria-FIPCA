@@ -106,7 +106,9 @@ docker compose rm -f api
 
 Mientras no exista ningún usuario, el alta está abierta: la primera cuenta
 **debe** ser administradora (es el arranque del sistema). Después, solo un
-administrador autenticado puede registrar cuentas.
+administrador o una cuenta con la capacidad `usuarios:gestionar` puede
+administrar cuentas. Solo el administrador puede asignar el rol protegido
+`admin`.
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/auth/register \
@@ -189,21 +191,25 @@ iniciar sesión y `-b cookies.txt` en las llamadas siguientes.
 | Método | Ruta | Acceso | Descripción |
 |---|---|---|---|
 | POST | `/api/v1/auth/login` | público | Valida credenciales y entrega JWT + cookies |
-| POST | `/api/v1/auth/register` | admin (o público si no hay cuentas) | Alta de usuarios |
+| POST | `/api/v1/auth/register` | `usuarios:gestionar` (o público si no hay cuentas) | Alta de usuarios |
 | GET | `/api/v1/auth/me` | autenticado | Datos de la cuenta actual |
 | PUT | `/api/v1/auth/me` | autenticado | Actualiza nombre, apellido, usuario, correo y cédula propios |
 | GET | `/api/v1/auth/me/imagen` | autenticado | Obtiene la imagen de perfil propia |
 | POST / DELETE | `/api/v1/auth/me/imagen` | autenticado | Guarda o quita la imagen propia |
-| GET | `/api/v1/auth/usuarios` | admin | Lista cuentas sin hashes ni imágenes |
-| PATCH | `/api/v1/auth/usuarios/{id}/rol` | admin | Cambia el rol de una cuenta |
-| PATCH | `/api/v1/auth/usuarios/{id}/estado` | admin | Activa o desactiva una cuenta |
-| GET | `/api/v1/auth/configuracion/admin` | admin | Consulta estado de bases y límites técnicos |
+| GET | `/api/v1/auth/usuarios` | `usuarios:gestionar` | Lista cuentas sin hashes ni imágenes |
+| PUT | `/api/v1/auth/usuarios/{id}` | `usuarios:gestionar` | Actualiza cuenta y rol |
+| PATCH | `/api/v1/auth/usuarios/{id}/rol` | `usuarios:gestionar` | Cambia el rol de una cuenta |
+| PATCH | `/api/v1/auth/usuarios/{id}/estado` | `usuarios:gestionar` | Activa o desactiva una cuenta |
+| GET | `/api/v1/auth/configuracion/admin` | `configuracion:diagnostico` | Consulta estado de bases y límites técnicos |
 | POST | `/api/v1/auth/logout` | autenticado | Registra el cierre y borra la cookie |
-| GET | `/api/v1/auth/roles` | admin | Catálogo de roles |
+| GET | `/api/v1/auth/roles` | `usuarios:gestionar` | Catálogo de roles para asignarlos a cuentas |
+| GET | `/api/v1/auth/roles/permisos` | admin | Catálogo fijo de capacidades |
+| POST / PUT / DELETE | `/api/v1/auth/roles[/{id}]` | admin | Administra roles y sus capacidades |
 | POST | `/api/v1/auth/recuperar` | público | Envía (o registra) el enlace de recuperación |
 | POST | `/api/v1/auth/restablecer` | público | Cambia la contraseña con el token del enlace |
-| POST | `/api/v1/inventario/ingesta` | admin | Procesa un lote de catálogos |
+| POST | `/api/v1/inventario/ingesta` | `catalogos:ingestar` | Procesa un lote de catálogos |
 | GET | `/api/v1/inventario/archivos` | autenticado | Historial de las últimas 100 cargas |
+| DELETE | `/api/v1/inventario/archivos/{id}` | `catalogos:eliminar` | Elimina un catálogo y sus productos |
 | POST | `/api/v1/rag/chat` | autenticado | Pregunta al asistente (contrato final) |
 | GET | `/api/v1/rag/estado` | autenticado | Disponibilidad del motor RAG |
 | GET | `/salud` | público | Estado de las bases de datos |
@@ -213,12 +219,16 @@ Reglas de autenticación:
 
 - El JWT expira a los `JWT_EXPIRACION_MINUTOS` (30 por defecto). Ese plazo
   implementa el cierre de sesión por inactividad (RF-01.3).
-- El token incluye el rol; cada ruta decide el permiso (`admin` / `ventas`).
-- La cuenta se relee de la base en cada petición: desactivar un usuario
-  invalida sus tokens de inmediato.
-- Las pantallas `/usuarios`, `/perfil` y `/configuracion` están disponibles
-  según el rol. Las cuentas se desactivan en vez de borrarse; el último
-  administrador activo no puede desactivarse ni perder su rol.
+- El token incluye el rol; la cuenta y sus capacidades vigentes se releen de la
+  base en cada petición. Un cambio o revocación de permisos tiene efecto sin
+  renovar el JWT, y desactivar una cuenta invalida sus tokens de inmediato.
+- Solo `admin` puede crear, editar o eliminar roles y capacidades. `admin` está
+  protegido y conserva acceso total; los roles asignados a cuentas no se
+  pueden eliminar. Las capacidades se seleccionan de una lista fija del
+  sistema, no son permisos CRUD arbitrarios.
+- Las pantallas `/usuarios`, `/perfil` y `/configuracion` muestran funciones
+  según las capacidades. Las cuentas se desactivan en vez de borrarse; el
+  último administrador activo no puede desactivarse ni perder su rol.
 - La foto de perfil se almacena como WebP normalizado en `BYTEA`; se reciben
   JPEG, PNG o WebP de hasta 2 MB. Sin foto se muestra el avatar local.
 - El asistente responde hoy con un aviso de motor provisional; el contrato
@@ -262,7 +272,7 @@ El esquema se define en `init.sql` y crea dos bases:
 | Base | Tablas | Uso |
 |---|---|---|
 | `ferreteria_rag` | `archivos_subidos`, `proveedores`, `categoria`, `productos` | Catálogo e insumos del motor RAG (incluye `descripcion_vectorial vector(384)` e índice HNSW) |
-| `ferreteria_usuarios` | `rol`, `usuarios`, `bitacora` | Autenticación, perfiles con imagen y auditoría inmutable |
+| `ferreteria_usuarios` | `rol`, `permiso`, `rol_permiso`, `usuarios`, `tokens_recuperacion`, `bitacora` | Autenticación, capacidades, perfiles y auditoría inmutable |
 | `ferreteria` | — | Base de mantenimiento (la usa pgAdmin para conectarse) |
 
 ### Dos roles de base de datos
@@ -270,7 +280,7 @@ El esquema se define en `init.sql` y crea dos bases:
 | Rol | Uso | Privilegios |
 |---|---|---|
 | `admin_ferreteria` | Administración y tareas puntuales | Superusuario |
-| `app_ferreteria` | **La API** | Solo datos: `SELECT/INSERT/UPDATE/DELETE` en el catálogo, `SELECT/INSERT` en la bitácora. Sin `CREATE`, sin `DELETE` de usuarios, sin acceso a la estructura |
+| `app_ferreteria` | **La API** | Solo datos: catálogo, cuentas y roles; catálogo de capacidades de solo lectura; `SELECT/INSERT` en la bitácora. Sin `CREATE`, sin `DELETE` de usuarios, sin acceso a la estructura |
 
 La contraseña de `app_ferreteria` se define en `APP_DB_PASSWORD` (`.env`) y
 `init.sql` la aplica al crear el volumen. La API nunca usa la cuenta de
@@ -297,11 +307,18 @@ venv\Scripts\python.exe scripts\aplicar_migracion.py 2_5
 venv\Scripts\python.exe scripts\aplicar_migracion.py 3_0
 venv\Scripts\python.exe scripts\aplicar_migracion.py 4_0
 venv\Scripts\python.exe scripts\aplicar_migracion.py 5_0
+venv\Scripts\python.exe scripts\aplicar_migracion.py 6_0
 ```
 
 La migración `5_0` agrega la imagen de perfil y protege la unicidad sin
 distinguir mayúsculas; se ejecuta en `ferreteria_usuarios` y conserva los datos.
 Debe aplicarse antes de desplegar una versión que use las vistas de cuenta.
+
+La migración `6_0` agrega el catálogo cerrado `permiso`, la relación
+`rol_permiso` y protección del rol `admin`. Asigna todas las capacidades
+vigentes al rol `admin` y es seguro volver a ejecutarla para completar esas
+asignaciones si una ejecución anterior dejó la relación vacía. Conserva
+usuarios y roles existentes; aplíquela antes de arrancar la API de esta versión.
 
 ### Piloto local de embeddings (Semana 4)
 
