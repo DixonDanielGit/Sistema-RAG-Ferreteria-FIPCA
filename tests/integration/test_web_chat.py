@@ -74,6 +74,17 @@ class TestVistaDelChat:
         assert 'id="alternar-sesiones-pc"' in html
         assert "/static/js/fuentes.js" in html
 
+    def test_eliminar_catalogos_en_lote_muestra_icono(self, navegador, sesion):
+        html = navegador.get("/chat").text
+
+        assert 'id="eliminar-seleccionados"' in html
+        boton = html.split('id="eliminar-seleccionados"', 1)[1].split(
+            "</button>", 1
+        )[0]
+        assert "<svg" in boton
+        assert 'aria-hidden="true"' in boton
+        assert "Eliminar" in boton
+
     def test_la_navegacion_marca_el_modulo_activo(self, navegador, sesion):
         assert 'aria-current="page"' in navegador.get("/chat").text
 

@@ -56,32 +56,59 @@ class TestGestionDeRoles:
         assert cantidad_primera_ejecucion == 4
         assert cantidad_segunda_ejecucion == cantidad_primera_ejecucion
 
-    def test_solo_admin_ve_la_gestion_de_roles_en_configuracion(
+    def test_solo_admin_ve_el_modulo_de_roles(
         self, cliente, crear_cuenta, token_de
     ):
         admin = crear_cuenta(usuario="admin_config")
-        headers_admin = _token(admin, token_de)
+        token_de(admin)
 
         pagina_admin = cliente.get("/configuracion")
         assert pagina_admin.status_code == 200
-        assert 'id="form-rol"' in pagina_admin.text
-        assert 'id="boton-archivos"' in cliente.get("/chat").text
+        assert 'id="form-rol"' not in pagina_admin.text
+        assert "Roles y permisos" not in pagina_admin.text
+        assert 'href="/roles"' in pagina_admin.text
+        assert "/static/vendor/datatables" not in pagina_admin.text
 
         estado_configuracion = cliente.get(
             "/api/v1/auth/configuracion/admin",
-            headers=headers_admin,
+            headers=_token(admin, token_de),
         )
         assert estado_configuracion.status_code == 200
 
+        pagina_roles = cliente.get("/roles")
+        assert pagina_roles.status_code == 200
+        assert 'id="lista-roles"' in pagina_roles.text
+        assert 'id="modal-rol"' in pagina_roles.text
+        assert 'id="modal-detalle-rol"' in pagina_roles.text
+        assert 'pattern="[a-z](?:[a-z0-9_]|-){1,49}"' in pagina_roles.text
+        assert "/static/js/roles.js" in pagina_roles.text
+        assert 'id="buscar-roles"' in pagina_roles.text
+        assert 'id="paginacion-roles"' in pagina_roles.text
+        assert 'id="plantilla-ilustracion-rol"' in pagina_roles.text
+        assert 'class="roles-ilustracion__nodo' in pagina_roles.text
+        codigo_roles = cliente.get("/static/js/roles.js")
+        assert codigo_roles.status_code == 200
+        assert "ROLES_POR_PAGINA = 4" in codigo_roles.text
+        assert "rolesFiltrados" in codigo_roles.text
+        assert "function crearIcono(accion)" in codigo_roles.text
+        assert 'boton.append(' in codigo_roles.text
+
         cliente.cookies.clear()
+        respuesta_anonima = cliente.get("/roles", follow_redirects=False)
+        assert respuesta_anonima.status_code == 303
+        assert respuesta_anonima.headers["location"] == "/login"
+
         ventas = crear_cuenta(usuario="ventas_config", rol="ventas")
         token_de(ventas)
 
         pagina_ventas = cliente.get("/configuracion")
         assert pagina_ventas.status_code == 200
         assert 'id="form-rol"' not in pagina_ventas.text
-        assert "Roles y permisos" not in pagina_ventas.text
-        assert 'id="boton-archivos"' not in cliente.get("/chat").text
+        assert 'id="modal-rol"' not in pagina_ventas.text
+        assert 'href="/roles"' not in pagina_ventas.text
+        respuesta_roles = cliente.get("/roles", follow_redirects=False)
+        assert respuesta_roles.status_code == 303
+        assert respuesta_roles.headers["location"] == "/dashboard"
 
     def test_admin_crea_actualiza_y_elimina_roles(
         self, cliente, crear_cuenta, token_de

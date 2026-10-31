@@ -86,22 +86,31 @@ import { inicializarValidacionFormulario } from "/static/js/expresionesRegulares
   function plantillaAcciones(usuario) {
     var accionEstado = usuario.activo ? "desactivar" : "activar";
     var textoEstado = usuario.activo ? "Desactivar" : "Activar";
+    var tituloEditar = "Editar cuenta de " + escapar(usuario.usuario);
+    var tituloEstado =
+      textoEstado + " cuenta de " + escapar(usuario.usuario);
+    var iconoEstado = usuario.activo
+      ? '<path d="M5 12h14"></path>'
+      : '<path d="M12 5v14"></path><path d="M5 12h14"></path>';
     return [
       '<div class="cuenta-tabla__acciones">',
       '<button class="btn-fipca btn-fipca--fantasma" type="button" ',
       'data-accion="editar" data-id="' + usuario.id + '" ',
-      'aria-label="Editar cuenta de ' +
-        escapar(usuario.usuario) +
-        '">Editar</button>',
+      'aria-label="' + tituloEditar + '" title="' + tituloEditar + '">',
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ',
+      'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" ',
+      'aria-hidden="true" focusable="false">',
+      '<path d="M12 20h9"></path>',
+      '<path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"></path>',
+      "</svg></button>",
       '<button class="btn-fipca btn-fipca--fantasma" type="button" ',
       'data-accion="' + accionEstado + '" data-id="' + usuario.id + '" ',
-      'aria-label="' +
-        textoEstado +
-        " cuenta de " +
-        escapar(usuario.usuario) +
-        '">',
-      textoEstado,
-      "</button></div>",
+      'aria-label="' + tituloEstado + '" title="' + tituloEstado + '">',
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ',
+      'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" ',
+      'aria-hidden="true" focusable="false">',
+      iconoEstado,
+      "</svg></button></div>",
     ].join("");
   }
 

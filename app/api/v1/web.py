@@ -138,6 +138,16 @@ def usuarios(request: Request) -> HTMLResponse:
     return _html(request, "usuarios.html", _contexto(request, usuario))
 
 
+@router.get("/roles", response_class=HTMLResponse, summary="Gestion de roles")
+def gestion_roles(request: Request) -> HTMLResponse:
+    usuario = _sesion(request)
+    if usuario is None:
+        return _redirigir("/login")
+    if usuario.get("rol") != "admin":
+        return _redirigir("/dashboard")
+    return _html(request, "roles.html", _contexto(request, usuario))
+
+
 @router.get("/perfil", response_class=HTMLResponse, summary="Perfil personal")
 def perfil(request: Request) -> HTMLResponse:
     usuario = _sesion(request)

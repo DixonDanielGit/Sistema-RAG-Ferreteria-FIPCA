@@ -54,6 +54,7 @@ uvicorn app.main:app --reload
 | Aplicación (acceso) | http://localhost:8000/login | Usuario y contraseña de la base |
 | Panel | http://localhost:8000/dashboard | Requiere sesión |
 | Asistente | http://localhost:8000/chat | Requiere sesión |
+| Roles | http://localhost:8000/roles | Solo administradores |
 | API (Swagger UI) | http://localhost:8000/docs | — |
 | Estado del servicio | http://localhost:8000/salud | — |
 | pgAdmin | http://localhost:8080 | `PGADMIN_DEFAULT_*` de `.env` |
@@ -226,6 +227,10 @@ Reglas de autenticación:
   protegido y conserva acceso total; los roles asignados a cuentas no se
   pueden eliminar. Las capacidades se seleccionan de una lista fija del
   sistema, no son permisos CRUD arbitrarios.
+- La administración de roles está en `/roles`, una pantalla exclusiva para
+  `admin` con tarjetas ilustradas, búsqueda, cuatro resultados por página,
+  edición, eliminación y consulta de capacidades y cuentas asignadas.
+  Configuración conserva los datos del sistema y el diagnóstico técnico.
 - Las pantallas `/usuarios`, `/perfil` y `/configuracion` muestran funciones
   según las capacidades. Las cuentas se desactivan en vez de borrarse; el
   último administrador activo no puede desactivarse ni perder su rol.

@@ -381,9 +381,18 @@ class TestVistasDeCuenta:
         assert 'class="datatable-tabla-scroll"' in html
         assert "/static/vendor/datatables.responsive.min.js" not in html
         assert 'id="tabla-usuarios"' in html
+        boton_registro = html.split('id="abrir-modal-usuario"', 1)[1].split(
+            "</button>", 1
+        )[0]
+        assert "<svg" not in boton_registro
         assert "/static/img/avatar-default.svg" in html
         assert 'id="vista-previa-imagen-usuario"' in html
         assert 'id="archivo-imagen-usuario"' in html
         assert 'id="quitar-imagen-usuario"' in html
         assert 'id="fipca-menu-toggle"' in html
         assert 'aria-label="Cerrar sesión"' in html
+        codigo_usuarios = cliente.get("/static/js/usuarios.js")
+        assert codigo_usuarios.status_code == 200
+        assert 'data-accion="editar"' in codigo_usuarios.text
+        assert '<path d="M12 20h9"></path>' in codigo_usuarios.text
+        assert "aria-hidden=\"true\" focusable=\"false\"" in codigo_usuarios.text

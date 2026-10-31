@@ -268,9 +268,11 @@ Reglas:
 - **Perfil:** fotografía, rol y datos personales en una ficha compacta con
   superficies y colores de tema; los cambios de datos y fotografía se realizan
   en un modal con vista previa y validación en vivo.
-- **Configuración:** versión y vigencia de sesión para todos; administración de
-  roles y capacidades disponible solo para `admin`; diagnóstico de bases y
-  límites de ingesta visible a quienes tengan la capacidad correspondiente.
+- **Configuración:** versión y vigencia de sesión para todos; diagnóstico de
+  bases y límites de ingesta visible a quienes tengan la capacidad
+  correspondiente.
+- **Roles:** módulo exclusivo para `admin`, con tarjetas ilustradas, edición,
+  eliminación y consulta de capacidades y cuentas asignadas.
 - **Asistente:** dos columnas. El panel de fuentes ocupa 292 px a la izquierda y
   la conversación el resto, con el hilo centrado a 780 px y el redactor anclado
   abajo. `body.cuerpo-chat` es flex y `main` crece, sin restar alturas fijas.
@@ -364,10 +366,12 @@ de salida solicita confirmación con SweetAlert2.
 ### Gestión de cuentas
 
 Las cuentas se presentan con DataTables y su extensión Responsive, búsqueda,
-ordenamiento y paginación en español. Alta y edición comparten un modal; la
-edición de datos y rol se persiste de manera atómica. El selector usa los roles
-configurados y no permite a un rol delegado asignar `admin`. Las acciones de estado
-solicitan confirmación y nunca ofrecen borrado físico. SweetAlert2 comunica
+ordenamiento y paginación en español. La acción de edición lleva un icono de
+lápiz; el botón de registro no lleva icono. Alta y edición
+comparten un modal; la edición de datos y rol se persiste de manera atómica. El
+selector usa los roles configurados y no permite a un rol delegado asignar
+`admin`. Las acciones de estado solicitan confirmación y nunca ofrecen borrado
+físico. SweetAlert2 comunica
 errores, resultados y decisiones; los campos conservan validación accesible.
 Los formularios de alta y edición permiten seleccionar o reemplazar la imagen,
 con vista previa y el avatar local como valor predeterminado. Las imágenes se
@@ -376,12 +380,18 @@ aplica al guardar los cambios.
 
 ### Gestión de roles y permisos
 
-Configuración presenta a `admin` una tabla de roles con sus capacidades y
-cuentas asignadas, además de un formulario en línea para crear o editar perfiles.
-Las capacidades se eligen de un catálogo fijo; `admin` se muestra protegido y
-no ofrece acciones de edición ni eliminación. Los roles asignados a cuentas no
-se pueden eliminar. La lista y el formulario se apilan en pantallas estrechas;
-los estados de carga y error se comunican con texto accesible.
+`/roles` presenta a `admin` tarjetas con una ilustración vectorial fija de
+perfiles conectados; sus colores usan los tokens de los temas claro y oscuro.
+Cada tarjeta muestra el nombre del perfil y acciones para editarlo, eliminarlo
+o consultar sus capacidades y cuentas asignadas, cada una con su icono
+correspondiente. La búsqueda filtra nombre,
+descripción y capacidades, y la cuadrícula muestra cuatro roles por página.
+Crear y editar ocurre en un modal compartido; la información adicional se
+consulta en otro modal. Las capacidades se eligen de un catálogo fijo. `admin`
+siempre muestra las tres acciones, pero editar y eliminar están deshabilitados
+porque el perfil está protegido. Los roles con cuentas asignadas no se pueden
+eliminar. La cuadrícula y las acciones se adaptan a pantallas estrechas, y los
+estados de carga, error y búsqueda vacía se comunican con texto accesible.
 
 ### Avisos y dependencias locales
 
@@ -415,7 +425,8 @@ cierre (solo móvil); debajo, el botón "Agregar archivo", una zona punteada par
 arrastrar y soltar, y la lista de archivos. Cada archivo muestra una ficha de
 extensión en azul (PDF, XLSX, DOCX o TXT), el nombre recortado con puntos
 suspensivos y su tamaño. Los controles de carga y eliminación se renderizan
-según las capacidades `catalogos:ingestar` y `catalogos:eliminar`; las demás
+según las capacidades `catalogos:ingestar` y `catalogos:eliminar`. La
+eliminación individual y por lote se identifica con un icono de papelera; las demás
 personas ven la lista y la explicación.
 
 ### Indicador de consulta
@@ -442,7 +453,7 @@ Una sola entrada: `entrar-mensaje`, 320 ms con curva expo-out, desplazamiento de
 - Mantener el foco visible y los 44 px táctiles aunque el diseño "se vea mejor"
   sin ellos.
 - Decir la verdad en la interfaz: si el motor es provisional, se declara.
-- Mostrar la gestión de roles solo a `admin` y mantener las capacidades también
+- Mostrar el módulo `/roles` solo a `admin` y mantener las capacidades también
   validadas por el servidor.
 
 **Don't**

@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+
+{% block titulo %}Roles{% endblock %}
+
+{% block navegacion %}
+{% set activo = 'roles' %}
+{% include "_navbar.html" %}
+{% endblock %}
+
+{% block contenido %}
+<div class="cuenta-pagina cuenta-pagina--roles">
+  <header class="cuenta-cabecera cuenta-cabecera--acciones">
+    <div>
+      <h1>Roles</h1>
+      <p>Organice los accesos del equipo con perfiles y capacidades definidas.</p>
+    </div>
+    <button class="btn-fipca" id="abrir-modal-rol" type="button">
+      Crear rol
+    </button>
+  </header>
+
+  <section class="cuenta-seccion" aria-labelledby="roles-titulo">
+    <div class="cuenta-seccion__cabecera">
+      <h2 id="roles-titulo">Roles del sistema</h2>
+      <p>El rol Administrador está protegido y siempre conserva el acceso total.</p>
+    </div>
+    <div class="cuenta-aviso" id="aviso-roles" role="status" aria-live="polite" hidden></div>
+    <div class="roles-controles">
+      <label class="roles-controles__busqueda" for="buscar-roles">
+        <span>Buscar roles</span>
+        <input
+          class="form-control input-custom"
+          id="buscar-roles"
+          type="search"
+          autocomplete="off"
+          placeholder="Nombre, descripción o capacidad"
+          aria-controls="lista-roles"
+        />
+      </label>
+      <p class="roles-controles__resumen" id="resumen-roles" aria-live="polite" aria-atomic="true"></p>
+    </div>
+    <div class="roles-tarjetas" id="lista-roles" aria-live="polite" aria-busy="true">
+      <p class="roles-estado">Cargando roles…</p>
+    </div>
+    <nav class="roles-paginacion" id="paginacion-roles" aria-label="Paginación de roles" hidden>
+      <button class="btn-fipca btn-fipca--fantasma" type="button" data-pagina-rol="anterior">
+        Anterior
+      </button>
+      <div
+        class="roles-paginacion__paginas"
+        id="paginas-roles"
+        role="group"
+        aria-label="Páginas"
+      ></div>
+      <button class="btn-fipca btn-fipca--fantasma" type="button" data-pagina-rol="siguiente">
+        Siguiente
+      </button>
+    </nav>
+  </section>
+</div>
+
+<template id="plantilla-ilustracion-rol">
+  <svg class="roles-tarjeta__ilustracion" viewBox="0 0 96 96" aria-hidden="true" focusable="false">
+    <path class="roles-ilustracion__conexion" d="M48 43 27 25m21 18 21-18M48 53v19" />
+    <circle class="roles-ilustracion__nodo roles-ilustracion__nodo--principal" cx="48" cy="48" r="20" />
+    <circle class="roles-ilustracion__persona" cx="48" cy="42" r="5" />
+    <path class="roles-ilustracion__persona" d="M37 59c1-7 5-10 11-10s10 3 11 10" />
+    <circle class="roles-ilustracion__nodo roles-ilustracion__nodo--secundario" cx="26" cy="23" r="11" />
+    <circle class="roles-ilustracion__persona" cx="26" cy="21" r="2.5" />
+    <path class="roles-ilustracion__persona" d="M21 29c.5-3 2-4.5 5-4.5s4.5 1.5 5 4.5" />
+    <circle class="roles-ilustracion__nodo roles-ilustracion__nodo--terciario" cx="70" cy="23" r="11" />
+    <circle
+      class="roles-ilustracion__persona roles-ilustracion__persona--contraste"
+      cx="70"
+      cy="21"
+      r="2.5"
+    />
+    <path
+      class="roles-ilustracion__persona roles-ilustracion__persona--contraste"
+      d="M65 29c.5-3 2-4.5 5-4.5s4.5 1.5 5 4.5"
+    />
+    <circle class="roles-ilustracion__nodo roles-ilustracion__nodo--terciario" cx="48" cy="75" r="11" />
+    <circle
+      class="roles-ilustracion__persona roles-ilustracion__persona--contraste"
+      cx="48"
+      cy="73"
+      r="2.5"
+    />
+    <path
+      class="roles-ilustracion__persona roles-ilustracion__persona--contraste"
+      d="M43 81c.5-3 2-4.5 5-4.5s4.5 1.5 5 4.5"
+    />
+  </svg>
+</template>
+
+<div
+  class="modal fade"
+  id="modal-rol"
+  tabindex="-1"
+  aria-labelledby="form-rol-titulo"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+    <div class="modal-content cuenta-modal">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title" id="form-rol-titulo">Crear rol</h2>
+          <p class="cuenta-modal__ayuda" id="form-rol-ayuda">
+            Elija un nombre único y las capacidades que necesita este rol.
+          </p>
+        </div>
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="modal"
+          aria-label="Cerrar ventana"
+        ></button>
+      </div>
+      <form class="cuenta-formulario roles-modal-formulario" id="form-rol" novalidate>
+        <div class="modal-body formulario-compacto">
+          <input type="hidden" name="id_rol" />
+          <div class="cuenta-campo">
+            <label for="rol-nombre">Clave del rol</label>
+            <input
+              class="form-control input-custom"
+              id="rol-nombre"
+              name="nombre"
+              type="text"
+              minlength="2"
+              maxlength="50"
+              pattern="[a-z](?:[a-z0-9_]|-){1,49}"
+              autocomplete="off"
+              placeholder="supervisor"
+              required
+            />
+            <small>Use minúsculas, números, guiones o guiones bajos.</small>
+          </div>
+          <div class="cuenta-campo">
+            <label for="rol-descripcion">Descripción</label>
+            <input
+              class="form-control input-custom"
+              id="rol-descripcion"
+              name="descripcion"
+              type="text"
+              maxlength="255"
+              autocomplete="off"
+              placeholder="Atención y seguimiento de pedidos"
+            />
+          </div>
+          <fieldset class="roles-permisos roles-modal__permisos">
+            <legend>Capacidades</legend>
+            <div
+              class="roles-permisos__lista"
+              id="opciones-permisos"
+              aria-live="polite"
+            >
+              <p>Cargando capacidades…</p>
+            </div>
+          </fieldset>
+        </div>
+        <div class="modal-footer">
+          <button
+            class="btn-fipca btn-fipca--fantasma"
+            type="button"
+            data-bs-dismiss="modal"
+          >
+            Cancelar
+          </button>
+          <button class="btn-fipca" type="submit" id="guardar-rol">
+            <span class="spinner-border spinner-border-sm" aria-hidden="true" hidden></span>
+            <span id="guardar-rol-etiqueta">Crear rol</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div
+  class="modal fade"
+  id="modal-detalle-rol"
+  tabindex="-1"
+  aria-labelledby="detalle-rol-titulo"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered  modal-dialog-scrollable">
+    <div class="modal-content cuenta-modal">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title" id="detalle-rol-titulo">Información del rol</h2>
+          <p class="cuenta-modal__ayuda" id="detalle-rol-descripcion"></p>
+        </div>
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="modal"
+          aria-label="Cerrar ventana"
+        ></button>
+      </div>
+      <div class="modal-body roles-detalle">
+        <div>
+          <h3>Capacidades asignadas</h3>
+          <ul class="roles-detalle__permisos" id="detalle-rol-permisos"></ul>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-fipca btn-fipca--fantasma" type="button" data-bs-dismiss="modal">
+          Cerrar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/roles.js?v={{ version }}" defer></script>
+{% endblock %}
