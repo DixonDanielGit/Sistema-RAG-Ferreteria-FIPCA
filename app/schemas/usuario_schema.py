@@ -14,10 +14,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.security import LONGITUD_MAXIMA, PasswordInvalida, validar_fortaleza
 
-PATRON_USUARIO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,48}[A-Za-z0-9]$")
-PATRON_CORREO = re.compile(r"^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$")
-PATRON_CEDULA = re.compile(r"^[VEJPG]?-?\d{5,9}$", re.IGNORECASE)
-PATRON_NOMBRE = re.compile(r"^[^\W\d_][^\W\d_' .-]*$", re.UNICODE)
+PATRON_USUARIO = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{2,48}[A-Za-z0-9]")
+PATRON_CORREO = re.compile(
+    r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*"
+    r"@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}"
+)
+PATRON_CEDULA = re.compile(r"[VEJPG]?-?[0-9]{5,9}", re.IGNORECASE)
+PATRON_NOMBRE = re.compile(r"[^\W\d_](?:[^\W\d_]|[ .'-])*", re.UNICODE)
 
 ROLES_VALIDOS = ("admin", "ventas")
 
@@ -38,7 +41,9 @@ class LoginRequest(BaseModel):
             raise ValueError("El usuario o correo es obligatorio")
         if any(c in limpio for c in "\r\n\t\0"):
             raise ValueError("El identificador contiene caracteres no permitidos")
-        return limpio
+        if "@" in limpio:
+            return validar_correo(limpio)
+        return validar_usuario(limpio)
 
     @field_validator("password")
     @classmethod
@@ -58,7 +63,7 @@ class UsuarioRegistro(BaseModel):
     apellido: str = Field(min_length=2, max_length=100)
     usuario: str = Field(min_length=4, max_length=50)
     correo: str = Field(min_length=5, max_length=255)
-    password: str = Field(min_length=1, max_length=LONGITUD_MAXIMA)
+    password: str = Field(min_length=8, max_length=LONGITUD_MAXIMA)
     rol: str = Field(default="ventas", max_length=50)
 
     @field_validator("cedula")
@@ -93,10 +98,7 @@ class UsuarioRegistro(BaseModel):
     @field_validator("rol")
     @classmethod
     def _validar_rol(cls, valor: str) -> str:
-        limpio = valor.strip().lower()
-        if limpio not in ROLES_VALIDOS:
-            raise ValueError(f"Rol invalido; use uno de: {', '.join(ROLES_VALIDOS)}")
-        return limpio
+        return validar_rol(valor)
 
 
 class UsuarioSalida(BaseModel):
@@ -117,21 +119,21 @@ class UsuarioSalida(BaseModel):
 
 def validar_cedula(valor: str) -> str:
     limpio = valor.strip().upper()
-    if not PATRON_CEDULA.match(limpio):
+    if not PATRON_CEDULA.fullmatch(limpio):
         raise ValueError("Cedula invalida: use el formato V-12345678 o 12345678")
     return limpio
 
 
 def validar_nombre(valor: str) -> str:
     limpio = " ".join(valor.split())
-    if not PATRON_NOMBRE.match(limpio):
-        raise ValueError("El nombre solo admite letras, espacios y guiones")
+    if not PATRON_NOMBRE.fullmatch(limpio):
+        raise ValueError("El nombre admite letras, espacios, apostrofes, puntos y guiones")
     return limpio.title()
 
 
 def validar_usuario(valor: str) -> str:
     limpio = valor.strip().lower()
-    if not PATRON_USUARIO.match(limpio):
+    if not PATRON_USUARIO.fullmatch(limpio):
         raise ValueError(
             "El usuario debe tener entre 4 y 50 caracteres alfanumericos, "
             "puntos, guiones o guion bajo, y empezar y terminar con letra o numero"
@@ -141,8 +143,15 @@ def validar_usuario(valor: str) -> str:
 
 def validar_correo(valor: str) -> str:
     limpio = valor.strip().lower()
-    if not PATRON_CORREO.match(limpio):
-        raise ValueError("Correo electronico invalido")
+    if not PATRON_CORREO.fullmatch(limpio):
+        raise ValueError("Use el formato nombre@dominio.com con un dominio valido")
+    return limpio
+
+
+def validar_rol(valor: str) -> str:
+    limpio = valor.strip().lower()
+    if limpio not in ROLES_VALIDOS:
+        raise ValueError(f"Rol invalido; use uno de: {', '.join(ROLES_VALIDOS)}")
     return limpio
 
 
@@ -186,10 +195,7 @@ class RolActualizar(BaseModel):
     @field_validator("rol")
     @classmethod
     def _validar_rol(cls, valor: str) -> str:
-        limpio = valor.strip().lower()
-        if limpio not in ROLES_VALIDOS:
-            raise ValueError(f"Rol invalido; use uno de: {', '.join(ROLES_VALIDOS)}")
-        return limpio
+        return validar_rol(valor)
 
 
 class UsuarioAdminActualizar(PerfilActualizar):
@@ -200,10 +206,7 @@ class UsuarioAdminActualizar(PerfilActualizar):
     @field_validator("rol")
     @classmethod
     def _validar_rol(cls, valor: str) -> str:
-        limpio = valor.strip().lower()
-        if limpio not in ROLES_VALIDOS:
-            raise ValueError(f"Rol invalido; use uno de: {', '.join(ROLES_VALIDOS)}")
-        return limpio
+        return validar_rol(valor)
 
 
 class EstadoCuentaActualizar(BaseModel):
@@ -237,10 +240,7 @@ class RecuperarPasswordRequest(BaseModel):
     @field_validator("correo")
     @classmethod
     def _validar_correo(cls, valor: str) -> str:
-        limpio = valor.strip().lower()
-        if not PATRON_CORREO.match(limpio):
-            raise ValueError("Correo electronico invalido")
-        return limpio
+        return validar_correo(valor)
 
 
 class RestablecerPasswordRequest(BaseModel):
@@ -249,7 +249,7 @@ class RestablecerPasswordRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     token: str = Field(min_length=16, max_length=200)
-    password: str = Field(min_length=1, max_length=LONGITUD_MAXIMA)
+    password: str = Field(min_length=8, max_length=LONGITUD_MAXIMA)
 
     @field_validator("token")
     @classmethod

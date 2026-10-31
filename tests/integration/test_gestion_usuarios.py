@@ -174,6 +174,18 @@ class TestPerfilPersonal:
         )
         assert respuesta.status_code == 422
 
+    def test_perfil_rechaza_correo_con_dominio_malformado(
+        self, cliente, crear_cuenta, token_de
+    ):
+        cuenta = crear_cuenta()
+        respuesta = cliente.put(
+            "/api/v1/auth/me",
+            json=_perfil(correo="ana@-ferreteria.test"),
+            headers=_token(cuenta, token_de),
+        )
+
+        assert respuesta.status_code == 422
+
     def test_subir_consultar_y_quitar_imagen(self, cliente, crear_cuenta, token_de):
         cuenta = crear_cuenta()
         headers = _token(cuenta, token_de)

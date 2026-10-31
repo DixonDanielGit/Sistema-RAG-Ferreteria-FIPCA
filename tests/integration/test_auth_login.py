@@ -111,6 +111,25 @@ class TestLogin:
         assert respuesta.status_code == 403
         assert "inactiva" in respuesta.json()["detail"].lower()
 
+    @pytest.mark.parametrize("usuario", ["uno", "1"])
+    def test_rechaza_usuario_existente_con_formato_invalido(
+        self, cliente, crear_cuenta, usuario
+    ):
+        cuenta = crear_cuenta(usuario=usuario)
+
+        respuesta = cliente.post(
+            LOGIN,
+            json={"identificador": cuenta["usuario"], "password": cuenta["password"]},
+        )
+
+        assert respuesta.status_code == 422
+        datos = respuesta.json()
+        assert datos["ok"] is False
+        assert "Usuario o correo" in datos["detail"]
+        assert "entre 4 y 50 caracteres" in datos["detail"]
+        assert datos["errores"][0]["campo"] == "identificador"
+        assert datos["errores"][0]["etiqueta"] == "Usuario o correo"
+
     @pytest.mark.parametrize(
         "cuerpo",
         [
@@ -294,6 +313,8 @@ class TestRegistro:
             {"usuario": "admin'; DROP TABLE usuarios; --"},
             {"correo": "sin-arroba"},
             {"correo": "dos@@arrobas.com"},
+            {"correo": "ana@-ferreteria.test"},
+            {"correo": "ana..perez@ferreteria.test"},
             {"cedula": "123"},
             {"nombre": "A1"},
             {"rol": "superusuario"},

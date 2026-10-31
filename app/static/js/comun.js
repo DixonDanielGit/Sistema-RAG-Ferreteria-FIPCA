@@ -177,7 +177,22 @@
     }
 
     if (!respuesta.ok) {
-      var detalle = datos.detail;
+      var errores = Array.isArray(datos.errores) ? datos.errores : [];
+      var detalle;
+      if (errores.length) {
+        detalle = errores
+          .map(function (item) {
+            var etiqueta = item.etiqueta || item.campo || "Dato";
+            var mensaje = item.mensaje || item.msg || "Revise este dato.";
+            return etiqueta + ": " + mensaje;
+          })
+          .join("; ");
+        if (errores.length > 1) {
+          detalle = "Revise los siguientes datos: " + detalle;
+        }
+      } else {
+        detalle = datos.mensaje || datos.detail;
+      }
       if (Array.isArray(detalle)) {
         detalle = detalle
           .map(function (item) {
@@ -227,6 +242,28 @@
       title: mensaje,
       customClass: { popup: "fipca-alerta fipca-alerta--toast" },
     });
+  };
+
+  Fipca.mensajeValidacionFormulario = function (formulario, mensajePredeterminado) {
+    if (!formulario) return mensajePredeterminado || "Revise los campos e intente de nuevo.";
+
+    var mensajes = Array.prototype.map
+      .call(
+        formulario.querySelectorAll(".p-error-validaciones:not(.d-none)"),
+        function (elemento) {
+          var mensaje = elemento.textContent.trim();
+          var campo = elemento.closest(".campo-custom, .cuenta-campo");
+          var etiqueta = campo && campo.querySelector("label");
+          return mensaje
+            ? (etiqueta ? etiqueta.textContent.trim() + ": " : "") + mensaje
+            : "";
+        }
+      )
+      .filter(Boolean);
+
+    return mensajes.length
+      ? "Revise estos datos: " + mensajes.join("; ")
+      : mensajePredeterminado || "Revise los campos e intente de nuevo.";
   };
 
   /** Marca o limpia el error de un campo. */

@@ -21,8 +21,6 @@ import { inicializarValidacionFormulario } from "/static/js/expresionesRegulares
   var urlTemporal = null;
   var archivoSeleccionado = null;
   var fuenteGuardada = imagenes[0].getAttribute("src");
-  var avisoValidacion =
-    "Revise los campos marcados y corrija el formato antes de guardar.";
 
   function mostrarImagen(fuente) {
     imagenes.forEach(function (elemento) {
@@ -53,7 +51,14 @@ import { inicializarValidacionFormulario } from "/static/js/expresionesRegulares
   form.addEventListener("submit", async function (evento) {
     evento.preventDefault();
     if (!validador.verificar()) {
-      await window.Fipca.aviso(null, avisoValidacion, "error");
+      await window.Fipca.aviso(
+        null,
+        window.Fipca.mensajeValidacionFormulario(
+          form,
+          "Revise los campos marcados antes de guardar."
+        ),
+        "error"
+      );
       return;
     }
 

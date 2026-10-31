@@ -7,8 +7,8 @@
 
   var LIMITE = 2000;
 
-  /* Los mensajes de la API son tecnicos y sin tildes: la interfaz no los
-     muestra tal cual, traduce el estado a una frase para la persona. */
+  /* Mantiene mensajes de validacion especificos; traduce estados tecnicos
+     como permisos y limites a instrucciones utiles para la persona. */
   function motivoDeFallo(error) {
     if (error.estado === 403) {
       return "La sesión cambió o la página quedó desactualizada. Recargue e intente de nuevo.";
@@ -17,7 +17,7 @@
       return "Se enviaron demasiadas consultas seguidas. Espere un momento antes de reintentar.";
     }
     if (error.estado === 422) {
-      return "La pregunta no se pudo procesar. Revise el texto e intente de nuevo.";
+      return error.message;
     }
     return "No se pudo contactar con el servidor. Revise su conexión e intente de nuevo.";
   }

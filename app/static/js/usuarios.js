@@ -255,7 +255,10 @@ import { inicializarValidacionFormulario } from "/static/js/expresionesRegulares
       if (!esValido) {
         await window.Fipca.aviso(
           null,
-          "Por favor, complete correctamente los campos marcados antes de continuar.",
+          window.Fipca.mensajeValidacionFormulario(
+            formulario,
+            "Revise los campos marcados antes de continuar."
+          ),
           "error"
         );
         return;

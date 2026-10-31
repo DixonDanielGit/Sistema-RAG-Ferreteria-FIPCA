@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -28,6 +29,20 @@ from app.db.session import BaseDeDatosNoDisponible, cerrar_pools, consultar_uno
 logger = logging.getLogger("ferreteria")
 
 DIRECTORIO_ESTATICOS = Path(__file__).resolve().parent / "static"
+
+ETIQUETAS_VALIDACION = {
+    "identificador": "Usuario o correo",
+    "password": "Contrasena",
+    "correo": "Correo",
+    "cedula": "Cedula",
+    "nombre": "Nombre",
+    "apellido": "Apellido",
+    "usuario": "Usuario",
+    "rol": "Rol",
+    "token": "Enlace de recuperacion",
+    "pregunta": "Pregunta",
+    "ids_archivos": "Catalogos seleccionados",
+}
 
 
 @asynccontextmanager
@@ -94,6 +109,64 @@ def crear_aplicacion() -> FastAPI:
         return JSONResponse(
             status_code=503,
             content={"detail": "Servicio temporalmente no disponible. Intente mas tarde."},
+        )
+
+    @aplicacion.exception_handler(RequestValidationError)
+    async def solicitud_invalida(_: Request, exc: RequestValidationError) -> JSONResponse:
+        """Devuelve errores de validacion legibles y consistentes para la interfaz."""
+        errores = []
+        for error in exc.errors():
+            ubicacion = [str(parte) for parte in error.get("loc", ()) if parte not in ("body", "query", "path")]
+            campo = ".".join(ubicacion) or "solicitud"
+            etiqueta = ETIQUETAS_VALIDACION.get(campo, campo.replace("_", " ").capitalize())
+            contexto = error.get("ctx") or {}
+            tipo = error.get("type")
+            causa = contexto.get("error")
+
+            if isinstance(causa, ValueError):
+                mensaje = str(causa)
+            elif tipo == "missing":
+                mensaje = "Este dato es obligatorio."
+            elif tipo == "string_too_short":
+                mensaje = f"Debe tener al menos {contexto.get('min_length', 'el minimo requerido')} caracteres."
+            elif tipo == "string_too_long":
+                mensaje = f"No puede superar {contexto.get('max_length', 'el maximo permitido')} caracteres."
+            elif tipo == "extra_forbidden":
+                mensaje = "Este dato no esta permitido."
+            elif tipo == "json_invalid":
+                mensaje = "Revise el formato de los datos enviados e intente de nuevo."
+            elif tipo in ("int_parsing", "int_type"):
+                mensaje = "Indique un numero entero valido."
+            elif tipo in ("greater_than_equal", "greater_than"):
+                limite = contexto.get("ge", contexto.get("gt"))
+                mensaje = f"El valor debe ser mayor{'' if tipo == 'greater_than' else ' o igual'} que {limite}."
+            elif tipo in ("too_short", "too_long"):
+                mensaje = "Revise la cantidad de elementos seleccionados."
+            elif tipo == "literal_error":
+                mensaje = "Seleccione una de las opciones permitidas."
+            else:
+                mensaje = "Revise el formato de este dato e intente de nuevo."
+
+            errores.append(
+                {"campo": campo, "etiqueta": etiqueta, "mensaje": mensaje}
+            )
+
+        detalle = "; ".join(
+            f"{error['etiqueta']}: {error['mensaje']}" for error in errores
+        )
+        mensaje = (
+            f"Revise los datos indicados: {detalle}"
+            if detalle
+            else "Revise los datos enviados e intente de nuevo."
+        )
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={
+                "ok": False,
+                "mensaje": mensaje,
+                "detail": mensaje,
+                "errores": errores,
+            },
         )
 
     @aplicacion.get(

@@ -73,7 +73,12 @@ class TestSolicitud:
 
     def test_el_correo_invalido_se_rechaza(self, cliente):
         respuesta = cliente.post("/api/v1/auth/recuperar", json={"correo": "sin-arroba"})
+
         assert respuesta.status_code == 422
+        datos = respuesta.json()
+        assert datos["ok"] is False
+        assert datos["errores"][0]["campo"] == "correo"
+        assert "@dominio.com" in datos["errores"][0]["mensaje"]
 
     def test_el_limite_de_intentos_corta_la_rafaga(self, cliente, crear_cuenta, envios):
         cuenta = crear_cuenta(correo="ana@ferreteria.test")

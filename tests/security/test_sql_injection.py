@@ -53,7 +53,8 @@ class TestInyeccionEnElLogin:
             LOGIN, json={"identificador": carga, "password": "ClaveSegura123"}
         )
 
-        assert respuesta.status_code == 401
+        assert respuesta.status_code == 422
+        assert respuesta.json()["ok"] is False
         assert "access_token" not in respuesta.text
 
     @pytest.mark.parametrize("carga", CARGAS)
