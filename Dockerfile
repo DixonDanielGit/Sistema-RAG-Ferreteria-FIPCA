@@ -26,6 +26,9 @@ RUN pip install --no-cache-dir -r requirements.txt -r requirements-embeddings.tx
 COPY app ./app
 COPY templates ./templates
 COPY scripts ./scripts
+# El prompt del sistema del asistente RAG es un archivo versionado que el
+# servicio de lenguaje lee en cada arranque; la imagen lo necesita en /app.
+COPY instructions ./instructions
 
 # Usuario sin privilegios: los originales solo se escriben en el volumen de
 # ingestas; el resto del sistema de archivos permanece en solo lectura.

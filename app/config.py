@@ -132,6 +132,21 @@ class Settings:
     )
     smtp_tls: bool = field(default_factory=lambda: _booleano("SMTP_TLS", True))
 
+    # Proveedor de lenguaje del asistente (Semana 4). Cualquier API compatible
+    # con POST /chat/completions de OpenAI; para un modelo local (Ollama, LM
+    # Studio) basta apuntar LLM_BASE_URL a su endpoint /v1. Sin las tres
+    # variables el chat conserva la respuesta provisional y no sale ninguna
+    # consulta a la red.
+    llm_base_url: str = field(
+        default_factory=lambda: os.getenv("LLM_BASE_URL", "").strip().rstrip("/")
+    )
+    llm_api_key: str = field(default_factory=lambda: os.getenv("LLM_API_KEY", "").strip())
+    llm_modelo: str = field(default_factory=lambda: os.getenv("LLM_MODELO", "").strip())
+    llm_timeout_segundos: int = field(
+        default_factory=lambda: _entero("LLM_TIMEOUT_SEGUNDOS", 30)
+    )
+    llm_max_tokens: int = field(default_factory=lambda: _entero("LLM_MAX_TOKENS", 500))
+
     @property
     def es_produccion(self) -> bool:
         return self.entorno == "produccion"
@@ -140,6 +155,11 @@ class Settings:
     def smtp_configurado(self) -> bool:
         """True cuando hay un servidor de correo utilizable."""
         return bool(self.smtp_host and self.smtp_remitente)
+
+    @property
+    def llm_configurado(self) -> bool:
+        """True cuando el proveedor de lenguaje tiene endpoint, clave y modelo."""
+        return bool(self.llm_base_url and self.llm_api_key and self.llm_modelo)
 
     @property
     def cookie_segura(self) -> bool:
@@ -196,6 +216,27 @@ class Settings:
 
         if not self.cookie_nombre.strip():
             problemas.append("COOKIE_NOMBRE no puede estar vacio")
+
+        if self.llm_base_url and not self.llm_base_url.startswith(
+            ("http://", "https://")
+        ):
+            problemas.append("LLM_BASE_URL debe empezar por http:// o https://")
+        if self.es_produccion and self.llm_base_url.startswith("http://"):
+            problemas.append(
+                "LLM_BASE_URL debe usar https en produccion: la clave viaja en "
+                "cada solicitud"
+            )
+        if any((self.llm_base_url, self.llm_api_key, self.llm_modelo)) and not (
+            self.llm_configurado
+        ):
+            problemas.append(
+                "Configuracion LLM incompleta: defina LLM_BASE_URL, LLM_API_KEY "
+                "y LLM_MODELO, o deje las tres vacias"
+            )
+        if self.llm_timeout_segundos <= 0:
+            problemas.append("LLM_TIMEOUT_SEGUNDOS debe ser mayor que cero")
+        if self.llm_max_tokens <= 0:
+            problemas.append("LLM_MAX_TOKENS debe ser mayor que cero")
 
         if problemas:
             raise ValueError("Configuracion invalida: " + "; ".join(problemas))

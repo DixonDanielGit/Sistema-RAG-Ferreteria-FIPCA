@@ -11,6 +11,7 @@ PyJWT
 
 # Pruebas (RNF-04)
 pytest
+# httpx: cliente de las pruebas de la API y del proveedor de lenguaje (Semana 4)
 httpx
 
 # Semana 3: ingesta de catalogos
