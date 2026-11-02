@@ -1,22 +1,23 @@
 """Pruebas de caja negra de las rutas HTTP de ingesta."""
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.deps import requiere_admin, usuario_actual
+from app.api.deps import usuario_actual
 from app.api.v1 import inventario
 
+# La ingesta se autoriza por capacidad, no por rol fijo: una cuenta puede
+# tener `catalogos:ingestar` sin ser administradora (modelo de roles de 6_0).
+PERMISOS_ADMIN = ("catalogos:ingestar", "catalogos:eliminar")
 
-def _app(usuario=None, *, rechazar=False):
+
+def _app(usuario=None):
     aplicacion = FastAPI()
     aplicacion.include_router(inventario.router, prefix="/api/v1")
 
     def autorizar():
-        if rechazar:
-            raise HTTPException(status_code=403, detail="Se requiere rol administrador")
-        return usuario or {"id": 9, "rol": "admin"}
+        return usuario or {"id": 9, "rol": "admin", "permisos": list(PERMISOS_ADMIN)}
 
-    aplicacion.dependency_overrides[requiere_admin] = autorizar
     aplicacion.dependency_overrides[usuario_actual] = autorizar
     return aplicacion
 
@@ -56,7 +57,7 @@ def test_admin_carga_lote_y_recibe_resultado_por_archivo(monkeypatch):
     assert [llamada[2] for llamada in llamadas] == [9, 9]
 
 
-def test_carga_requiere_administrador(monkeypatch):
+def test_carga_exige_la_capacidad_de_ingesta(monkeypatch):
     llamada = False
 
     def procesar(*_):
@@ -64,7 +65,10 @@ def test_carga_requiere_administrador(monkeypatch):
         llamada = True
 
     monkeypatch.setattr(inventario.etl_service, "procesar_archivo", procesar)
-    cliente = TestClient(_app(rechazar=True))
+    # Puede eliminar catalogos, pero no ingerirlos: la ruta debe rechazarlo.
+    cliente = TestClient(
+        _app(usuario={"id": 10, "rol": "ventas", "permisos": ["catalogos:eliminar"]})
+    )
 
     respuesta = cliente.post(
         "/api/v1/inventario/ingesta",
@@ -72,6 +76,7 @@ def test_carga_requiere_administrador(monkeypatch):
     )
 
     assert respuesta.status_code == 403
+    assert "permiso" in respuesta.json()["detail"]
     assert not llamada
 
 

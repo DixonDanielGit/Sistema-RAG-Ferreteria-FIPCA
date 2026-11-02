@@ -99,6 +99,28 @@ def bases_de_prueba():
                 for version in ("5_0", "6_0"):
                     migracion = RAIZ / "scripts" / f"migracion_{version}.sql"
                     cur.execute(migracion.read_text(encoding="utf-8"))
+                # La base de desarrollo puede tener permisos asignados a mano
+                # desde Configuracion. Las pruebas parten de la semilla
+                # documentada: admin con todas las capacidades y ventas sin
+                # ninguna, como en init.sql.
+                cur.execute(
+                    """
+                    DELETE FROM rol_permiso
+                     WHERE id_rol IN (
+                           SELECT id_rol FROM rol
+                            WHERE LOWER(nombre) IN ('admin', 'ventas')
+                     )
+                    """
+                )
+                cur.execute(
+                    """
+                    INSERT INTO rol_permiso (id_rol, id_permiso)
+                    SELECT r.id_rol, p.id_permiso
+                      FROM rol r
+                     CROSS JOIN permiso p
+                     WHERE LOWER(r.nombre) = 'admin'
+                    """
+                )
         finally:
             conexion_usuarios.close()
     except psycopg2.Error as exc:

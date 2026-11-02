@@ -88,7 +88,7 @@ class TestEsquemaRegistro:
             {"correo": "ana@-ferreteria.test"},
             {"correo": "ana@ferreteria-.test"},
             {"correo": "ana@ferreteria.c"},
-            {"rol": "supervisor"},
+            {"rol": "supervisor de turno"},
             {"password": "Clave1"},
             {"password": "12345678"},
         ],
@@ -96,6 +96,17 @@ class TestEsquemaRegistro:
     def test_rechaza_datos_que_no_cumplen_las_reglas(self, cambio):
         with pytest.raises(ValidationError):
             UsuarioRegistro(**datos_registro(**cambio))
+
+    @pytest.mark.parametrize(
+        "rol", ["admin", "ventas", "supervisor", "jefe_almacen", "ventas-2"]
+    )
+    def test_acepta_roles_configurables_con_formato_valido(self, rol):
+        """Desde la migracion 6_0 el rol es una clave configurable en la base.
+
+        El esquema solo comprueba el formato; que el rol exista lo valida la
+        ruta con el modelo (400 "El rol indicado no existe").
+        """
+        assert UsuarioRegistro(**datos_registro(rol=rol)).rol == rol
 
     def test_rechaza_campos_no_declarados(self):
         with pytest.raises(ValidationError):
@@ -121,9 +132,9 @@ class TestEsquemasDePerfilYRoles:
             (PerfilActualizar, datos_perfil(correo="ana@-ferreteria.test")),
             (
                 UsuarioAdminActualizar,
-                {**datos_perfil(), "rol": "supervisor"},
+                {**datos_perfil(), "rol": "supervisor de turno"},
             ),
-            (RolActualizar, {"rol": "supervisor"}),
+            (RolActualizar, {"rol": "supervisor de turno"}),
         ],
     )
     def test_rechaza_reglas_invalidas_en_cada_operacion(self, esquema, datos):

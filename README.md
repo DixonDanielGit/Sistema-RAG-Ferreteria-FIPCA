@@ -383,7 +383,7 @@ venv\Scripts\python.exe -m pytest tests/ -q
 | `stress/` | Lote real de 20 archivos / 5000 productos (Semana 3, optativo) |
 
 ```text
-Última verificación: **378 pruebas pasaron y 1 se omitió** en 200,83 s. La
+Última verificación: **515 pruebas pasaron y 1 se omitió** en 189,94 s. La
 prueba optativa de estrés ETL también pasó: 20 archivos y 5000 productos dentro
 del objetivo de 4,25 s.
 ```

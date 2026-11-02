@@ -1,22 +1,22 @@
 """Pruebas de caja negra de la ruta HTTP de eliminacion de catalogos."""
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.deps import requiere_admin, usuario_actual
+from app.api.deps import usuario_actual
 from app.api.v1 import inventario
 
+# La eliminacion se autoriza por capacidad, no por rol fijo (modelo de 6_0).
+PERMISOS_ADMIN = ("catalogos:ingestar", "catalogos:eliminar")
 
-def _app(usuario=None, *, rechazar=False):
+
+def _app(usuario=None):
     aplicacion = FastAPI()
     aplicacion.include_router(inventario.router, prefix="/api/v1")
 
     def autorizar():
-        if rechazar:
-            raise HTTPException(status_code=403, detail="Se requiere rol administrador")
-        return usuario or {"id": 9, "rol": "admin"}
+        return usuario or {"id": 9, "rol": "admin", "permisos": list(PERMISOS_ADMIN)}
 
-    aplicacion.dependency_overrides[requiere_admin] = autorizar
     aplicacion.dependency_overrides[usuario_actual] = autorizar
     return aplicacion
 
@@ -60,7 +60,7 @@ def test_eliminar_catalogo_inexistente_responde_404(monkeypatch):
     assert respuesta.status_code == 404
 
 
-def test_eliminar_catalogo_requiere_administrador(monkeypatch):
+def test_eliminar_catalogo_exige_la_capacidad_de_eliminacion(monkeypatch):
     llamada = False
 
     def eliminar(*_):
@@ -69,11 +69,15 @@ def test_eliminar_catalogo_requiere_administrador(monkeypatch):
         return None
 
     monkeypatch.setattr(inventario.etl_service, "eliminar_catalogo_completo", eliminar)
-    cliente = TestClient(_app(rechazar=True))
+    # Puede ingerir catalogos, pero no eliminarlos.
+    cliente = TestClient(
+        _app(usuario={"id": 10, "rol": "ventas", "permisos": ["catalogos:ingestar"]})
+    )
 
     respuesta = cliente.delete("/api/v1/inventario/archivos/5")
 
     assert respuesta.status_code == 403
+    assert "permiso" in respuesta.json()["detail"]
     assert not llamada
 
 
@@ -141,7 +145,7 @@ def test_admin_elimina_catalogos_seleccionados_y_reporta_ausentes(monkeypatch):
     assert llamadas == [[7, 8, 9]]
 
 
-def test_eliminar_catalogos_requiere_administrador(monkeypatch):
+def test_eliminar_catalogos_exige_la_capacidad_de_eliminacion(monkeypatch):
     llamada = False
 
     def eliminar(*_):
@@ -152,7 +156,9 @@ def test_eliminar_catalogos_requiere_administrador(monkeypatch):
     monkeypatch.setattr(
         inventario.etl_service, "eliminar_catalogos_completos", eliminar
     )
-    cliente = TestClient(_app(rechazar=True))
+    cliente = TestClient(
+        _app(usuario={"id": 10, "rol": "ventas", "permisos": ["catalogos:ingestar"]})
+    )
 
     respuesta = cliente.post(
         "/api/v1/inventario/archivos/eliminacion-multiple",

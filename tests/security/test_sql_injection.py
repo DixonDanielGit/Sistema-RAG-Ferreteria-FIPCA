@@ -189,10 +189,23 @@ class TestPrivilegiosDelRolDeLaAplicacion:
             with conexion.cursor() as cur:
                 cur.execute("DELETE FROM usuarios")
 
-    def test_no_puede_cambiar_los_roles_del_sistema(self, conexion):
+    def test_no_puede_alterar_el_catalogo_de_permisos(self, conexion):
+        """Desde 6_0 el rol de la aplicacion gestiona roles, pero el catalogo
+        de capacidades sigue siendo de solo lectura: si se pudiera escribir,
+        una cuenta podria inventarse permisos."""
         with pytest.raises(psycopg2.Error, match="permission denied"):
             with conexion.cursor() as cur:
-                cur.execute("UPDATE rol SET nombre = 'superadmin'")
+                cur.execute(
+                    """
+                    INSERT INTO permiso (clave, nombre, descripcion, orden)
+                    VALUES ('permiso:inventado', 'Inventado', 'x', 99)
+                    """
+                )
+
+    def test_no_puede_borrar_permisos_del_sistema(self, conexion):
+        with pytest.raises(psycopg2.Error, match="permission denied"):
+            with conexion.cursor() as cur:
+                cur.execute("DELETE FROM permiso")
 
     def test_no_es_superusuario(self, conexion):
         with conexion.cursor() as cur:
