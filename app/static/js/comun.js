@@ -5,7 +5,6 @@
 
   var Fipca = {};
   var loaderVistas = document.getElementById("loader-vista");
-  var temporizadorLoader;
   var alertaToast = window.Swal
     ? window.Swal.mixin({
         toast: true,
@@ -18,13 +17,11 @@
 
   Fipca.mostrarLoaderVista = function () {
     if (!loaderVistas) return;
-    window.clearTimeout(temporizadorLoader);
     loaderVistas.hidden = false;
     document.body.setAttribute("aria-busy", "true");
   };
 
   function ocultarLoaderVista() {
-    window.clearTimeout(temporizadorLoader);
     if (loaderVistas) loaderVistas.hidden = true;
     document.body.removeAttribute("aria-busy");
   }
@@ -39,7 +36,6 @@
   };
 
   if (loaderVistas && document.readyState !== "complete") {
-    temporizadorLoader = window.setTimeout(Fipca.mostrarLoaderVista, 120);
     window.addEventListener("load", ocultarLoaderVista, { once: true });
   }
 

@@ -32,9 +32,9 @@
     <link rel="stylesheet" href="/static/css/estilos.css?v={{ version }}" />
     <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml" />
   </head>
-  <body class="{% block clase_cuerpo %}{% endblock %}">
+  <body class="{% block clase_cuerpo %}{% endblock %}" aria-busy="true">
     <div class="loader-vista" id="loader-vista" role="status" aria-live="polite"
-         aria-atomic="true" hidden>
+         aria-atomic="true">
       <span class="loader-vista__giro" aria-hidden="true"></span>
       <span class="loader-vista__texto">
         <strong>Cargando vista</strong>

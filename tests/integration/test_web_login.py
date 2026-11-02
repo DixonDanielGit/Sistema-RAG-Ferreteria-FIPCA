@@ -58,6 +58,8 @@ class TestPaginaDeLogin:
             assert respuesta.status_code == 200
             assert 'id="loader-vista"' in respuesta.text
             assert 'role="status"' in respuesta.text
+            assert 'aria-busy="true"' in respuesta.text
+            assert 'aria-atomic="true" hidden' not in respuesta.text
 
     def test_no_expone_ningun_token_de_sesion(self, navegador):
         respuesta = navegador.get("/login")

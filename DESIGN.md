@@ -402,12 +402,14 @@ estilos se sirven desde `app/static/vendor/`, con versiones fijadas en
 
 ### Carga de vistas
 
-Un indicador global en `base.html` cubre brevemente la vista al abrir una
-página y al navegar con enlaces internos. Usa un fondo de tema, un aro cobalto
-con detalle cian y el mensaje "Cargando vista". Se omite en anclas de la misma
-página, enlaces externos, descargas y pestañas nuevas. Las acciones que usan
-`fetch` conservan sus propios estados de carga y no muestran este overlay. El
-movimiento del aro respeta `prefers-reduced-motion`.
+Un indicador global en `base.html` cubre la vista desde el primer render hasta
+que termina de cargar y al navegar con enlaces internos. Así evita mostrar
+contenido antes de que sus estilos y recursos estén listos, especialmente en
+móvil. Usa un fondo de tema, un aro cobalto con detalle cian y el mensaje
+"Cargando vista". Se omite en anclas de la misma página, enlaces externos,
+descargas y pestañas nuevas. Las acciones que usan `fetch` conservan sus propios
+estados de carga y no muestran este overlay. El movimiento del aro respeta
+`prefers-reduced-motion`.
 
 ### Burbujas del asistente
 
