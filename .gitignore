@@ -13,7 +13,7 @@ uploads/*
 .cache/
 
 #Ignore all IA generated files
-prompts/*
+#prompts/*
 AGENTS.md
 .agents/*
 skills-lock.json
