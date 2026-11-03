@@ -116,15 +116,19 @@ class TestPanelDeFuentes:
         assert 'accept=".pdf,.xlsx,.docx,.txt"' in html
         assert "PDF, XLSX, DOCX o TXT" in html
 
-    def test_la_carga_es_automatica_sin_boton_de_procesar(self, navegador, sesion):
-        """La subida arranca sola al elegir archivos: no existe el boton
-        "Procesar catalogo" y hay linea de estado con la cola de carga."""
+    def test_la_previsualizacion_es_automatica_y_exige_confirmacion(
+        self, navegador, sesion
+    ):
+        """El análisis comienza al elegir archivos, pero requiere confirmar
+        la vista previa antes de guardar productos."""
         html = navegador.get("/chat").text
 
         assert "Procesar catálogo" not in html
         assert 'id="procesar-archivos"' not in html
         assert 'id="estado-fuentes"' in html
         assert 'id="texto-estado-fuentes"' in html
+        assert 'id="dialogo-revision-fuentes"' in html
+        assert "Confirme los productos y el precio antes de guardarlos." in html
 
     def test_fuentes_tiene_buscador_de_catalogos(self, navegador, sesion):
         """La seccion de documentos incluye un campo de busqueda con su
@@ -156,10 +160,8 @@ class TestPanelDeFuentes:
 
     def test_el_panel_explica_la_validacion_y_el_historial(self, navegador, sesion):
         html = navegador.get("/chat").text
-        assert (
-            "Los catálogos se suben y procesan automáticamente al elegirlos" in html
-        )
-        assert "Mientras termina la carga no se pueden agregar más archivos" in html
+        assert "muestra una vista previa" in html
+        assert "Confirme los productos y el precio antes de guardarlos." in html
         assert "PDF, XLSX, DOCX o TXT" in html
 
     def test_ventas_no_ve_los_controles_de_carga(self, navegador, sesion_ventas):

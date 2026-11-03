@@ -60,6 +60,15 @@ SINONIMOS = {
     "marca": {"marca", "fabricante", "brand", "manufacturer"},
     "descripcion": {"descripcion", "description", "detalle", "observacion", "notes"},
     "descuentos": {"descuento", "descuentos", "discount", "discounts"},
+    "iva": {"iva", "impuesto", "porcentajeiva", "tasaiva", "tax"},
+    "iva_incluido": {"ivaincluido", "incluyeiva", "precioconiva"},
+    "cantidad_disponible_proveedor": {
+        "cantidaddisp",
+        "cantidaddisponible",
+        "disponibilidadproveedor",
+        "qtyavailable",
+    },
+    "politica_ventas": {"politicaventas", "condicionesventa", "politicacomercial"},
 }
 _POR_SINONIMO = {
     sinonimo: campo
@@ -84,6 +93,14 @@ class ArchivoSinFilasValidas(ErrorIngesta):
         super().__init__(detalle)
 
 
+class SeleccionPrecioRequerida(ErrorIngesta):
+    """El catalogo tiene varias columnas de precio y requiere confirmacion."""
+
+    def __init__(self, opciones: list[dict[str, Any]]) -> None:
+        self.opciones = opciones
+        super().__init__("Seleccione la columna de precio que desea importar")
+
+
 def _texto(valor: Any) -> str:
     if valor is None:
         return ""
@@ -106,13 +123,34 @@ def _clave(valor: Any) -> str:
 
 
 def _mapear_cabecera(fila: Iterable[Any]) -> dict[str, int] | None:
+    valores = list(fila)
     columnas: dict[str, int] = {}
-    for indice, valor in enumerate(fila):
-        campo = _POR_SINONIMO.get(_clave(valor))
+    precios: list[int] = []
+    for indice, valor in enumerate(valores):
+        clave = _clave(valor)
+        campo = _POR_SINONIMO.get(clave)
+        if campo is None:
+            if clave.startswith(("codigo", "cod", "sku", "referencia")):
+                campo = "codigo"
+            elif clave.startswith(("nombre", "producto", "articulo")):
+                campo = "nombre"
+            elif clave.startswith(("descripcion", "description", "detalle")):
+                campo = "descripcion"
+        if campo is None and (
+            clave.startswith("precio")
+            or clave.startswith("pvp")
+            or clave.startswith("bsf")
+        ):
+            campo = "precio"
         if campo:
-            if campo in columnas:
-                raise ErrorIngesta(f"La cabecera repite la columna '{campo}'")
-            columnas[campo] = indice
+            if campo == "precio":
+                precios.append(indice)
+            elif campo not in columnas:
+                columnas[campo] = indice
+    if "nombre" not in columnas and "descripcion" in columnas:
+        columnas["nombre"] = columnas["descripcion"]
+    if precios:
+        columnas["precio"] = precios[0]
     if {"codigo", "nombre", "precio"}.issubset(columnas):
         return columnas
     return None
@@ -224,14 +262,61 @@ def _producto_desde_fila(
     except ErrorIngesta as exc:
         raise ErrorIngesta(f"Fila {numero_fila}: {exc}") from exc
 
-    return {
+    producto = {
         "codigo": codigo,
         "nombre": nombre,
         "marca": marca,
         "precio": precio,
         "descuentos": descuentos,
         "descripcion": descripcion,
+        **(
+            {"descuento_oferta": descuentos}
+            if _texto(descuento)
+            else {}
+        ),
     }
+    cantidad_disponible = obtener("cantidad_disponible_proveedor")
+    if _texto(cantidad_disponible):
+        try:
+            cantidad = _leer_precio(
+                cantidad_disponible, campo="cantidad disponible"
+            )
+        except ErrorIngesta as exc:
+            raise ErrorIngesta(f"Fila {numero_fila}: {exc}") from exc
+        if cantidad != cantidad.to_integral_value():
+            raise ErrorIngesta(
+                f"Fila {numero_fila}: cantidad disponible no entera"
+            )
+        producto["cantidad_disponible_proveedor"] = int(cantidad)
+
+    politica = _normalizar_texto(obtener("politica_ventas"))
+    if politica:
+        producto["politica_ventas"] = politica[:4000]
+
+    iva = obtener("iva")
+    if _texto(iva):
+        try:
+            porcentaje_iva = _leer_precio(
+                str(iva).replace("%", ""), campo="IVA"
+            )
+        except ErrorIngesta as exc:
+            raise ErrorIngesta(f"Fila {numero_fila}: {exc}") from exc
+        if porcentaje_iva > 100:
+            raise ErrorIngesta(f"Fila {numero_fila}: porcentaje de IVA invalido")
+        producto["iva_oferta"] = porcentaje_iva
+
+    iva_incluido = obtener("iva_incluido")
+    if _texto(iva_incluido):
+        valor_iva = _clave(iva_incluido)
+        if valor_iva in {"si", "yes", "true", "1", "incluido", "incluida"}:
+            producto["iva_incluido"] = True
+        elif valor_iva in {"no", "false", "0", "noincluido", "noincluida"}:
+            producto["iva_incluido"] = False
+        else:
+            raise ErrorIngesta(
+                f"Fila {numero_fila}: indique si el precio incluye IVA"
+            )
+    return producto
 
 
 def _extraer_filas(
@@ -239,21 +324,29 @@ def _extraer_filas(
     *,
     permitir_posicional: bool = False,
     desplazamiento: int = 0,
+    precio_indice: int | None = None,
+    columnas_forzadas: dict[str, int] | None = None,
+    indice_cabecera_forzado: int | None = None,
 ) -> tuple[list[dict[str, Any]], int, list[str]]:
     iterador = iter(filas)
     prefijo: list[list[Any]] = []
-    indice_cabecera: int | None = None
-    columnas: dict[str, int] | None = None
-    for indice in range(100):
-        try:
-            fila = list(next(iterador))
-        except StopIteration:
-            break
-        columnas = _mapear_cabecera(fila)
-        if columnas is not None:
-            indice_cabecera = indice
-            break
-        prefijo.append(fila)
+    indice_cabecera: int | None = indice_cabecera_forzado
+    columnas: dict[str, int] | None = columnas_forzadas
+    if columnas is not None and indice_cabecera is not None:
+        iterador = itertools.islice(iter(filas), indice_cabecera + 1, None)
+    else:
+        for indice in range(100):
+            try:
+                fila = list(next(iterador))
+            except StopIteration:
+                break
+            columnas = _mapear_cabecera(fila)
+            if columnas is not None:
+                indice_cabecera = indice
+                break
+            prefijo.append(fila)
+    if columnas is not None and precio_indice is not None:
+        columnas = {**columnas, "precio": precio_indice}
 
     if columnas is None:
         if not permitir_posicional:
@@ -324,7 +417,78 @@ def _validar_paquete(contenido: bytes) -> None:
             raise ErrorIngesta("El archivo excede el limite de compresion seguro")
 
 
-def _extraer_xlsx(contenido: bytes) -> tuple[list[dict[str, Any]], int, list[str]]:
+def _columnas_precio(fila: Iterable[Any]) -> list[int]:
+    indices = []
+    for indice, valor in enumerate(fila):
+        clave = _clave(valor)
+        if _POR_SINONIMO.get(clave) == "precio" or (
+            clave.startswith("precio")
+            or clave.startswith("pvp")
+            or clave.startswith("bsf")
+        ):
+            indices.append(indice)
+    return indices
+
+
+def _cabecera_compuesta(filas: list[Iterable[Any]], indice: int) -> list[str]:
+    inicio = max(0, indice - 4)
+    ancho = max((len(fila) for fila in filas[inicio : indice + 1]), default=0)
+    return [
+        " ".join(
+            _texto(fila[columna])
+            for fila in filas[inicio : indice + 1]
+            if columna < len(fila) and _texto(fila[columna])
+        )
+        for columna in range(ancho)
+    ]
+
+
+def _inferir_columnas(filas: list[Iterable[Any]], inicio: int, indice_precio: int) -> dict[str, int] | None:
+    filas_datos = [list(fila) for fila in filas[inicio + 1 : inicio + 31]]
+    if not filas_datos:
+        return None
+    ancho = max(map(len, filas_datos), default=0)
+    codigos: list[tuple[int, int]] = []
+    nombres: list[tuple[int, int]] = []
+    for columna in range(ancho):
+        if columna == indice_precio:
+            continue
+        valores = [
+            fila[columna] if columna < len(fila) else None for fila in filas_datos
+        ]
+        textos = [_texto(valor) for valor in valores]
+        codigo = sum(
+            bool(
+                isinstance(valor, str)
+                and re.fullmatch(
+                    r"[A-Z0-9][A-Z0-9._/-]{5,}", valor.strip(), re.IGNORECASE
+                )
+                and any(caracter.isdigit() for caracter in valor)
+            )
+            for valor in valores
+        )
+        nombre = sum(
+            len(texto) >= 4
+            and any(caracter.isalpha() for caracter in texto)
+            and not re.fullmatch(r"[A-Z0-9._/-]+", texto, re.IGNORECASE)
+            for texto in textos
+        )
+        codigos.append((codigo, columna))
+        nombres.append((nombre, columna))
+    indice_codigo = max(codigos)[1]
+    posibles_nombres = [par for par in nombres if par[1] != indice_codigo]
+    if not codigos or not posibles_nombres or max(codigos)[0] < 2:
+        return None
+    cantidad_nombre, indice_nombre = max(posibles_nombres)
+    if cantidad_nombre < 2:
+        return None
+    return {"codigo": indice_codigo, "nombre": indice_nombre, "precio": indice_precio}
+
+
+def _extraer_xlsx(
+    contenido: bytes,
+    selecciones_precio: dict[int, int] | None = None,
+) -> tuple[list[dict[str, Any]], int, list[str]]:
     _validar_paquete(contenido)
     try:
         libro = load_workbook(
@@ -336,11 +500,87 @@ def _extraer_xlsx(contenido: bytes) -> tuple[list[dict[str, Any]], int, list[str
     productos: list[dict[str, Any]] = []
     errores = 0
     detalles: list[str] = []
+    opciones_pendientes: list[dict[str, Any]] = []
+    selecciones_precio = selecciones_precio or {}
     try:
-        for hoja in libro.worksheets:
+        for indice_hoja, hoja in enumerate(libro.worksheets):
+            filas = list(hoja.iter_rows(values_only=True))
+            encontrada = next(
+                (
+                    (indice, _mapear_cabecera(fila), list(fila))
+                    for indice, fila in enumerate(filas[:100])
+                    if _mapear_cabecera(fila) is not None
+                ),
+                None,
+            )
+            if encontrada is None:
+                encontrada = next(
+                    (
+                        (
+                            indice,
+                            _mapear_cabecera(cabecera),
+                            cabecera,
+                        )
+                        for indice in range(min(100, len(filas)))
+                        for cabecera in [_cabecera_compuesta(filas, indice)]
+                        if _mapear_cabecera(cabecera) is not None
+                    ),
+                    None,
+                )
+            if encontrada is None:
+                fila_precio = next(
+                    (
+                        (indice, precios[0])
+                        for indice, fila in enumerate(filas[:100])
+                        if (precios := _columnas_precio(fila))
+                    ),
+                    None,
+                )
+                if fila_precio is None:
+                    continue
+                indice_cabecera, indice_precio = fila_precio
+                columnas = _inferir_columnas(filas, indice_cabecera, indice_precio)
+                if columnas is None:
+                    continue
+                filas_hoja, errores_hoja, detalle_hoja = _extraer_filas(
+                    filas,
+                    precio_indice=indice_precio,
+                    columnas_forzadas=columnas,
+                    indice_cabecera_forzado=indice_cabecera,
+                )
+                productos.extend(filas_hoja)
+                errores += errores_hoja
+                detalles.extend(detalle_hoja)
+                continue
+            indice_cabecera, columnas, cabecera = encontrada
+            precios = _columnas_precio(cabecera)
+            indice_precio = selecciones_precio.get(indice_hoja)
+            if len(precios) > 1 and indice_precio is None:
+                # Se acumulan todas las hojas ambiguas para preguntar una sola
+                # vez; antes se abortaba en la primera y el usuario tenia que
+                # repetir la seleccion hoja por hoja.
+                opciones_pendientes.extend(
+                    {
+                        "hoja": hoja.title,
+                        "hoja_indice": indice_hoja,
+                        "columna": _texto(cabecera[indice]),
+                        "columna_indice": indice,
+                    }
+                    for indice in precios
+                )
+                continue
+            if indice_precio is not None and indice_precio not in precios:
+                raise ErrorIngesta(
+                    f"La columna de precio seleccionada no existe en la hoja {hoja.title}"
+                )
+            if len(precios) == 1:
+                indice_precio = precios[0]
             try:
                 filas_hoja, errores_hoja, detalle_hoja = _extraer_filas(
-                    hoja.iter_rows(values_only=True)
+                    filas,
+                    precio_indice=indice_precio,
+                    columnas_forzadas=columnas,
+                    indice_cabecera_forzado=indice_cabecera,
                 )
             except CabeceraIngestaAusente:
                 continue
@@ -353,9 +593,68 @@ def _extraer_xlsx(contenido: bytes) -> tuple[list[dict[str, Any]], int, list[str
                 )
     finally:
         libro.close()
+    if opciones_pendientes:
+        raise SeleccionPrecioRequerida(opciones_pendientes)
     if not productos:
         raise ErrorIngesta("El libro no contiene una tabla con codigo, nombre y precio")
     return productos, errores, detalles
+
+
+def _extraer_fichas_etiquetadas(texto: str) -> tuple[list[dict[str, Any]], int, list[str]]:
+    productos: list[dict[str, Any]] = []
+    errores: list[str] = []
+    ficha: dict[str, str] = {}
+    numero = 0
+
+    def guardar() -> None:
+        nonlocal ficha, numero
+        if not ficha:
+            return
+        numero += 1
+        codigo = ficha.get("codigo", "")
+        nombre = ficha.get("nombre", "")
+        precio = ficha.get("precio", "")
+        if not (codigo and nombre and precio):
+            errores.append(f"Ficha {numero}: faltan codigo, descripcion o precio")
+        else:
+            try:
+                productos.append(
+                    _producto_desde_fila(
+                        [codigo, nombre, precio, ficha.get("marca", "")],
+                        {"codigo": 0, "nombre": 1, "precio": 2, "marca": 3},
+                        numero,
+                    )
+                )
+            except ErrorIngesta as exc:
+                errores.append(str(exc))
+        ficha = {}
+
+    for linea in texto.splitlines():
+        coincidencia = re.match(r"\s*([^:]{2,30})\s*:\s*(.*?)\s*$", linea)
+        if not coincidencia:
+            continue
+        etiqueta = _clave(coincidencia.group(1))
+        campo = _POR_SINONIMO.get(etiqueta)
+        if campo is None:
+            if etiqueta.startswith(("sku", "codigo", "cod", "referencia")):
+                campo = "codigo"
+            elif etiqueta.startswith(
+                ("descripcion", "description", "producto", "nombre", "articulo")
+            ):
+                campo = "nombre"
+            elif etiqueta.startswith(("precio", "pvp")):
+                campo = "precio"
+            elif etiqueta.startswith(("marca", "fabricante")):
+                campo = "marca"
+        if not campo:
+            continue
+        if campo == "descripcion":
+            campo = "nombre"
+        if campo == "codigo" and ficha.get("codigo"):
+            guardar()
+        ficha[campo] = coincidencia.group(2).strip()
+    guardar()
+    return productos, len(errores), errores[:MAX_ERRORES_DETALLE]
 
 
 def _extraer_docx(contenido: bytes) -> tuple[list[dict[str, Any]], int, list[str]]:
@@ -383,7 +682,21 @@ def _extraer_docx(contenido: bytes) -> tuple[list[dict[str, Any]], int, list[str
                 f"El archivo supera el maximo de {MAX_FILAS_ARCHIVO} filas"
             )
     if not productos:
-        raise ErrorIngesta("El documento no contiene una tabla con codigo, nombre y precio")
+        texto = "\n".join(
+            parrafo.text.strip()
+            for parrafo in documento.paragraphs
+            if parrafo.text.strip()
+        )
+        productos, errores, detalles = _extraer_fichas_etiquetadas(texto)
+    if not productos:
+        if errores:
+            raise ArchivoSinFilasValidas(
+                errores,
+                "No se encontro ninguna ficha valida: " + "; ".join(detalles),
+            )
+        raise ErrorIngesta(
+            "El documento no contiene tablas ni fichas con codigo, descripcion y precio"
+        )
     return productos, errores, detalles
 
 
@@ -404,6 +717,493 @@ def _filas_pdf(texto: str) -> list[list[str]]:
     return resultado
 
 
+# --- Lectura por coordenadas de PDF -----------------------------------------
+# Un mismo PDF puede traer una tabla, varias columnas de productos o fichas.
+# El lector por coordenadas reconstruye, por pagina, las lineas visuales y las
+# divide en "bandas" (una por columna de codigos) para no perder los productos
+# de la segunda columna ni mezclar el precio de una columna con el nombre de la
+# otra. Las heuristicas descartan medidas (16MM, 3/8") como posibles codigos.
+PATRON_CODIGO_PDF = re.compile(r"^[A-Z0-9][A-Z0-9._/-]{2,}$", re.IGNORECASE)
+PATRON_PRECIO_PDF = re.compile(r"^\$?\s*\d[\d.,]*$")
+PATRON_MEDIDA_PDF = re.compile(
+    r"^\d+(?:[.,]\d+)?\s*(?:MM|CM|MTS?|M|KGS?|GRS?|LTS?|L|PUL|UN|U|X|PULG|\"|''|/)$",
+    re.IGNORECASE,
+)
+ETIQUETAS_PDF = frozenset(
+    {
+        "cod", "codigo", "codigos", "sku", "referencia", "ref", "item",
+        "descripcion", "descripciones", "producto", "articulo", "imagen",
+        "precio", "precios", "pvp", "bs", "bsf", "usd", "medida", "medidas",
+        "unidad", "unidades", "cantidad", "disponible", "marca",
+    }
+)
+TOLERANCIA_LINEA_PDF = 1.5
+SALTO_COLUMNA_PDF = 25.0
+DISTANCIA_MAXIMA_PDF = 15.0
+
+
+def _es_codigo_pdf(valor: str) -> bool:
+    """Un codigo de catalogo real: alfanumerico, con digito y sin medidas."""
+    texto = valor.strip()
+    if not PATRON_CODIGO_PDF.fullmatch(texto):
+        return False
+    tiene_digito = any(caracter.isdigit() for caracter in texto)
+    tiene_letra = any(caracter.isalpha() for caracter in texto)
+    if not tiene_digito:
+        return False
+    # "U16" o "TA20" son codigos validos; "16" o "110" son medidas. Los
+    # codigos puramente numericos se aceptan solo si son largos (10102006).
+    if not tiene_letra and len(texto) < 5:
+        return False
+    return PATRON_MEDIDA_PDF.fullmatch(texto) is None
+
+
+def _es_precio_pdf(valor: str) -> bool:
+    return PATRON_PRECIO_PDF.fullmatch(valor.replace(" ", "")) is not None
+
+
+def _es_etiqueta_pdf(valor: str) -> bool:
+    clave = _clave(valor)
+    if not clave:
+        return True
+    if clave in ETIQUETAS_PDF:
+        return True
+    return clave.startswith(("precio", "medida", "descripcion", "codigo", "imagen"))
+
+
+PALABRAS_NO_TITULO = (
+    "lista", "precio", "valida", "válida", "garantia", "garantía", "producto",
+    "resiste", "durabilidad", "elaborado", "politica", "política", "ventas",
+    "descuento", "oferta", "telefono", "teléfono", "rif", "pagina", "página",
+)
+
+
+def _es_titulo_pdf(valor: str) -> bool:
+    """Un encabezado de seccion: solo palabras, corto y sin datos."""
+    texto = valor.strip()
+    if not 4 <= len(texto) <= 40:
+        return False
+    if any(caracter.isdigit() for caracter in texto):
+        return False
+    if sum(caracter.isalpha() for caracter in texto) < 3:
+        return False
+    clave = _clave(texto)
+    if not clave or clave in ETIQUETAS_PDF:
+        return False
+    return not any(palabra in clave for palabra in PALABRAS_NO_TITULO)
+
+
+def _lineas_pdf(fragmentos: list[tuple[float, float, str]]) -> list[list[tuple[float, str]]]:
+    """Agrupa fragmentos por linea visual (y) y los ordena de izquierda a derecha."""
+    grupos: list[list[tuple[float, float, str]]] = []
+    for x, y, texto in sorted(fragmentos, key=lambda parte: (-parte[1], parte[0])):
+        grupo = next(
+            (actual for actual in grupos if abs(actual[0][1] - y) <= TOLERANCIA_LINEA_PDF),
+            None,
+        )
+        if grupo is None:
+            grupos.append([(x, y, texto)])
+        else:
+            grupo.append((x, y, texto))
+    return [
+        [(x, texto) for x, _y, texto in sorted(grupo, key=lambda parte: parte[0])]
+        for grupo in grupos
+    ]
+
+
+def _bandas_pdf(lineas: list[list[tuple[float, str]]]) -> list[float]:
+    """Detecta el borde izquierdo de cada columna de codigos de la pagina."""
+    inicios: list[float] = []
+    for linea in lineas:
+        anterior: tuple[float, str] | None = None
+        for x, texto in linea:
+            if _es_codigo_pdf(texto) and (
+                anterior is None or x - anterior[0] >= SALTO_COLUMNA_PDF
+            ):
+                inicios.append(x)
+            anterior = (x, texto)
+    bordes: list[float] = []
+    for x in sorted(inicios):
+        if not bordes or x - bordes[-1] > SALTO_COLUMNA_PDF * 1.6:
+            bordes.append(x)
+    return bordes
+
+
+def _repartir_por_banda(
+    linea: list[tuple[float, str]], bordes: list[float]
+) -> dict[int, list[tuple[float, str]]]:
+    """Asigna cada fragmento a su columna segun el borde izquierdo."""
+    grupos: dict[int, list[tuple[float, str]]] = {}
+    for x, texto in linea:
+        banda = 0
+        for indice, borde in enumerate(bordes):
+            if x >= borde - TOLERANCIA_LINEA_PDF:
+                banda = indice
+        grupos.setdefault(banda, []).append((x, texto))
+    return grupos
+
+
+def _ficha_pdf(
+    tokens: list[tuple[float, str]],
+) -> tuple[str, str | None, str] | None:
+    """Separa (codigo, descripcion, precio) dentro de una columna."""
+    codes = [indice for indice, (_x, texto) in enumerate(tokens) if _es_codigo_pdf(texto)]
+    if not codes:
+        return None
+    primero = codes[0]
+    precio: int | None = None
+    for indice in range(len(tokens) - 1, primero, -1):
+        if _es_precio_pdf(tokens[indice][1]):
+            precio = indice
+            break
+    if precio is None:
+        return None
+    descripcion = [
+        texto
+        for _x, texto in tokens[primero + 1 : precio]
+        if not _es_etiqueta_pdf(texto)
+    ]
+    return (
+        tokens[primero][1],
+        " ".join(descripcion) or None,
+        tokens[precio][1],
+    )
+
+
+def _extraer_pdf_espacial(lector: PdfReader) -> tuple[list[dict[str, Any]], int, list[str]]:
+    """Extrae productos por coordenadas, admitiendo varias columnas por pagina."""
+    productos: list[dict[str, Any]] = []
+    errores: list[str] = []
+    numero_fila = 0
+
+    for pagina in lector.pages:
+        fragmentos: list[tuple[float, float, str]] = []
+
+        def recoger(texto, _matriz, posicion, _fuente, _tamano):
+            limpio = texto.strip()
+            if limpio:
+                fragmentos.append((float(posicion[4]), float(posicion[5]), limpio))
+
+        pagina.extract_text(visitor_text=recoger)
+        lineas = _lineas_pdf(fragmentos)
+        bordes = _bandas_pdf(lineas)
+        if not bordes:
+            continue
+
+        pendientes: dict[int, dict[str, Any]] = {}
+        descripciones: dict[int, tuple[str, int]] = {}
+        secciones: dict[int, str] = {}
+        for indice_linea, linea in enumerate(lineas):
+            for banda, tokens in _repartir_por_banda(linea, bordes).items():
+                tokens.sort()
+                ficha = _ficha_pdf(tokens)
+                if ficha is not None:
+                    codigo, descripcion, precio = ficha
+                    if not descripcion:
+                        # Hay catalogos con la descripcion en la linea
+                        # anterior al codigo (p. ej. ASPERSOR / AS01 / BOQ).
+                        anterior = descripciones.pop(banda, None)
+                        if anterior and indice_linea - anterior[1] <= 1:
+                            descripcion = anterior[0]
+                    else:
+                        descripciones.pop(banda, None)
+                    if not descripcion:
+                        continue
+                    seccion = secciones.get(banda)
+                    if (
+                        seccion
+                        and len(descripcion) < 25
+                        and _clave(seccion) not in _clave(descripcion)
+                    ):
+                        descripcion = f"{seccion} {descripcion}"
+                    numero_fila += 1
+                    pendientes.pop(banda, None)
+                    try:
+                        productos.append(
+                            _producto_desde_fila(
+                                [codigo, descripcion, precio],
+                                {"codigo": 0, "nombre": 1, "precio": 2},
+                                numero_fila,
+                            )
+                        )
+                    except ErrorIngesta as exc:
+                        errores.append(str(exc))
+                    continue
+
+                if len(tokens) == 1:
+                    texto = tokens[0][1]
+                    if _es_titulo_pdf(texto):
+                        # Encabezado de seccion de esa columna (p. ej. "UNION
+                        # RAPIDA"): da contexto a las medidas que vienen debajo.
+                        secciones[banda] = texto
+                    elif not _es_etiqueta_pdf(texto):
+                        descripciones[banda] = (texto, indice_linea)
+                    continue
+
+                codigos = [texto for _x, texto in tokens if _es_codigo_pdf(texto)]
+                precios = [texto for _x, texto in tokens if _es_precio_pdf(texto)]
+                if codigos and not precios:
+                    # El precio puede estar en la linea siguiente de la misma
+                    # columna: se guarda la ficha y se completa al encontrarlo.
+                    pendientes[banda] = {
+                        "codigo": codigos[0],
+                        "descripcion": " ".join(
+                            texto for _x, texto in tokens if not _es_etiqueta_pdf(texto)
+                            and texto != codigos[0]
+                        ),
+                    }
+                elif precios and not codigos and banda in pendientes:
+                    pendiente = pendientes.pop(banda)
+                    if pendiente["descripcion"]:
+                        numero_fila += 1
+                        try:
+                            productos.append(
+                                _producto_desde_fila(
+                                    [
+                                        pendiente["codigo"],
+                                        pendiente["descripcion"],
+                                        precios[-1],
+                                    ],
+                                    {"codigo": 0, "nombre": 1, "precio": 2},
+                                    numero_fila,
+                                )
+                            )
+                        except ErrorIngesta as exc:
+                            errores.append(str(exc))
+    return productos, len(errores), errores[:MAX_ERRORES_DETALLE]
+
+
+def _extraer_pdf_fichas(lector: PdfReader) -> tuple[list[dict[str, Any]], int, list[str]]:
+    productos: list[dict[str, Any]] = []
+    errores: list[str] = []
+    patron_codigo = re.compile(
+        r"\b(?:sku|codigo|c[oó]digo|referencia)\s*:\s*([A-Z0-9][A-Z0-9._/-]{3,})",
+        re.IGNORECASE,
+    )
+    patron_precio = re.compile(r"\bprecio\s*:\s*(.+)$", re.IGNORECASE)
+    metadatos = ("politica", "cantidad", "marca", "unidad")
+
+    for pagina in lector.pages:
+        lineas = [
+            linea.strip()
+            for linea in (pagina.extract_text() or "").splitlines()
+            if linea.strip()
+        ]
+        posiciones = [
+            (indice, patron_codigo.search(linea))
+            for indice, linea in enumerate(lineas)
+            if patron_codigo.search(linea)
+        ]
+        for numero, (indice, coincidencia) in enumerate(posiciones, start=1):
+            inicio = posiciones[numero - 2][0] + 1 if numero > 1 else 0
+            segmento = lineas[inicio:indice]
+            fin = posiciones[numero][0] if numero < len(posiciones) else len(lineas)
+            metadatos_ficha = lineas[indice + 1 : fin]
+            precios = [
+                (pos, patron_precio.search(linea))
+                for pos, linea in enumerate(segmento)
+                if patron_precio.search(linea)
+            ]
+            if not precios:
+                errores.append(f"Ficha {numero}: no se encontro el precio")
+                continue
+            indice_precio, precio = precios[-1]
+            nombre = " ".join(
+                linea
+                for linea in segmento[:indice_precio]
+                if not any(_clave(linea).startswith(clave) for clave in metadatos)
+                and _clave(linea) not in {"imp", "politicaventas"}
+            ).strip()
+            nombre = re.sub(r"(?<=\d)-\s+(?=\d)", "-", nombre)
+            marca = next(
+                (
+                    coincidencia_marca.group(1).strip()
+                    for linea in metadatos_ficha
+                    if (
+                        coincidencia_marca := re.search(
+                            r"\bmarca\s*:\s*(.+)$", linea, re.IGNORECASE
+                        )
+                    )
+                ),
+                "",
+            )
+            try:
+                producto = _producto_desde_fila(
+                    [coincidencia.group(1), nombre, precio.group(1), marca],
+                    {"codigo": 0, "nombre": 1, "precio": 2, "marca": 3},
+                    numero,
+                )
+                for linea in metadatos_ficha:
+                    cantidad = re.search(
+                        r"\bcantidad\s*(?:disp\.?|disponible)\s*:\s*([\d.,]+)",
+                        linea,
+                        re.IGNORECASE,
+                    )
+                    if cantidad:
+                        numero_cantidad = _leer_precio(
+                            cantidad.group(1), campo="cantidad disponible"
+                        )
+                        if numero_cantidad != numero_cantidad.to_integral_value():
+                            raise ErrorIngesta(
+                                f"Ficha {numero}: cantidad disponible no entera"
+                            )
+                        producto["cantidad_disponible_proveedor"] = int(
+                            numero_cantidad
+                        )
+                    politica = re.search(
+                        r"\bpol[ií]tica\s+ventas?\s*:\s*(.*)$",
+                        linea,
+                        re.IGNORECASE,
+                    )
+                    if politica and politica.group(1).strip():
+                        producto["politica_ventas"] = politica.group(1).strip()[:4000]
+                    descuento = re.search(
+                        r"\bdescuento\s*:\s*(.+)$", linea, re.IGNORECASE
+                    )
+                    if descuento and descuento.group(1).strip():
+                        producto["descuento_oferta"] = _leer_precio(
+                            descuento.group(1), campo="descuento"
+                        )
+                    iva = re.search(
+                        r"\biva\s*:?\s*(\d{1,3}(?:[.,]\d{1,2})?)\s*%",
+                        linea,
+                        re.IGNORECASE,
+                    )
+                    if iva:
+                        producto["iva_oferta"] = _leer_precio(
+                            iva.group(1), campo="IVA"
+                        )
+                        if producto["iva_oferta"] > 100:
+                            raise ErrorIngesta(
+                                f"Ficha {numero}: porcentaje de IVA invalido"
+                            )
+                    texto_iva = _clave(linea)
+                    if re.search(
+                        r"iva.*noincluid|noincluid.*iva|masiva",
+                        texto_iva,
+                    ):
+                        producto["iva_incluido"] = False
+                    elif re.search(r"iva.*incluid|incluid.*iva", texto_iva):
+                        producto["iva_incluido"] = True
+                    if "iva_oferta" not in producto and re.search(
+                        r"siniva|noiva", texto_iva
+                    ):
+                        producto["iva_oferta"] = Decimal("0.00")
+                productos.append(producto)
+            except ErrorIngesta as exc:
+                errores.append(str(exc))
+    return productos, len(errores), errores[:MAX_ERRORES_DETALLE]
+
+
+def _extraer_pdf_tabla(texto: str) -> tuple[list[dict[str, Any]], int, list[str]]:
+    filas = texto.splitlines()
+    indice_cabecera = next(
+        (
+            indice
+            for indice, linea in enumerate(filas[:100])
+            if {"codigo", "nombre", "precio"}.issubset(
+                set(_mapear_cabecera(linea.split()) or {})
+            )
+        ),
+        None,
+    )
+    if indice_cabecera is None:
+        return [], 0, []
+
+    productos: list[dict[str, Any]] = []
+    errores: list[str] = []
+    fila_producto = re.compile(
+        r"^\s*([A-Z0-9][A-Z0-9._/-]{5,})\s+(.+?)\s{2,}\$?\s*(\d[\d.,]*)\s*$",
+        re.IGNORECASE,
+    )
+    for numero, linea in enumerate(filas[indice_cabecera + 1 :], start=1):
+        coincidencia = fila_producto.match(linea)
+        if not coincidencia:
+            continue
+        try:
+            productos.append(
+                _producto_desde_fila(
+                    list(coincidencia.groups()),
+                    {"codigo": 0, "nombre": 1, "precio": 2},
+                    numero,
+                )
+            )
+        except ErrorIngesta as exc:
+            errores.append(str(exc))
+    return productos, len(errores), errores[:MAX_ERRORES_DETALLE]
+
+
+def _unir_estrategias_pdf(
+    resultados: Iterable[tuple[str, list[dict[str, Any]], int, list[str]]],
+) -> tuple[list[dict[str, Any]], int, list[str]]:
+    """Combina las estrategias de lectura de PDF sin perder paginas.
+
+    Un catalogo puede mezclar tabla, columnas y fichas. Antes se devolvia la
+    primera estrategia que encontraba algo, de modo que las paginas con otro
+    formato se descartaban en silencio. Aqui se unen por codigo; se exige que
+    el codigo tenga digitos para descartar cortes de nombre sin sentido.
+    """
+    fichas: dict[str, dict[str, Any]] = {}
+    errores_maximos = 0
+    detalles: list[str] = []
+    conflictos: list[str] = []
+    for _nombre, productos, errores, detalle in resultados:
+        validos = [
+            producto
+            for producto in productos
+            if any(caracter.isdigit() for caracter in producto.get("codigo", ""))
+        ]
+        if not validos:
+            continue
+        # Un lector que falla mas filas de las que entiende esta leyendo mal la
+        # pagina: se descarta para no sumar ruido ni marcar el archivo como
+        # parcial. Otra estrategia cubre ese formato.
+        if errores > len(validos):
+            continue
+        errores_maximos = max(errores_maximos, errores)
+        for texto in detalle:
+            if texto not in detalles:
+                detalles.append(texto)
+        for producto in validos:
+            previo = fichas.get(producto["codigo"])
+            if previo is None:
+                fichas[producto["codigo"]] = producto
+                continue
+            actual = sum(
+                bool(producto.get(campo))
+                for campo in ("nombre", "marca", "descripcion")
+            ) + len(producto.get("nombre") or "")
+            anterior = sum(
+                bool(previo.get(campo))
+                for campo in ("nombre", "marca", "descripcion")
+            ) + len(previo.get("nombre") or "")
+            if actual > anterior:
+                elegido, complemento = producto, previo
+            else:
+                elegido, complemento = previo, producto
+            for campo in (
+                "cantidad_disponible_proveedor",
+                "politica_ventas",
+                "descuento_oferta",
+                "iva_oferta",
+                "iva_incluido",
+            ):
+                if elegido.get(campo) is None and complemento.get(campo) is not None:
+                    elegido[campo] = complemento[campo]
+            fichas[producto["codigo"]] = elegido
+            if (previo.get("nombre"), previo.get("precio")) != (
+                producto.get("nombre"),
+                producto.get("precio"),
+            ):
+                conflictos.append(producto["codigo"])
+    if conflictos:
+        detalles.append(
+            f"{len(set(conflictos))} codigo(s) se leyeron con dos formatos "
+            "distintos; se conservo la ficha mas completa de cada uno"
+        )
+    return list(fichas.values()), errores_maximos, detalles[:MAX_ERRORES_DETALLE]
+
+
 def _extraer_pdf(contenido: bytes) -> tuple[list[dict[str, Any]], int, list[str]]:
     try:
         lector = PdfReader(io.BytesIO(contenido), strict=True)
@@ -418,7 +1218,29 @@ def _extraer_pdf(contenido: bytes) -> tuple[list[dict[str, Any]], int, list[str]
     texto = "\n".join(paginas)
     if not texto.strip():
         raise ErrorIngesta("El PDF no contiene texto legible; no se admite OCR")
+
+    resultados: list[tuple[str, list[dict[str, Any]], int, list[str]]] = []
+    estrategias = (
+        ("espacial", _extraer_pdf_espacial),
+        ("fichas", _extraer_pdf_fichas),
+    )
+    for nombre_estrategia, estrategia in estrategias:
+        try:
+            lector = PdfReader(io.BytesIO(contenido), strict=True)
+            resultados.append(
+                (nombre_estrategia, *estrategia(lector))
+            )
+        except (PdfReadError, OSError, ValueError, KeyError, TypeError) as exc:
+            logger.info(
+                "La estrategia %s no aplica a este PDF: %s", nombre_estrategia, exc
+            )
+
+    resultados.append(("tabla", *_extraer_pdf_tabla(texto)))
+
     filas = _filas_pdf(texto)
+    for indice, fila in enumerate(filas):
+        if fila and _clave(fila[0]) == "imagen":
+            filas[indice] = fila[1:]
     for indice, fila in enumerate(filas):
         columnas = _mapear_cabecera(fila)
         if columnas is None:
@@ -431,9 +1253,17 @@ def _extraer_pdf(contenido: bytes) -> tuple[list[dict[str, Any]], int, list[str]
             }:
                 datos = [datos[0], " ".join(datos[1:-1]), datos[-1]]
             filas_normalizadas.append(datos)
-        return _extraer_filas(filas_normalizadas)
+        try:
+            resultados.append(("generica", *_extraer_filas(filas_normalizadas)))
+        except (CabeceraIngestaAusente, ArchivoSinFilasValidas):
+            pass
+        break
+
+    productos, errores, detalles = _unir_estrategias_pdf(resultados)
+    if productos:
+        return productos, errores, detalles
     raise CabeceraIngestaAusente(
-        "No se encontro una cabecera reconocible de codigo, nombre y precio"
+        "No se encontro una tabla ni fichas con codigo, descripcion y precio"
     )
 
 
@@ -494,7 +1324,64 @@ def _detalle(errores: list[str]) -> str | None:
     return detalle[:MAX_DETALLE]
 
 
-def _extraer(nombre: str, contenido: bytes) -> tuple[list[dict[str, Any]], int, list[str]]:
+def _consolidar_codigos(
+    productos: Iterable[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int, int, list[str]]:
+    """Consolida SKU repetidos conservando siempre una ficha por codigo.
+
+    Antes, un codigo repetido con datos distintos descartaba *todas* sus
+    variantes: el producto desaparecia del catalogo y el asistente no podia
+    responder sobre el. Ahora se conserva la ficha mas completa (a igualdad,
+    la primera del documento) y el conflicto se informa para que el operador
+    lo revise. Un codigo representa un producto: no se duplica en la base.
+    """
+    grupos: dict[str, list[dict[str, Any]]] = {}
+    for producto in productos:
+        grupos.setdefault(producto["codigo"], []).append(producto)
+
+    unicos: list[dict[str, Any]] = []
+    filas_duplicadas = 0
+    filas_error = 0
+    detalles: list[str] = []
+    for codigo, grupo in grupos.items():
+        if len(grupo) == 1:
+            unicos.append(grupo[0])
+            continue
+
+        filas_duplicadas += len(grupo) - 1
+        if all(producto == grupo[0] for producto in grupo[1:]):
+            unicos.append(grupo[0])
+            detalles.append(
+                f"Codigo {codigo} repetido {len(grupo)} veces con los mismos datos; "
+                "se guardara una sola ficha"
+            )
+            continue
+
+        elegido = max(
+            grupo,
+            key=lambda producto: (
+                sum(
+                    bool(producto.get(campo))
+                    for campo in ("nombre", "marca", "descripcion")
+                ),
+                len(producto.get("nombre") or ""),
+            ),
+        )
+        unicos.append(elegido)
+        detalles.append(
+            f"Codigo {codigo} aparece {len(grupo)} veces con datos diferentes; "
+            f"se conservo \"{elegido['nombre'][:60]}\" y se descartaron "
+            f"{len(grupo) - 1} variante(s). Revise el catalogo del proveedor"
+        )
+
+    return unicos, filas_duplicadas, filas_error, detalles
+
+
+def _extraer(
+    nombre: str,
+    contenido: bytes,
+    selecciones_precio: dict[int, int] | None = None,
+) -> tuple[list[dict[str, Any]], int, list[str]]:
     extension = Path(nombre).suffix.lower()
     extractores = {
         ".pdf": _extraer_pdf,
@@ -502,10 +1389,64 @@ def _extraer(nombre: str, contenido: bytes) -> tuple[list[dict[str, Any]], int, 
         ".docx": _extraer_docx,
         ".txt": _extraer_txt,
     }
+    if extension == ".xlsx":
+        return _extraer_xlsx(contenido, selecciones_precio)
     return extractores[extension](contenido)
 
 
-def procesar_archivo(nombre: str, contenido: bytes, id_usuario: int) -> dict[str, Any]:
+def previsualizar_archivo(
+    nombre: str,
+    contenido: bytes,
+    selecciones_precio: dict[int, int] | None = None,
+) -> dict[str, Any]:
+    """Analiza un catalogo sin persistirlo y devuelve una muestra verificable."""
+    try:
+        nombre = _nombre_seguro(nombre)
+    except ErrorIngesta as exc:
+        raise ErrorIngesta(str(exc)) from exc
+    extension = Path(nombre).suffix.lower()
+    if extension not in EXTENSIONES_PERMITIDAS:
+        raise ErrorIngesta("Formato no permitido; use PDF, XLSX, DOCX o TXT")
+    if len(contenido) > MAX_ARCHIVO_BYTES:
+        raise ErrorIngesta(f"El archivo supera el limite de {MAX_ARCHIVO_MB} MB")
+    if not contenido:
+        raise ErrorIngesta("El archivo esta vacio")
+    try:
+        productos, filas_error, detalles = _extraer(
+            nombre, contenido, selecciones_precio
+        )
+    except SeleccionPrecioRequerida as exc:
+        return {
+            "productos_detectados": 0,
+            "filas_error": 0,
+            "filas_duplicadas": 0,
+            "muestra": [],
+            "detalle": str(exc),
+            "seleccion_pendiente": True,
+            "opciones_precio": exc.opciones,
+        }
+    productos, filas_duplicadas, errores_duplicados, detalles_duplicados = (
+        _consolidar_codigos(productos)
+    )
+    detalles = detalles_duplicados + detalles
+    return {
+        "productos_detectados": len(productos),
+        "filas_error": filas_error + errores_duplicados,
+        "filas_duplicadas": filas_duplicadas,
+        "muestra": productos[:20],
+        "detalle": _detalle(detalles),
+        "seleccion_pendiente": False,
+        "opciones_precio": [],
+    }
+
+
+def procesar_archivo(
+    nombre: str,
+    contenido: bytes,
+    id_usuario: int,
+    selecciones_precio: dict[int, int] | None = None,
+    metadatos: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Procesa un archivo y devuelve un resultado aislado del resto del lote."""
     try:
         nombre = _nombre_seguro(nombre)
@@ -558,8 +1499,9 @@ def procesar_archivo(nombre: str, contenido: bytes, id_usuario: int) -> dict[str
             hash_sha256=digest,
             tamano_bytes=len(contenido),
             id_usuario=id_usuario,
+            metadatos=metadatos,
         )
-    except (ErrorPostgres, BaseDeDatosNoDisponible, OSError):
+    except (ErrorPostgres, BaseDeDatosNoDisponible, OSError, ValueError):
         ruta.unlink(missing_ok=True)
         raise
 
@@ -574,7 +1516,9 @@ def procesar_archivo(nombre: str, contenido: bytes, id_usuario: int) -> dict[str
         return dict(resultado)
 
     try:
-        productos, filas_error, errores = _extraer(nombre, contenido)
+        productos, filas_error, errores = _extraer(
+            nombre, contenido, selecciones_precio
+        )
     except ArchivoSinFilasValidas as exc:
         resultado = inventario_model.actualizar_estado_archivo(
             id_archivo,
@@ -606,30 +1550,59 @@ def procesar_archivo(nombre: str, contenido: bytes, id_usuario: int) -> dict[str
         )
         return dict(resultado)
 
-    codigos: set[str] = set()
-    unicos: list[dict[str, Any]] = []
-    for producto in productos:
-        codigo = producto["codigo"]
-        if codigo in codigos:
-            filas_error += 1
-            if len(errores) < MAX_ERRORES_DETALLE:
-                errores.append(f"Codigo duplicado en el archivo: {codigo}")
-            continue
-        codigos.add(codigo)
-        unicos.append(producto)
-    productos = unicos
+    productos, _, errores_duplicados, detalles_duplicados = (
+        _consolidar_codigos(productos)
+    )
+    filas_error += errores_duplicados
+    errores = detalles_duplicados + errores
 
     try:
-        filas_ok = inventario_model.insertar_o_actualizar_productos(id_archivo, productos)
+        filas_ok, ofertas_guardadas = inventario_model.insertar_catalogo_completo(
+            id_archivo, productos, guardar_ofertas=bool(metadatos)
+        )
+        if metadatos:
+            if ofertas_guardadas != len(productos):
+                raise ValueError(
+                    "No se guardaron todas las ofertas del catalogo del proveedor"
+                )
     except (ErrorPostgres, BaseDeDatosNoDisponible):
         inventario_model.actualizar_estado_archivo(
             id_archivo,
             estado="error",
             filas_error=max(filas_error, 1),
-            detalle="No se pudieron guardar los productos del archivo",
+            detalle="No se pudieron guardar los productos y ofertas del archivo",
+        )
+        raise
+    except ValueError as exc:
+        inventario_model.actualizar_estado_archivo(
+            id_archivo,
+            estado="error",
+            filas_error=max(filas_error, 1),
+            detalle=str(exc)[:MAX_DETALLE],
         )
         raise
 
+    # Verificacion: no se declara exito si la base no contiene exactamente los
+    # productos leidos. El reporte anterior contaba filas intentadas, no filas
+    # guardadas, y un guardado parcial pasaba desapercibido.
+    guardados = inventario_model.contar_productos_de_archivo(id_archivo)
+    if guardados != len(productos):
+        detalle = (
+            f"Se leyeron {len(productos)} productos pero solo {guardados} "
+            "quedaron guardados; el catalogo se marco con error para no "
+            "trabajar con datos incompletos"
+        )
+        return dict(
+            inventario_model.actualizar_estado_archivo(
+                id_archivo,
+                estado="error",
+                filas_ok=guardados,
+                filas_error=max(filas_error, len(productos) - guardados, 1),
+                detalle=detalle[:MAX_DETALLE],
+            )
+        )
+
+    filas_ok = guardados
     estado = "parcial" if filas_error else "ok"
     resultado = inventario_model.actualizar_estado_archivo(
         id_archivo,

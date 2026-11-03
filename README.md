@@ -160,14 +160,32 @@ El panel y el asistente se adaptan a escritorio y móvil, y siguen el tema del
 sistema operativo (claro u oscuro) hasta que se cambie con el conmutador.
 
 **Panel de fuentes.** El administrador puede cargar lotes de hasta 20 archivos
-PDF, XLSX, DOCX o TXT (máximo 20 MB cada uno). Cada archivo se valida de forma
-independiente; un archivo rechazado no detiene los demás. El panel muestra el
-resultado y el historial de las últimas 100 cargas. Ventas puede consultar el
-historial, pero no cargar catálogos. Los originales se guardan bajo un nombre
-UUID en `UPLOADS_DIR` (un volumen persistente `/app/uploads` en Docker), nunca
-en los estáticos. PDF/XLSX/DOCX necesitan columnas reconocibles de código,
-nombre y precio; TXT también admite el orden posicional documentado
-`codigo;nombre;precio;descripcion;marca`. El ETL no admite CSV ni XLS.
+PDF, XLSX, DOCX o TXT (máximo 20 MB cada uno). Antes de guardarlo, el sistema
+previsualiza cada catálogo y solicita confirmación; si un Excel tiene varias
+columnas de precio, usted elige cuál importar y registra proveedor y vendedor
+para cada archivo. El teléfono y correo del vendedor son opcionales; la moneda
+inicia en USD y puede cambiarse a VES. Cada archivo conserva su propia nota
+(por ejemplo, “descuento válido hasta mañana”), aunque se carguen varios. Si el
+lector no encuentra información de IVA, la oferta se guarda como sin IVA (0 %);
+el descuento por producto es opcional y la disponibilidad que informa el
+proveedor no modifica el stock de la ferretería. Se leen tablas PDF con columnas
+separadas, productos alineados por su posición en la página, hojas Excel con
+encabezados en varias filas y fichas de productos en PDF o Word con etiquetas
+como `SKU`, `Descripción` y `Precio`. Los datos que no se puedan reconocer o
+validar se reportan y no se inventan. Los productos, sus ofertas y el historial
+se guardan en una única transacción; si falla una oferta, se revierte el lote
+completo. Los PDF escaneados sin capa de texto no
+se procesan porque todavía no hay OCR. Un archivo con errores no detiene los
+demás. El panel muestra el resultado y el historial de las últimas 100 cargas.
+Los códigos repetidos con datos idénticos se consolidan en una sola ficha;
+si el mismo código aparece con precios o datos distintos, ninguna variante se
+guarda hasta revisar el catálogo. La vista previa muestra el total que se
+guardaría después de esa consolidación.
+Ventas puede consultar el historial, pero no cargar catálogos. Los originales
+se guardan bajo un nombre UUID en `UPLOADS_DIR` (un volumen persistente
+`/app/uploads` en Docker), nunca en los estáticos. TXT también admite el orden
+posicional documentado `codigo;nombre;precio;descripcion;marca`. El ETL no
+admite CSV ni XLS.
 
 **Recuperación sin SMTP.** Mientras `SMTP_HOST` no esté configurado, el enlace
 de recuperación se escribe en el registro de Uvicorn:
@@ -208,7 +226,8 @@ iniciar sesión y `-b cookies.txt` en las llamadas siguientes.
 | POST / PUT / DELETE | `/api/v1/auth/roles[/{id}]` | admin | Administra roles y sus capacidades |
 | POST | `/api/v1/auth/recuperar` | público | Envía (o registra) el enlace de recuperación |
 | POST | `/api/v1/auth/restablecer` | público | Cambia la contraseña con el token del enlace |
-| POST | `/api/v1/inventario/ingesta` | `catalogos:ingestar` | Procesa un lote de catálogos |
+| POST | `/api/v1/inventario/previsualizacion` | `catalogos:ingestar` | Analiza un catálogo sin guardarlo |
+| POST | `/api/v1/inventario/ingesta` | `catalogos:ingestar` | Importa los catálogos confirmados |
 | GET | `/api/v1/inventario/archivos` | autenticado | Historial de las últimas 100 cargas |
 | DELETE | `/api/v1/inventario/archivos/{id}` | `catalogos:eliminar` | Elimina un catálogo y sus productos |
 | POST | `/api/v1/rag/chat` | autenticado | Pregunta al asistente (contrato final) |

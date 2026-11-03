@@ -128,14 +128,29 @@ def test_archivo_valido_guarda_original_y_resultado_con_uuid(monkeypatch, tmp_pa
 
     monkeypatch.setattr(inventario_model, "crear_archivo", crear)
     monkeypatch.setattr(inventario_model, "actualizar_estado_archivo", actualizar)
+    ofertas_insertadas = []
+
+    def guardar_catalogo(id_archivo, productos, *, guardar_ofertas):
+        productos_insertados.extend(productos)
+        if guardar_ofertas:
+            ofertas_insertadas.extend(productos)
+        return len(productos), len(productos) if guardar_ofertas else 0
+
     monkeypatch.setattr(
-        inventario_model,
-        "insertar_o_actualizar_productos",
-        lambda id_archivo, productos: productos_insertados.extend(productos) or len(productos),
+        inventario_model, "insertar_catalogo_completo", guardar_catalogo
     )
+    monkeypatch.setattr(
+        inventario_model, "contar_productos_de_archivo", lambda id_archivo: 1
+    )
+    metadatos = {
+        "proveedor": "Proveedor GAC",
+        "vendedor": "Vendedora",
+        "moneda": "USD",
+        "nota_proveedor": "Descuento hasta mañana",
+    }
     try:
         resultado = etl_service.procesar_archivo(
-            r"C:\proveedores\catalogo.txt", contenido, 7
+            r"C:\proveedores\catalogo.txt", contenido, 7, metadatos=metadatos
         )
     finally:
         get_settings.cache_clear()
@@ -149,7 +164,9 @@ def test_archivo_valido_guarda_original_y_resultado_con_uuid(monkeypatch, tmp_pa
     assert original[0].read_bytes() == contenido
     assert datos_archivo["ruta"] == original[0].name
     assert datos_archivo["hash_sha256"] == hashlib.sha256(contenido).hexdigest()
+    assert datos_archivo["metadatos"] == metadatos
     assert productos_insertados[0]["codigo"] == "SKU-31"
+    assert ofertas_insertadas[0]["codigo"] == "SKU-31"
     assert estados[0][1]["estado"] == "procesando"
 
 
@@ -186,6 +203,42 @@ def test_excel_extrae_tabla_con_cabecera():
     assert productos[0]["precio"] == Decimal("19.95")
 
 
+def test_excel_guarda_metadatos_comerciales_de_la_oferta():
+    contenido = _bytes_excel(
+        [
+            [
+                "SKU",
+                "Nombre",
+                "Precio",
+                "Cantidad Disp.",
+                "Política ventas",
+                "IVA",
+                "IVA incluido",
+                "Descuento",
+            ],
+            [
+                "SKU-IVA-1",
+                "Abrazadera",
+                10.61,
+                43,
+                "Descuento hasta mañana",
+                "16%",
+                "Sí",
+                1.25,
+            ],
+        ]
+    )
+
+    productos, errores, _ = etl_service._extraer_xlsx(contenido)
+
+    assert errores == 0
+    assert productos[0]["cantidad_disponible_proveedor"] == 43
+    assert productos[0]["politica_ventas"] == "Descuento hasta mañana"
+    assert productos[0]["iva_oferta"] == Decimal("16.00")
+    assert productos[0]["iva_incluido"] is True
+    assert productos[0]["descuento_oferta"] == Decimal("1.25")
+
+
 def test_excel_omite_hoja_sin_catalogo_y_lee_la_hoja_siguiente():
     libro = Workbook()
     libro.active.title = "Instrucciones"
@@ -202,6 +255,67 @@ def test_excel_omite_hoja_sin_catalogo_y_lee_la_hoja_siguiente():
     assert [producto["codigo"] for producto in productos] == ["SKU-03"]
 
 
+def test_excel_exige_elegir_entre_varias_columnas_de_precio():
+    contenido = _bytes_excel(
+        [
+            ["Código", "Descripción", "Precio neto", "PVP"],
+            ["SKU-21", "Tubo PVC", 3.5, 4.06],
+        ]
+    )
+
+    with pytest.raises(etl_service.SeleccionPrecioRequerida) as error:
+        etl_service._extraer_xlsx(contenido)
+
+    assert [opcion["columna"] for opcion in error.value.opciones] == [
+        "Precio neto",
+        "PVP",
+    ]
+    vista = etl_service.previsualizar_archivo(
+        "catalogo.xlsx", contenido, {0: 3}
+    )
+    assert vista["productos_detectados"] == 1
+    assert vista["muestra"][0]["precio"] == Decimal("4.06")
+
+
+def test_excel_detecta_cabecera_de_precio_en_filas_superiores():
+    contenido = _bytes_excel(
+        [
+            [None, None, None, None, "Precio neto"],
+            ["Código", "Descripción", "Unidad", None, None],
+            ["SKU-22", "Cinta aislante", "Pieza", None, 2.75],
+        ]
+    )
+
+    productos, errores, _ = etl_service._extraer_xlsx(contenido)
+
+    assert errores == 0
+    assert productos[0]["codigo"] == "SKU-22"
+    assert productos[0]["nombre"] == "Cinta aislante"
+    assert productos[0]["precio"] == Decimal("2.75")
+
+
+def test_excel_infiere_codigo_producto_y_precio_de_hoja_posicional():
+    contenido = _bytes_excel(
+        [
+            [None, None, None, "Peso", "Pza/Atado", "Bs. F/Pza."],
+            [5, "10102006", "LAMINAS DE H.N. 3.00 x 1200", 69.12, 35, 584],
+            [None, "10302008", "ANGULO 50 x 50 x 4.00", 18.36, 54, 220],
+        ]
+    )
+
+    productos, errores, _ = etl_service._extraer_xlsx(contenido)
+
+    assert errores == 0
+    assert [producto["codigo"] for producto in productos] == [
+        "10102006",
+        "10302008",
+    ]
+    assert [producto["precio"] for producto in productos] == [
+        Decimal("584.00"),
+        Decimal("220.00"),
+    ]
+
+
 def test_docx_extrae_tabla_con_cabecera():
     contenido = _bytes_word(
         [["Referencia", "Artículo", "Precio"], ["SKU-04", "Destornillador", "7,25"]]
@@ -212,6 +326,23 @@ def test_docx_extrae_tabla_con_cabecera():
     assert errores == 0
     assert productos[0]["codigo"] == "SKU-04"
     assert productos[0]["precio"] == Decimal("7.25")
+
+
+def test_word_extrae_fichas_con_campos_etiquetados():
+    texto = (
+        "SKU: MAR-01\nProducto: Llave ajustable\nPrecio: $ 5,25\n"
+        "SKU: MAR-02\nDescripción: Martillo de uña\nPrecio: 8,50\nMarca: FIPCA"
+    )
+
+    productos, errores, detalles = etl_service._extraer_fichas_etiquetadas(texto)
+
+    assert errores == 0
+    assert detalles == []
+    assert [producto["codigo"] for producto in productos] == ["MAR-01", "MAR-02"]
+    assert [producto["precio"] for producto in productos] == [
+        Decimal("5.25"),
+        Decimal("8.50"),
+    ]
 
 
 def test_pdf_sin_capa_de_texto_se_rechaza():
@@ -240,6 +371,274 @@ def test_pdf_extrae_filas_con_cabecera_y_nombres_compuestos(monkeypatch):
     assert productos[0]["codigo"] == "SKU-1"
     assert productos[0]["nombre"] == "Martillo acero"
     assert productos[0]["precio"] == Decimal("2.50")
+
+
+def test_pdf_extrae_tabla_con_codigo_descripcion_y_precio_al_final():
+    productos, errores, _ = etl_service._extraer_pdf_tabla(
+        "IMAGEN CODIGO DESCRIPCION PRECIO\n"
+        'E0600000035 ABRAZADERA EMT 1/2"                0,12\n'
+        'E0600000036 ABRAZADERA EMT 3/4"                0,12'
+    )
+
+    assert errores == 0
+    assert len(productos) == 2
+    assert productos[0]["codigo"] == "E0600000035"
+    assert productos[0]["nombre"] == 'ABRAZADERA EMT 1/2"'
+    assert productos[0]["precio"] == Decimal("0.12")
+
+
+def test_pdf_extrae_ficha_de_producto_con_precio_y_sku():
+    class Pagina:
+        def extract_text(self):
+            return (
+                "Abrazadera de riego 90mm x 1-1/2\n"
+                "Precio: $ 10,61\nSKU: G0800000197\n"
+                "Política ventas: descuento especial valido\n"
+                "Cantidad Disp.: 43\nDescuento: $ 1,00\n"
+                "IVA 16% incluido\nMarca: Imp"
+            )
+
+    productos, errores, _ = etl_service._extraer_pdf_fichas(
+        type("Lector", (), {"pages": [Pagina()]})()
+    )
+
+    assert errores == 0
+    assert productos[0]["codigo"] == "G0800000197"
+    assert productos[0]["nombre"] == "Abrazadera de riego 90mm x 1-1/2"
+    assert productos[0]["precio"] == Decimal("10.61")
+    assert productos[0]["cantidad_disponible_proveedor"] == 43
+    assert productos[0]["politica_ventas"] == "descuento especial valido"
+    assert productos[0]["descuento_oferta"] == Decimal("1.00")
+    assert productos[0]["iva_oferta"] == Decimal("16.00")
+    assert productos[0]["iva_incluido"] is True
+
+
+def test_pdf_no_inventa_si_el_iva_esta_incluido():
+    class Pagina:
+        def extract_text(self):
+            return "Martillo\nPrecio: $ 5,00\nSKU: M-01"
+
+    productos, errores, _ = etl_service._extraer_pdf_fichas(
+        type("Lector", (), {"pages": [Pagina()]})()
+    )
+
+    assert errores == 0
+    assert productos[0].get("iva_incluido") is None
+
+
+def test_pdf_detecta_iva_expresamente_no_incluido():
+    class Pagina:
+        def extract_text(self):
+            return "Martillo\nPrecio: $ 5,00\nSKU: M-02\nIVA no incluido"
+
+    productos, errores, _ = etl_service._extraer_pdf_fichas(
+        type("Lector", (), {"pages": [Pagina()]})()
+    )
+
+    assert errores == 0
+    assert productos[0]["iva_incluido"] is False
+
+
+def test_pdf_agrupa_codigo_descripcion_y_precio_por_posicion():
+    class Caja:
+        width = 612
+
+    class Pagina:
+        mediabox = Caja()
+
+        def extract_text(self, visitor_text):
+            for x, texto in (
+                (32, "M1660"),
+                (180, 'MANGUERA RIEGO 60 PSI 3/8"'),
+                (513, "16,12"),
+            ):
+                visitor_text(
+                    texto, None, [1, 0, 0, 1, x, 431.9], None, 12
+                )
+
+    productos, errores, _ = etl_service._extraer_pdf_espacial(
+        type("Lector", (), {"pages": [Pagina()]})()
+    )
+
+    assert errores == 0
+    assert productos[0]["codigo"] == "M1660"
+    assert productos[0]["precio"] == Decimal("16.12")
+
+
+def test_pdf_espacial_lee_dos_columnas_por_linea_sin_mezclarlas():
+    class Caja:
+        width = 595.2
+
+    class Pagina:
+        mediabox = Caja()
+
+        def extract_text(self, visitor_text):
+            # Una sola linea visual con dos productos: antes se guardaba uno
+            # solo, con el nombre de una columna y el precio de la otra.
+            for x, texto in (
+                (15.2, "U16"),
+                (102.6, "16MM"),
+                (149.2, '3/8"'),
+                (229.9, "1,02"),
+                (302.4, "AM1612"),
+                (390.2, "16MM"),
+                (438.1, '1/2"'),
+                (518.1, "2,55"),
+            ):
+                visitor_text(texto, None, [1, 0, 0, 1, x, 631.7], None, 12)
+
+    productos, errores, _ = etl_service._extraer_pdf_espacial(
+        type("Lector", (), {"pages": [Pagina()]})()
+    )
+
+    assert errores == 0
+    assert {producto["codigo"] for producto in productos} == {"U16", "AM1612"}
+    izquierda = next(p for p in productos if p["codigo"] == "U16")
+    derecha = next(p for p in productos if p["codigo"] == "AM1612")
+    assert izquierda["precio"] == Decimal("1.02")
+    assert derecha["precio"] == Decimal("2.55")
+    assert "2,55" not in izquierda["nombre"]
+    assert "AM1612" not in izquierda["nombre"]
+
+
+def test_pdf_combina_estrategias_para_no_perder_paginas(monkeypatch):
+    class Pagina:
+        def extract_text(self):
+            return "CODIGO DESCRIPCION PRECIO\nSKU-01 Martillo 1,00"
+
+    class Lector:
+        pages = [Pagina()]
+
+    monkeypatch.setattr(etl_service, "PdfReader", lambda *_args, **_kwargs: Lector())
+    monkeypatch.setattr(
+        etl_service,
+        "_extraer_pdf_fichas",
+        lambda _lector: (
+            [
+                {
+                    "codigo": "SKU-02",
+                    "nombre": "Pinza",
+                    "marca": None,
+                    "precio": Decimal("2.00"),
+                    "descuentos": Decimal("0.00"),
+                    "descripcion": None,
+                }
+            ],
+            0,
+            [],
+        ),
+    )
+
+    productos, errores, _ = etl_service._extraer_pdf(b"pdf de prueba")
+
+    assert errores == 0
+    assert {producto["codigo"] for producto in productos} == {"SKU-01", "SKU-02"}
+
+
+def test_excel_pregunta_por_todas_las_hojas_con_precios_ambiguos():
+    libro = Workbook()
+    primera = libro.active
+    primera.title = "Catalogo A"
+    primera.append(["Código", "Descripción", "Precio neto", "PVP"])
+    primera.append(["SKU-01", "Tubo", 3.5, 4.06])
+    segunda = libro.create_sheet("Catalogo B")
+    segunda.append(["Código", "Descripción", "Costo", "Precio"])
+    segunda.append(["SKU-02", "Codo", 1.5, 1.74])
+    salida = io.BytesIO()
+    libro.save(salida)
+
+    with pytest.raises(etl_service.SeleccionPrecioRequerida) as error:
+        etl_service._extraer_xlsx(salida.getvalue())
+
+    assert {opcion["hoja"] for opcion in error.value.opciones} == {
+        "Catalogo A",
+        "Catalogo B",
+    }
+
+
+def test_previsualizar_archivo_no_persiste_productos(monkeypatch):
+    def no_persistir(*_args, **_kwargs):
+        raise AssertionError("La vista previa no debe tocar la base de datos")
+
+    monkeypatch.setattr(inventario_model, "crear_archivo", no_persistir)
+    monkeypatch.setattr(
+        inventario_model, "insertar_o_actualizar_productos", no_persistir
+    )
+
+    vista = etl_service.previsualizar_archivo(
+        "catalogo.txt", b"codigo;nombre;precio\nSKU-23;Pinza;3,50\n"
+    )
+
+    assert vista["productos_detectados"] == 1
+    assert vista["muestra"][0]["codigo"] == "SKU-23"
+
+
+def test_consolida_repeticiones_identicas_sin_contarlas_como_error():
+    producto = {
+        "codigo": "SKU-24",
+        "nombre": "Martillo",
+        "marca": None,
+        "precio": Decimal("12.50"),
+        "descuentos": Decimal("0.00"),
+        "descripcion": None,
+    }
+
+    productos, duplicadas, errores, detalles = etl_service._consolidar_codigos(
+        [producto, producto.copy()]
+    )
+
+    assert productos == [producto]
+    assert duplicadas == 1
+    assert errores == 0
+    assert "se guardara una sola ficha" in detalles[0]
+
+
+def test_conserva_una_variante_si_un_codigo_tiene_datos_distintos():
+    primero = {
+        "codigo": "SKU-25",
+        "nombre": "Martillo",
+        "marca": None,
+        "precio": Decimal("12.50"),
+        "descuentos": Decimal("0.00"),
+        "descripcion": None,
+    }
+    segundo = {**primero, "precio": Decimal("13.00")}
+
+    productos, duplicadas, errores, detalles = etl_service._consolidar_codigos(
+        [primero, segundo]
+    )
+
+    # Un codigo repetido con datos distintos ya no elimina el producto: se
+    # conserva una ficha y el conflicto queda informado para revision.
+    assert productos == [primero]
+    assert duplicadas == 1
+    assert errores == 0
+    assert "se conservo" in detalles[0]
+    assert "variante" in detalles[0]
+
+
+def test_previsualizacion_muestra_el_total_que_realmente_se_guardara(monkeypatch):
+    producto = {
+        "codigo": "SKU-26",
+        "nombre": "Martillo",
+        "marca": None,
+        "precio": Decimal("12.50"),
+        "descuentos": Decimal("0.00"),
+        "descripcion": None,
+    }
+    monkeypatch.setattr(
+        etl_service,
+        "_extraer",
+        lambda *_args, **_kwargs: ([producto, producto.copy()], 0, []),
+    )
+
+    vista = etl_service.previsualizar_archivo(
+        "catalogo.txt", b"contenido"
+    )
+
+    assert vista["productos_detectados"] == 1
+    assert vista["filas_duplicadas"] == 1
+    assert vista["filas_error"] == 0
 
 
 def test_rechaza_archivo_xlsx_con_zip_danado():

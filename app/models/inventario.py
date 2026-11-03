@@ -6,7 +6,7 @@ import math
 from decimal import Decimal
 from typing import Any, Iterable
 
-from psycopg2.extras import execute_values
+from psycopg2.extras import RealDictCursor, execute_values
 
 from app.db.session import consultar_todos, consultar_uno, cursor_rag, ejecutar
 
@@ -28,19 +28,106 @@ def crear_archivo(
     hash_sha256: str,
     tamano_bytes: int,
     id_usuario: int,
+    metadatos: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Registra el archivo antes de iniciar su procesamiento."""
-    return ejecutar(
-        """
-        INSERT INTO archivos_subidos
-            (nombre, tipo, ruta, hash_sha256, tamano_bytes, estado, id_usuario)
-        VALUES (%s, %s, %s, %s, %s, 'pendiente', %s)
-        RETURNING id_archivo, nombre, tipo, fecha_de_subida, tamano_bytes,
-                  estado, filas_ok, filas_error, detalle
-        """,
-        (nombre, tipo, ruta, hash_sha256, tamano_bytes, id_usuario),
-        rag=True,
-    )
+    """Registra el archivo y asocia atómicamente su proveedor y vendedor."""
+    metadatos = metadatos or {}
+    proveedor = metadatos.get("proveedor")
+    id_proveedor = None
+    nombre_vendedor = metadatos.get("vendedor")
+    telefono_vendedor = metadatos.get("telefono_vendedor")
+    correo_vendedor = metadatos.get("correo_vendedor")
+    moneda = metadatos.get("moneda", "USD")
+
+    with cursor_rag() as cursor:
+        if proveedor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtext(LOWER(%s))::BIGINT)",
+                (proveedor,),
+            )
+            cursor.execute(
+                """
+                SELECT id_proveedores
+                  FROM proveedores
+                 WHERE LOWER(nombre) = LOWER(%s)
+                 ORDER BY id_proveedores
+                 FOR UPDATE
+                """,
+                (proveedor,),
+            )
+            existentes = cursor.fetchall()
+            if len(existentes) > 1:
+                raise ValueError(
+                    "Hay proveedores duplicados con ese nombre; un administrador "
+                    "debe unificarlos antes de cargar la cotizacion"
+                )
+            if existentes:
+                id_proveedor = existentes[0]["id_proveedores"]
+                cursor.execute(
+                    """
+                    UPDATE proveedores
+                       SET vendedor = %s,
+                           telefono_vendedor = COALESCE(NULLIF(%s, ''), telefono_vendedor),
+                           correo_vendedor = COALESCE(NULLIF(%s, ''), correo_vendedor),
+                           moneda = %s,
+                           actualizado_en = NOW()
+                     WHERE id_proveedores = %s
+                    """,
+                    (
+                        nombre_vendedor,
+                        telefono_vendedor,
+                        correo_vendedor,
+                        moneda,
+                        id_proveedor,
+                    ),
+                )
+            else:
+                cursor.execute(
+                    """
+                    INSERT INTO proveedores
+                        (nombre, vendedor, telefono_vendedor, correo_vendedor, moneda)
+                    VALUES (%s, %s, %s, %s, %s)
+                    RETURNING id_proveedores
+                    """,
+                    (
+                        proveedor,
+                        nombre_vendedor,
+                        telefono_vendedor,
+                        correo_vendedor,
+                        moneda,
+                    ),
+                )
+                id_proveedor = cursor.fetchone()["id_proveedores"]
+
+        cursor.execute(
+            """
+            INSERT INTO archivos_subidos
+                (nombre, tipo, ruta, hash_sha256, tamano_bytes, estado, id_usuario,
+                 id_proveedor, vendedor_nombre, vendedor_telefono, vendedor_correo,
+                 moneda, nota_proveedor)
+            VALUES (%s, %s, %s, %s, %s, 'pendiente', %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id_archivo, nombre, tipo, fecha_de_subida, tamano_bytes,
+                      estado, filas_ok, filas_error, detalle, moneda,
+                      vendedor_nombre AS vendedor,
+                      (SELECT nombre FROM proveedores
+                        WHERE id_proveedores = archivos_subidos.id_proveedor) AS proveedor
+            """,
+            (
+                nombre,
+                tipo,
+                ruta,
+                hash_sha256,
+                tamano_bytes,
+                id_usuario,
+                id_proveedor,
+                nombre_vendedor,
+                telefono_vendedor,
+                correo_vendedor,
+                moneda,
+                metadatos.get("nota_proveedor"),
+            ),
+        )
+        return dict(cursor.fetchone())
 
 
 def actualizar_estado_archivo(
@@ -65,7 +152,10 @@ def actualizar_estado_archivo(
                END
          WHERE id_archivo = %s
         RETURNING id_archivo, nombre, tipo, fecha_de_subida, tamano_bytes,
-                  estado, filas_ok, filas_error, detalle
+                  estado, filas_ok, filas_error, detalle, moneda,
+                  vendedor_nombre AS vendedor,
+                  (SELECT nombre FROM proveedores
+                    WHERE id_proveedores = archivos_subidos.id_proveedor) AS proveedor
         """,
         (estado, filas_ok, filas_error, detalle, estado, id_archivo),
         rag=True,
@@ -77,7 +167,10 @@ def obtener_archivo(id_archivo: int) -> dict[str, Any] | None:
     return consultar_uno(
         """
         SELECT id_archivo, nombre, tipo, fecha_de_subida, tamano_bytes,
-               estado, filas_ok, filas_error, detalle
+               estado, filas_ok, filas_error, detalle, moneda,
+               vendedor_nombre AS vendedor,
+               (SELECT nombre FROM proveedores
+                 WHERE id_proveedores = archivos_subidos.id_proveedor) AS proveedor
           FROM archivos_subidos
          WHERE id_archivo = %s
         """,
@@ -86,16 +179,88 @@ def obtener_archivo(id_archivo: int) -> dict[str, Any] | None:
     )
 
 
-def eliminar_catalogo(id_archivo: int) -> dict[str, Any] | None:
-    """Elimina un catalogo y todos sus productos en una sola transaccion.
+def _retirar_archivos_y_ofertas(
+    cursor: Any, ids_archivos: list[int]
+) -> dict[int, int]:
+    """Retira cotizaciones seleccionadas y conserva las de otros archivos."""
+    cursor.execute(
+        """
+        WITH ultima AS (
+            SELECT DISTINCT ON (id_oferta)
+                   id_oferta, precio, moneda, iva, iva_incluido, descuento,
+                   cantidad_disponible_proveedor, politica_ventas, id_archivo,
+                   registrado_en
+              FROM historial_precios
+             WHERE id_archivo IS NOT NULL
+               AND id_archivo <> ALL(%s)
+             ORDER BY id_oferta, registrado_en DESC, id DESC
+        )
+        UPDATE producto_proveedor AS oferta
+           SET precio = ultima.precio,
+               moneda = ultima.moneda,
+               iva = ultima.iva,
+               iva_incluido = ultima.iva_incluido,
+               descuento = ultima.descuento,
+               cantidad_disponible_proveedor =
+                   ultima.cantidad_disponible_proveedor,
+               politica_ventas = ultima.politica_ventas,
+               disponible = CASE
+                   WHEN ultima.cantidad_disponible_proveedor IS NULL THEN NULL
+                   ELSE ultima.cantidad_disponible_proveedor > 0
+               END,
+               id_archivo = ultima.id_archivo,
+               fecha_cotizacion = ultima.registrado_en,
+               actualizado_en = NOW()
+          FROM ultima
+         WHERE oferta.id = ultima.id_oferta
+           AND oferta.id_archivo = ANY(%s)
+        """,
+        (ids_archivos, ids_archivos),
+    )
+    cursor.execute(
+        "DELETE FROM producto_proveedor WHERE id_archivo = ANY(%s)",
+        (ids_archivos,),
+    )
+    cursor.execute(
+        "DELETE FROM historial_precios WHERE id_archivo = ANY(%s)",
+        (ids_archivos,),
+    )
+    cursor.execute(
+        """
+        WITH fuentes AS (
+            SELECT DISTINCT ON (id_producto) id_producto, id_archivo
+              FROM producto_proveedor
+             WHERE id_archivo IS NOT NULL
+               AND id_archivo <> ALL(%s)
+             ORDER BY id_producto, fecha_cotizacion DESC, id DESC
+        )
+        UPDATE productos AS producto
+           SET id_archivo = fuentes.id_archivo
+          FROM fuentes
+         WHERE producto.id_archivo = ANY(%s)
+           AND producto.id = fuentes.id_producto
+        """,
+        (ids_archivos, ids_archivos),
+    )
+    cursor.execute(
+        """
+        DELETE FROM productos
+         WHERE id_archivo = ANY(%s)
+        RETURNING id_archivo
+        """,
+        (ids_archivos,),
+    )
+    productos_por_archivo: dict[int, int] = {}
+    for fila in cursor.fetchall():
+        id_archivo = fila["id_archivo"]
+        productos_por_archivo[id_archivo] = (
+            productos_por_archivo.get(id_archivo, 0) + 1
+        )
+    return productos_por_archivo
 
-    Solicitud del cliente: un catalogo puede quitarse incluso si ya fue
-    procesado; el asistente deja de contar con los productos que provienen
-    de el. Los productos se borran primero (la llave foranea aparte es
-    ``ON DELETE SET NULL``, que dejaria huerfanos) y, si todo sale bien, se
-    confirma el borrado del registro del archivo. Devuelve ``None`` cuando
-    el archivo no existe.
-    """
+
+def eliminar_catalogo(id_archivo: int) -> dict[str, Any] | None:
+    """Retira una cotizacion sin borrar productos/ofertas de otros catalogos."""
     with cursor_rag() as cursor:
         cursor.execute(
             """
@@ -110,11 +275,7 @@ def eliminar_catalogo(id_archivo: int) -> dict[str, Any] | None:
         if fila is None:
             return None
 
-        cursor.execute(
-            "DELETE FROM productos WHERE id_archivo = %s",
-            (id_archivo,),
-        )
-        productos_eliminados = cursor.rowcount
+        productos_por_archivo = _retirar_archivos_y_ofertas(cursor, [id_archivo])
         cursor.execute(
             "DELETE FROM archivos_subidos WHERE id_archivo = %s",
             (id_archivo,),
@@ -123,7 +284,7 @@ def eliminar_catalogo(id_archivo: int) -> dict[str, Any] | None:
             "id_archivo": id_archivo,
             "nombre": fila["nombre"],
             "ruta_original": fila["ruta"],
-            "productos_eliminados": productos_eliminados,
+            "productos_eliminados": productos_por_archivo.get(id_archivo, 0),
         }
 
 
@@ -153,20 +314,9 @@ def eliminar_catalogos(ids_archivos: list[int]) -> dict[str, Any]:
         if not ids_existentes:
             return {"catalogos": [], "ids_no_encontrados": ids_no_encontrados}
 
-        cursor.execute(
-            """
-            DELETE FROM productos
-             WHERE id_archivo = ANY(%s)
-            RETURNING id_archivo
-            """,
-            (ids_existentes,),
+        productos_por_archivo = _retirar_archivos_y_ofertas(
+            cursor, ids_existentes
         )
-        productos_por_archivo: dict[int, int] = {}
-        for fila in cursor.fetchall():
-            id_archivo = fila["id_archivo"]
-            productos_por_archivo[id_archivo] = (
-                productos_por_archivo.get(id_archivo, 0) + 1
-            )
 
         cursor.execute(
             """
@@ -197,6 +347,19 @@ def insertar_o_actualizar_productos(
     id_archivo: int, productos: Iterable[dict[str, Any]]
 ) -> int:
     """Hace upsert por codigo sin modificar existencias ni vectores."""
+    productos = list(productos)
+    if not productos:
+        return 0
+
+    with cursor_rag() as cursor:
+        return _insertar_productos_en_cursor(cursor, id_archivo, productos)
+
+
+def _insertar_productos_en_cursor(
+    cursor: RealDictCursor,
+    id_archivo: int,
+    productos: list[dict[str, Any]],
+) -> int:
     filas = [
         (
             id_archivo,
@@ -233,9 +396,178 @@ def insertar_o_actualizar_productos(
                 ELSE productos.descripcion_vectorial
             END
     """
+    execute_values(cursor, sql, filas, page_size=500)
+    return len(filas)
+
+
+def insertar_o_actualizar_ofertas(
+    id_archivo: int, productos: Iterable[dict[str, Any]]
+) -> int:
+    """Guarda la cotizacion del proveedor sin confundirla con stock propio."""
+    productos = list(productos)
+    if not productos:
+                return 0
+
     with cursor_rag() as cursor:
-        execute_values(cursor, sql, filas, page_size=500)
-        return len(filas)
+                return _insertar_ofertas_en_cursor(cursor, id_archivo, productos)
+
+
+def _insertar_ofertas_en_cursor(
+    cursor: RealDictCursor,
+    id_archivo: int,
+    productos: list[dict[str, Any]],
+) -> int:
+    cursor.execute(
+                """
+                SELECT id_proveedor, moneda
+                  FROM archivos_subidos
+                 WHERE id_archivo = %s
+                """,
+                (id_archivo,),
+    )
+    archivo = cursor.fetchone()
+    if not archivo or archivo["id_proveedor"] is None:
+                return 0
+
+    codigos = [producto["codigo"] for producto in productos]
+    cursor.execute(
+                "SELECT id, codigo FROM productos WHERE codigo = ANY(%s)",
+                (codigos,),
+    )
+    ids_producto = cursor.fetchall()
+    id_por_codigo = {fila["codigo"]: fila["id"] for fila in ids_producto}
+    valores = [
+        (
+            id_por_codigo[producto["codigo"]],
+            archivo["id_proveedor"],
+            producto["codigo"],
+            producto["precio"],
+            archivo["moneda"],
+            producto.get("iva_oferta", Decimal("0.00")),
+            producto.get("iva_incluido"),
+            producto.get("descuento_oferta"),
+            producto.get("cantidad_disponible_proveedor"),
+            producto.get("politica_ventas"),
+            (
+                None
+                if producto.get("cantidad_disponible_proveedor") is None
+                else producto["cantidad_disponible_proveedor"] > 0
+            ),
+            id_archivo,
+        )
+        for producto in productos
+        if producto["codigo"] in id_por_codigo
+    ]
+    if len(valores) != len(productos):
+        raise ValueError(
+            "No se pudo asociar cada fila de la cotizacion con su producto guardado"
+        )
+
+    sql_ofertas = """
+        INSERT INTO producto_proveedor
+            (id_producto, id_proveedor, codigo_proveedor, precio, moneda, iva,
+             iva_incluido, descuento, cantidad_disponible_proveedor,
+             politica_ventas, disponible, id_archivo, fecha_cotizacion)
+        VALUES %s
+        ON CONFLICT (id_producto, id_proveedor) DO UPDATE SET
+            codigo_proveedor = EXCLUDED.codigo_proveedor,
+            precio = EXCLUDED.precio,
+            moneda = EXCLUDED.moneda,
+            iva = EXCLUDED.iva,
+            iva_incluido = EXCLUDED.iva_incluido,
+            descuento = EXCLUDED.descuento,
+            cantidad_disponible_proveedor = EXCLUDED.cantidad_disponible_proveedor,
+            politica_ventas = EXCLUDED.politica_ventas,
+            disponible = EXCLUDED.disponible,
+            id_archivo = EXCLUDED.id_archivo,
+            fecha_cotizacion = EXCLUDED.fecha_cotizacion,
+            actualizado_en = NOW()
+        RETURNING id, precio, moneda, iva, iva_incluido, descuento,
+                  cantidad_disponible_proveedor, politica_ventas, id_archivo
+    """
+    ofertas = execute_values(
+        cursor,
+        sql_ofertas,
+        valores,
+        template=(
+            "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE)"
+        ),
+        page_size=500,
+        fetch=True,
+    )
+    historial = [
+        (
+            oferta["id"],
+            oferta["precio"],
+            oferta["moneda"],
+            oferta["iva"],
+            oferta["iva_incluido"],
+            oferta["descuento"],
+            oferta["cantidad_disponible_proveedor"],
+            oferta["politica_ventas"],
+            oferta["id_archivo"],
+        )
+        for oferta in ofertas
+    ]
+    execute_values(
+        cursor,
+        """
+        INSERT INTO historial_precios
+            (id_oferta, precio, moneda, iva, iva_incluido, descuento,
+             cantidad_disponible_proveedor, politica_ventas, id_archivo)
+        VALUES %s
+        """,
+        historial,
+        page_size=500,
+    )
+    return len(ofertas)
+
+
+def insertar_catalogo_completo(
+    id_archivo: int,
+    productos: Iterable[dict[str, Any]],
+    *,
+    guardar_ofertas: bool,
+) -> tuple[int, int]:
+    """Guarda productos y ofertas en una sola transaccion."""
+    productos = list(productos)
+    if not productos:
+        return 0, 0
+
+    with cursor_rag() as cursor:
+        filas_guardadas = _insertar_productos_en_cursor(
+            cursor, id_archivo, productos
+        )
+        ofertas_guardadas = (
+            _insertar_ofertas_en_cursor(cursor, id_archivo, productos)
+            if guardar_ofertas
+            else 0
+        )
+        if guardar_ofertas and ofertas_guardadas != len(productos):
+            raise ValueError(
+                "No se guardaron todas las ofertas del catalogo del proveedor"
+            )
+    return filas_guardadas, ofertas_guardadas
+
+
+def contar_productos_de_archivo(id_archivo: int) -> int:
+    """Cuenta los productos que quedaron asociados a un catalogo."""
+    fila = consultar_uno(
+        "SELECT COUNT(*) AS total FROM productos WHERE id_archivo = %s",
+        (id_archivo,),
+        rag=True,
+    )
+    return int(fila["total"]) if fila else 0
+
+
+def contar_productos_sin_embedding() -> int:
+    """Productos del catalogo que aun no tienen vector de busqueda."""
+    fila = consultar_uno(
+        "SELECT COUNT(*) AS total FROM productos "
+        "WHERE descripcion_vectorial IS NULL",
+        rag=True,
+    )
+    return int(fila["total"]) if fila else 0
 
 
 def productos_sin_embedding(limite: int) -> list[dict[str, Any]]:
@@ -307,9 +639,11 @@ def listar_archivos(limite: int = 100) -> list[dict[str, Any]]:
     """Devuelve los lotes mas recientes sin incluir rutas internas ni hashes."""
     return consultar_todos(
         """
-        SELECT id_archivo, nombre, tipo, fecha_de_subida, tamano_bytes,
-               estado, filas_ok, filas_error, detalle
-          FROM archivos_subidos
+        SELECT a.id_archivo, a.nombre, a.tipo, a.fecha_de_subida, a.tamano_bytes,
+               a.estado, a.filas_ok, a.filas_error, a.detalle, a.moneda,
+               a.vendedor_nombre AS vendedor, p.nombre AS proveedor
+          FROM archivos_subidos AS a
+          LEFT JOIN proveedores AS p ON p.id_proveedores = a.id_proveedor
          ORDER BY fecha_de_subida DESC, id_archivo DESC
          LIMIT %s
         """,

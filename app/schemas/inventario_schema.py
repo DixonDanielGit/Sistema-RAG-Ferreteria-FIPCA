@@ -10,6 +10,41 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 EstadoArchivo = Literal["pendiente", "procesando", "ok", "parcial", "error", "rechazado"]
 
 
+class MetadatosCatalogo(BaseModel):
+    """Proveedor, contacto y condiciones generales de una cotizacion."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    proveedor: str = Field(min_length=1, max_length=255)
+    vendedor: str = Field(min_length=1, max_length=255)
+    telefono_vendedor: str | None = Field(default=None, max_length=40)
+    correo_vendedor: str | None = Field(default=None, max_length=255)
+    moneda: Literal["USD", "VES"] = "USD"
+    nota_proveedor: str | None = Field(default=None, max_length=4000)
+
+    @field_validator("proveedor", "vendedor")
+    @classmethod
+    def validar_identidad(cls, valor: str) -> str:
+        if not valor.strip():
+            raise ValueError("Este campo es obligatorio")
+        return valor.strip()
+
+    @field_validator("telefono_vendedor", "correo_vendedor", "nota_proveedor")
+    @classmethod
+    def vacio_a_nulo(cls, valor: str | None) -> str | None:
+        if valor is None:
+            return None
+        valor = valor.strip()
+        return valor or None
+
+    @field_validator("correo_vendedor")
+    @classmethod
+    def validar_correo(cls, valor: str | None) -> str | None:
+        if valor and ("@" not in valor or valor.startswith("@") or valor.endswith("@")):
+            raise ValueError("El correo del vendedor no tiene un formato valido")
+        return valor
+
+
 class ArchivoIngesta(BaseModel):
     """Resultado persistido o rechazado de un archivo del lote."""
 
@@ -24,6 +59,9 @@ class ArchivoIngesta(BaseModel):
     filas_ok: int = Field(default=0, ge=0)
     filas_error: int = Field(default=0, ge=0)
     detalle: str | None = None
+    proveedor: str | None = None
+    vendedor: str | None = None
+    moneda: str | None = None
 
 
 class RespuestaEliminacionArchivo(BaseModel):

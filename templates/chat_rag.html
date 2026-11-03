@@ -112,12 +112,92 @@
     </div>
 
     <p class="fuentes__nota">
-      Los catálogos se suben y procesan automáticamente al elegirlos.
-      Esto puede tardar unos segundos o minutos según el tamaño del archivo.
-      Mientras termina la carga no se pueden agregar más archivos,
-      para no saturar el sistema.
+      Cada catálogo se analiza primero y muestra una vista previa.
+      Confirme los productos y el precio antes de guardarlos.
+      Los archivos se revisan de uno en uno para proteger el inventario.
     </p>
   </aside>
+
+  {% if puede_ingestar %}
+  <dialog class="fuentes__dialogo" id="dialogo-revision-fuentes"
+          aria-labelledby="titulo-revision-fuentes">
+    <div class="fuentes__dialogo-contenido">
+      <h2 id="titulo-revision-fuentes">Revise el catálogo</h2>
+      <p class="fuentes__dialogo-resumen" id="resumen-revision-fuentes"></p>
+      <div class="fuentes__precios" id="seleccion-precios-fuentes"></div>
+      <div class="fuentes__cotizacion" id="datos-cotizacion-fuentes">
+        <p class="fuentes__cotizacion-ayuda">
+          Registre quién envió esta cotización. Cada archivo puede pertenecer a
+          un proveedor y vendedor distintos; si comparten los datos, se pueden
+          reutilizar para el siguiente archivo.
+        </p>
+        <div class="fuentes__cotizacion-grid">
+          <label class="fuentes__campo" for="proveedor-fuente">
+            Proveedor <span aria-hidden="true">*</span>
+            <input id="proveedor-fuente" name="proveedor" type="text"
+                   maxlength="255" autocomplete="organization" required />
+          </label>
+          <label class="fuentes__campo" for="vendedor-fuente">
+            Vendedor que le atiende <span aria-hidden="true">*</span>
+            <input id="vendedor-fuente" name="vendedor" type="text"
+                   maxlength="255" autocomplete="name" required />
+          </label>
+          <label class="fuentes__campo" for="telefono-vendedor-fuente">
+            Teléfono del vendedor
+            <input id="telefono-vendedor-fuente" name="telefono_vendedor"
+                   type="tel" maxlength="40" autocomplete="tel" />
+          </label>
+          <label class="fuentes__campo" for="correo-vendedor-fuente">
+            Correo del vendedor
+            <input id="correo-vendedor-fuente" name="correo_vendedor"
+                   type="email" maxlength="255" autocomplete="email" />
+          </label>
+          <label class="fuentes__campo" for="moneda-fuente">
+            Moneda de esta cotización
+            <select id="moneda-fuente" name="moneda">
+              <option value="USD" selected>Dólar estadounidense (USD)</option>
+              <option value="VES">Bolívar (VES)</option>
+            </select>
+          </label>
+          <label class="fuentes__campo fuentes__campo--nota"
+                 for="nota-proveedor-fuente">
+            Nota de la cotización
+            <textarea id="nota-proveedor-fuente" name="nota_proveedor"
+                      maxlength="4000" rows="2"
+                      placeholder="Ej.: descuento válido hasta mañana"></textarea>
+          </label>
+        </div>
+        <p class="fuentes__cotizacion-ayuda">
+          Si el catálogo no informa el IVA, la oferta se guardará como sin IVA
+          (0 %). Los descuentos detectados se guardan por producto y son
+          opcionales; use la nota para condiciones generales de la cotización.
+        </p>
+      </div>
+      <div class="fuentes__muestra-contenedor" id="contenedor-muestra-fuentes">
+        <table class="fuentes__muestra">
+          <thead>
+            <tr>
+              <th scope="col">Código</th>
+              <th scope="col">Producto</th>
+              <th scope="col">Precio detectado</th>
+              <th scope="col">Disp. proveedor</th>
+              <th scope="col">Descuento</th>
+              <th scope="col">IVA</th>
+              <th scope="col">Política de ventas</th>
+            </tr>
+          </thead>
+          <tbody id="muestra-fuentes"></tbody>
+        </table>
+      </div>
+      <div class="fuentes__dialogo-acciones">
+        <button class="fuentes__dialogo-cancelar" id="cancelar-revision-fuentes"
+                type="button">Cancelar</button>
+        <button class="fuentes__dialogo-confirmar" id="confirmar-revision-fuentes"
+                type="button">Continuar</button>
+      </div>
+    </div>
+  </dialog>
+  {% endif %}
 
   <div class="chat__principal">
     <div class="chat__cabecera">

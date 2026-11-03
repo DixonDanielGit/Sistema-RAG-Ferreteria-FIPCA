@@ -12,6 +12,7 @@
     parcial: "Cargado con errores",
     error: "No procesado",
     rechazado: "Rechazado",
+    cancelado: "Cancelado",
   };
 
   function extension(nombre) {
@@ -86,9 +87,26 @@
     var chat = panel.closest(".chat");
     var velo = document.getElementById("velo-fuentes");
     var principal = document.querySelector(".chat__principal");
+    var dialogoRevision = document.getElementById("dialogo-revision-fuentes");
+    var resumenRevision = document.getElementById("resumen-revision-fuentes");
+    var seleccionPrecios = document.getElementById("seleccion-precios-fuentes");
+    var contenedorMuestra = document.getElementById("contenedor-muestra-fuentes");
+    var muestraRevision = document.getElementById("muestra-fuentes");
+    var cancelarRevision = document.getElementById("cancelar-revision-fuentes");
+    var confirmarRevision = document.getElementById("confirmar-revision-fuentes");
+    var datosCotizacion = document.getElementById("datos-cotizacion-fuentes");
+    var camposCotizacion = {
+      proveedor: document.getElementById("proveedor-fuente"),
+      vendedor: document.getElementById("vendedor-fuente"),
+      telefono_vendedor: document.getElementById("telefono-vendedor-fuente"),
+      correo_vendedor: document.getElementById("correo-vendedor-fuente"),
+      moneda: document.getElementById("moneda-fuente"),
+      nota_proveedor: document.getElementById("nota-proveedor-fuente"),
+    };
 
     var archivos = [];
     var historial = [];
+    var datosProveedorPrevios = null;
     var subiendo = false;
     var eliminando = false;
     var seleccionados = Object.create(null);
@@ -280,6 +298,213 @@
       }
     }
 
+    function mostrarRevision(archivo, resultado, seleccionarPrecio) {
+      if (!dialogoRevision) return Promise.resolve(null);
+      seleccionPrecios.replaceChildren();
+      muestraRevision.replaceChildren();
+      contenedorMuestra.hidden = seleccionarPrecio || !resultado.muestra.length;
+      datosCotizacion.hidden = seleccionarPrecio || !resultado.productos_detectados;
+      confirmarRevision.hidden = !seleccionarPrecio && !resultado.productos_detectados;
+      confirmarRevision.textContent = seleccionarPrecio
+        ? "Usar selección"
+        : "Confirmar e importar";
+      resumenRevision.textContent = seleccionarPrecio
+        ? "El archivo " + archivo.nombre +
+          " tiene varios precios en la hoja indicada. Elija cuál corresponde al precio de la cotización. Si el catálogo no informa el IVA, se registrará como sin IVA (0 %)."
+        : resultado.productos_detectados + " producto(s) detectado(s) en " +
+          archivo.nombre + ". Revise la muestra antes de guardar.";
+
+      if (!seleccionarPrecio && resultado.productos_detectados) {
+        Object.keys(camposCotizacion).forEach(function (campo) {
+          camposCotizacion[campo].value =
+            campo === "nota_proveedor"
+              ? ""
+              : datosProveedorPrevios && datosProveedorPrevios[campo]
+                ? datosProveedorPrevios[campo]
+                : campo === "moneda"
+                  ? "USD"
+                  : "";
+        });
+      }
+
+      if (resultado.filas_duplicadas) {
+        resumenRevision.textContent +=
+          " " + resultado.filas_duplicadas +
+          " fila(s) repiten un código; se consolidan solo si todos sus datos coinciden.";
+      }
+      if (resultado.filas_error) {
+        resumenRevision.textContent +=
+          " " + resultado.filas_error +
+          " fila(s) requieren revisión y no se importarán.";
+      }
+      if (resultado.detalle && !seleccionarPrecio) {
+        resumenRevision.textContent += " " + resultado.detalle;
+      }
+
+      if (seleccionarPrecio) {
+        var gruposPrecio = Object.create(null);
+        resultado.opciones_precio.forEach(function (opcion) {
+          var indice = String(opcion.hoja_indice);
+          if (!gruposPrecio[indice]) {
+            gruposPrecio[indice] = { hoja: opcion.hoja, opciones: [] };
+          }
+          gruposPrecio[indice].opciones.push(opcion);
+        });
+        Object.keys(gruposPrecio).forEach(function (indiceHoja) {
+          var grupo = gruposPrecio[indiceHoja];
+          var etiqueta = document.createElement("label");
+          etiqueta.className = "fuentes__precio-campo";
+          etiqueta.appendChild(document.createTextNode(grupo.hoja));
+
+          var selector = document.createElement("select");
+          selector.className = "fuentes__precio-selector";
+          selector.dataset.hojaIndice = indiceHoja;
+          selector.setAttribute(
+            "aria-label",
+            "Precio para la hoja " + grupo.hoja
+          );
+          var vacioPrecio = document.createElement("option");
+          vacioPrecio.value = "";
+          vacioPrecio.textContent = "Seleccione una columna de precio";
+          vacioPrecio.disabled = true;
+          vacioPrecio.selected = true;
+          selector.appendChild(vacioPrecio);
+          grupo.opciones.forEach(function (candidata) {
+            var opcionHtml = document.createElement("option");
+            opcionHtml.value = String(candidata.columna_indice);
+            opcionHtml.textContent = candidata.columna;
+            selector.appendChild(opcionHtml);
+          });
+          etiqueta.appendChild(selector);
+          seleccionPrecios.appendChild(etiqueta);
+        });
+      } else {
+        resultado.muestra.forEach(function (producto) {
+          var fila = document.createElement("tr");
+          var iva = producto.iva_oferta;
+          var etiquetaIva = iva === null || iva === undefined
+            ? "Sin IVA (0 %; sin dato)"
+            : String(iva) + " %";
+          if (iva !== null && iva !== undefined) {
+            etiquetaIva += producto.iva_incluido === true
+              ? " incluido"
+              : producto.iva_incluido === false
+                ? " no incluido"
+                : " (inclusión no indicada)";
+          }
+          [
+            producto.codigo,
+            producto.nombre,
+            producto.precio,
+            producto.cantidad_disponible_proveedor,
+            producto.descuento_oferta,
+            etiquetaIva,
+            producto.politica_ventas,
+          ].forEach(function (valor) {
+            var celda = document.createElement("td");
+            celda.textContent = valor === null || valor === undefined || valor === ""
+              ? "—"
+              : String(valor);
+            fila.appendChild(celda);
+          });
+          muestraRevision.appendChild(fila);
+        });
+      }
+
+      dialogoRevision.showModal();
+      return new Promise(function (resolver) {
+        var completado = false;
+        function terminar(valor) {
+          if (completado) return;
+          completado = true;
+          dialogoRevision.removeEventListener("cancel", cancelar);
+          cancelarRevision.removeEventListener("click", cancelarClick);
+          confirmarRevision.removeEventListener("click", confirmar);
+          dialogoRevision.close();
+          resolver(valor);
+        }
+        function cancelar(evento) {
+          evento.preventDefault();
+          terminar(null);
+        }
+        function confirmar() {
+          if (!seleccionarPrecio) {
+            if (!resultado.productos_detectados) {
+              terminar(null);
+              return;
+            }
+            var datos = {};
+            var nombres = Object.keys(camposCotizacion);
+            for (var campoIndice = 0; campoIndice < nombres.length; campoIndice++) {
+              var nombreCampo = nombres[campoIndice];
+              var control = camposCotizacion[nombreCampo];
+              control.value = control.value.trim();
+              if (!control.reportValidity()) return;
+              datos[nombreCampo] = control.value;
+            }
+            datosProveedorPrevios = Object.assign({}, datos, {
+              nota_proveedor: "",
+            });
+            terminar(datos);
+            return;
+          }
+          var seleccion = {};
+          var selectores = seleccionPrecios.querySelectorAll("select");
+          for (var i = 0; i < selectores.length; i++) {
+            if (!selectores[i].value) {
+              selectores[i].focus();
+              return;
+            }
+            seleccion[selectores[i].dataset.hojaIndice] =
+              Number(selectores[i].value);
+          }
+          terminar(seleccion);
+        }
+        function cancelarClick() {
+          terminar(null);
+        }
+        cancelarRevision.addEventListener("click", cancelarClick);
+        confirmarRevision.addEventListener("click", confirmar);
+        dialogoRevision.addEventListener("cancel", cancelar, { once: true });
+      });
+    }
+
+    async function previsualizar(archivo, selecciones) {
+      var formulario = new FormData();
+      formulario.append("archivo", archivo.archivo, archivo.nombre);
+      formulario.append("selecciones_precio", JSON.stringify(selecciones));
+      return Fipca.pedir("/api/v1/inventario/previsualizacion", {
+        metodo: "POST",
+        cuerpo: formulario,
+      });
+    }
+
+    async function prepararImportacion(archivo) {
+      var selecciones = {};
+      var resultado;
+      for (var intentos = 0; intentos < 20; intentos++) {
+        resultado = await previsualizar(archivo, selecciones);
+        if (!resultado.seleccion_pendiente) break;
+        var nuevas = await mostrarRevision(archivo, resultado, true);
+        if (!nuevas) return null;
+        Object.assign(selecciones, nuevas);
+      }
+      if (!resultado || resultado.seleccion_pendiente) {
+        throw new Error("No se completó la selección de precios del catálogo.");
+      }
+      if (!resultado.productos_detectados) {
+        await mostrarRevision(archivo, resultado, false);
+        return { selecciones: selecciones, confirmado: false, resultado: resultado };
+      }
+      var metadatos = await mostrarRevision(archivo, resultado, false);
+      return {
+        selecciones: selecciones,
+        confirmado: Boolean(metadatos),
+        metadatos: metadatos,
+        resultado: resultado,
+      };
+    }
+
     function actualizar() {
       var total = archivos.length + historial.length;
       if (cuenta) {
@@ -350,6 +575,13 @@
           detalles.push(etiqueta || ETIQUETAS_ESTADO[archivo.estado]);
         } else {
           detalles.push(ETIQUETAS_ESTADO[archivo.estado] || "Estado desconocido");
+          if (archivo.proveedor) {
+            detalles.push(
+              archivo.proveedor +
+                (archivo.vendedor ? " · Vendedor: " + archivo.vendedor : "")
+            );
+          }
+          if (archivo.moneda) detalles.push(archivo.moneda);
           if (archivo.filas_ok || archivo.filas_error) {
             detalles.push(
               archivo.filas_ok + " correctas, " + archivo.filas_error + " con error"
@@ -452,6 +684,7 @@
         );
         return;
       }
+      if (!archivos.length) datosProveedorPrevios = null;
       var extensionesInvalidas = 0;
       var archivosVacios = 0;
       var archivosGrandes = 0;
@@ -527,6 +760,7 @@
       actualizar();
 
       var cargados = 0;
+      var cancelados = 0;
       var incidencias = [];
       try {
         for (var i = 0; i < archivos.length; i++) {
@@ -534,13 +768,36 @@
           item.estado = "subiendo";
           pintar();
           mensajeEstado(
-            "Subiendo y procesando archivo " + (i + 1) + " de " +
+            "Analizando catálogo " + (i + 1) + " de " +
               archivos.length + "…"
           );
 
-          var formulario = new FormData();
-          formulario.append("archivos", item.archivo, item.nombre);
           try {
+            var revision = await prepararImportacion(item);
+            if (!revision) {
+              item.estado = "cancelado";
+              item.detalle = "Importación cancelada; no se guardó ni se modificó el inventario.";
+              cancelados += 1;
+              continue;
+            }
+            if (!revision.confirmado) {
+              item.estado = "error";
+              item.detalle = revision.resultado.detalle ||
+                "No se detectaron productos para importar.";
+              incidencias.push(item.nombre + ": " + item.detalle);
+              continue;
+            }
+
+            var formulario = new FormData();
+            formulario.append("archivos", item.archivo, item.nombre);
+            formulario.append(
+              "selecciones_precio",
+              JSON.stringify(revision.selecciones)
+            );
+            formulario.append(
+              "metadatos_catalogo",
+              JSON.stringify([revision.metadatos])
+            );
             var respuesta = await Fipca.pedir("/api/v1/inventario/ingesta", {
               metodo: "POST",
               cuerpo: formulario,
@@ -563,9 +820,18 @@
 
         if (incidencias.length) {
           aviso(
-            cargados + " archivo(s) cargado(s); los demás requieren revisión. " +
+            cargados + " archivo(s) cargado(s); los demás requieren revisión." +
+              (cancelados ? " " + cancelados + " cancelado(s)." : " ") +
               incidencias.join(". ").slice(0, 700),
             "error"
+          );
+        } else if (cancelados && !cargados) {
+          aviso("No se importó ningún catálogo.", "error");
+        } else if (cancelados) {
+          aviso(
+            cargados + " catálogo(s) cargado(s). " +
+              cancelados + " importación(es) cancelada(s).",
+            "exito"
           );
         } else {
           aviso(

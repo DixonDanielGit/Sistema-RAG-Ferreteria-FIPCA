@@ -14,6 +14,7 @@ no romper la suite en equipos sin Docker.
 
 import os
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -242,6 +243,31 @@ def test_codigo_de_producto_es_unico(rag):
             cur.execute(
                 "INSERT INTO productos (codigo, nombre, precio) VALUES ('SKU-1', 'B', 2.00)"
             )
+
+
+def test_migracion_7_0_coincide_con_init_sql():
+    raiz = Path(__file__).resolve().parents[2]
+    esquema = (raiz / "init.sql").read_text(encoding="utf-8").lower()
+    migracion = (raiz / "scripts" / "migracion_7_0.sql").read_text(
+        encoding="utf-8"
+    ).lower()
+
+    for fragmento in (
+        "plazo_entrega_dias",
+        "punto_reorden",
+        "modelo_embedding",
+        "producto_proveedor",
+        "historial_precios",
+        "compras",
+        "detalle_compra",
+        "evaluacion_proveedor",
+        "stock_movimientos",
+        "configuracion_stock",
+        "producto_alias",
+        "tasa_cambio",
+    ):
+        assert fragmento in esquema, f"init.sql no define {fragmento}"
+        assert fragmento in migracion, f"la migracion 7_0 no define {fragmento}"
 
 
 # ---------------------------------------------------------------------

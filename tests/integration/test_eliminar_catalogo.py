@@ -191,6 +191,81 @@ def test_producto_rehomed_a_otro_catalogo_sobrevive(conexion_rag_limpieza):
             cursor.execute("DELETE FROM archivos_subidos WHERE id_archivo = ANY(%s)", ([id_viejo, id_nuevo],))
 
 
+def test_eliminar_cotizacion_no_borra_la_oferta_de_otro_proveedor(
+    conexion_rag_limpieza,
+):
+    sufijo = uuid.uuid4().hex[:10]
+    codigo = f"COMP-{sufijo}"
+    archivos = []
+    proveedores = []
+    with conexion_rag_limpieza.cursor() as cursor:
+        for nombre in (f"Proveedor A {sufijo}", f"Proveedor B {sufijo}"):
+            cursor.execute(
+                "INSERT INTO proveedores (nombre) VALUES (%s) RETURNING id_proveedores",
+                (nombre,),
+            )
+            proveedores.append(cursor.fetchone()[0])
+        for indice, id_proveedor in enumerate(proveedores):
+            cursor.execute(
+                """
+                INSERT INTO archivos_subidos
+                    (nombre, tipo, ruta, id_proveedor, moneda)
+                VALUES (%s, 'pdf', %s, %s, 'USD')
+                RETURNING id_archivo
+                """,
+                (f"Catalogo {indice}.pdf", f"{sufijo}-{indice}.pdf", id_proveedor),
+            )
+            archivos.append(cursor.fetchone()[0])
+
+    producto = {
+        "codigo": codigo,
+        "nombre": "Producto compartido",
+        "precio": 10.00,
+        "cantidad_disponible_proveedor": 5,
+    }
+    try:
+        for indice, id_archivo in enumerate(archivos):
+            inventario_model.insertar_o_actualizar_productos(
+                id_archivo, [{**producto, "precio": 10.00 + indice}]
+            )
+            inventario_model.insertar_o_actualizar_ofertas(
+                id_archivo, [{**producto, "precio": 10.00 + indice}]
+            )
+
+        resultado = etl_service.eliminar_catalogo_completo(archivos[0])
+
+        assert resultado is not None
+        assert resultado["productos_eliminados"] == 0
+        with conexion_rag_limpieza.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT pr.nombre, o.precio, o.id_archivo
+                  FROM producto_proveedor o
+                  JOIN proveedores pr ON pr.id_proveedores = o.id_proveedor
+                  JOIN productos p ON p.id = o.id_producto
+                 WHERE p.codigo = %s
+                """,
+                (codigo,),
+            )
+            ofertas = cursor.fetchall()
+
+        assert len(ofertas) == 1
+        assert ofertas[0][0] == f"Proveedor B {sufijo}"
+        assert float(ofertas[0][1]) == 11.00
+        assert ofertas[0][2] == archivos[1]
+    finally:
+        with conexion_rag_limpieza.cursor() as cursor:
+            cursor.execute("DELETE FROM productos WHERE codigo = %s", (codigo,))
+            cursor.execute(
+                "DELETE FROM archivos_subidos WHERE id_archivo = ANY(%s)",
+                (archivos,),
+            )
+            cursor.execute(
+                "DELETE FROM proveedores WHERE id_proveedores = ANY(%s)",
+                (proveedores,),
+            )
+
+
 def test_eliminar_catalogo_inexistente_devuelve_none(conexion_rag_limpieza):
     with conexion_rag_limpieza.cursor() as cursor:
         cursor.execute("SELECT COALESCE(MAX(id_archivo), 0) FROM archivos_subidos")

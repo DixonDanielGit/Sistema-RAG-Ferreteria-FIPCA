@@ -7,6 +7,7 @@ Ejecucion explicita:
 from __future__ import annotations
 
 import os
+import json
 import time
 import uuid
 
@@ -43,6 +44,18 @@ def test_20_catalogos_ingresan_5000_productos_en_425_segundos(
     respuesta = cliente.post(
         "/api/v1/inventario/ingesta",
         files=archivos,
+        data={
+            "metadatos_catalogo": json.dumps(
+                [
+                    {
+                        "proveedor": f"Proveedor estres {archivo}",
+                        "vendedor": f"Vendedor {archivo}",
+                        "moneda": "USD",
+                    }
+                    for archivo in range(20)
+                ]
+            )
+        },
         headers={"Authorization": f"Bearer {token}"},
     )
     duracion = time.perf_counter() - inicio

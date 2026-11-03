@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import threading
 
 from typing import Any
@@ -10,12 +11,14 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
+    Form,
     HTTPException,
     Path,
     Query,
     Request,
     UploadFile,
 )
+from pydantic import TypeAdapter, ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import requiere_permiso, usuario_actual
@@ -23,6 +26,7 @@ from app.core.logging import registrar_evento
 from app.models import inventario as inventario_model
 from app.schemas.inventario_schema import (
     ArchivoIngesta,
+    MetadatosCatalogo,
     RespuestaEliminacionArchivo,
     RespuestaEliminacionCatalogos,
     RespuestaIngesta,
@@ -36,6 +40,7 @@ router = APIRouter(prefix="/inventario", tags=["Inventario"])
 # archivos en secuencia, y este candado impide que dos lotes (de dos pestañas
 # o de un cliente API) se procesen en paralelo y colapsen el servidor.
 _cerradura_ingesta = threading.Lock()
+_adaptador_metadatos = TypeAdapter(list[MetadatosCatalogo])
 
 
 @router.get(
@@ -68,6 +73,8 @@ async def ingesta(
     archivos: list[UploadFile] | None = File(
         default=None, description="PDF, XLSX, DOCX o TXT"
     ),
+    selecciones_precio: str | None = Form(default=None),
+    metadatos_catalogo: str | None = Form(default=None),
     usuario: dict[str, Any] = Depends(requiere_permiso("catalogos:ingestar")),
 ) -> RespuestaIngesta:
     """Procesa cada archivo del lote independientemente.
@@ -81,6 +88,43 @@ async def ingesta(
             detail=f"El lote debe contener entre 1 y {etl_service.MAX_ARCHIVOS_INGESTA} archivos",
         )
 
+    try:
+        metadatos = _adaptador_metadatos.validate_json(metadatos_catalogo or "")
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Cada archivo requiere proveedor, vendedor y una moneda valida; "
+                "revise tambien los datos de contacto"
+            ),
+        ) from exc
+    if len(metadatos) != len(archivos):
+        raise HTTPException(
+            status_code=400,
+            detail="Debe indicar los datos del proveedor para cada archivo y en el mismo orden",
+        )
+
+    try:
+        opciones = json.loads(selecciones_precio or "{}")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="La seleccion de precios no tiene un formato valido",
+        ) from exc
+    if not isinstance(opciones, dict) or any(
+        not isinstance(clave, str)
+        or not clave.isdecimal()
+        or not isinstance(valor, int)
+        or isinstance(valor, bool)
+        or valor < 0
+        for clave, valor in opciones.items()
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="La seleccion de precios no tiene un formato valido",
+        )
+    selecciones = {int(clave): valor for clave, valor in opciones.items()}
+
     if not _cerradura_ingesta.acquire(blocking=False):
         raise HTTPException(
             status_code=409,
@@ -92,14 +136,19 @@ async def ingesta(
 
     try:
         resultados: list[dict[str, Any]] = []
-        for archivo in archivos:
+        for indice, archivo in enumerate(archivos):
             try:
                 contenido = await archivo.read(etl_service.MAX_ARCHIVO_BYTES + 1)
-                resultado = await run_in_threadpool(
-                    etl_service.procesar_archivo,
+                argumentos = (
                     archivo.filename or "",
                     contenido,
                     usuario["id"],
+                )
+                resultado = await run_in_threadpool(
+                    etl_service.procesar_archivo,
+                    *argumentos,
+                    selecciones,
+                    metadatos[indice].model_dump(),
                 )
                 resultados.append(resultado)
             finally:
@@ -121,6 +170,52 @@ async def ingesta(
         archivos_error=estados.count("error"),
         archivos_rechazados=estados.count("rechazado"),
     )
+
+
+@router.post(
+    "/previsualizacion",
+    summary="Analizar un catalogo antes de guardarlo",
+    responses={
+        403: {"description": "Se requiere permiso para cargar catalogos"},
+        422: {"description": "El archivo no contiene productos legibles"},
+    },
+)
+async def previsualizacion(
+    archivo: UploadFile = File(description="PDF, XLSX, DOCX o TXT"),
+    selecciones_precio: str | None = Form(default=None),
+    _: dict[str, Any] = Depends(requiere_permiso("catalogos:ingestar")),
+) -> dict[str, Any]:
+    """Analiza el archivo sin guardar el original ni modificar el inventario."""
+    contenido = await archivo.read(etl_service.MAX_ARCHIVO_BYTES + 1)
+    await archivo.close()
+    try:
+        opciones = json.loads(selecciones_precio or "{}")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="La seleccion de precios no tiene un formato valido",
+        ) from exc
+    if not isinstance(opciones, dict) or any(
+        not isinstance(clave, str)
+        or not clave.isdecimal()
+        or not isinstance(valor, int)
+        or isinstance(valor, bool)
+        or valor < 0
+        for clave, valor in opciones.items()
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="La seleccion de precios no tiene un formato valido",
+        )
+    try:
+        return await run_in_threadpool(
+            etl_service.previsualizar_archivo,
+            archivo.filename or "",
+            contenido,
+            {int(clave): valor for clave, valor in opciones.items()},
+        )
+    except etl_service.ErrorIngesta as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post(
