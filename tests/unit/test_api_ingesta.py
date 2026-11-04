@@ -80,6 +80,45 @@ def test_admin_carga_lote_y_recibe_resultado_por_archivo(monkeypatch):
     ]
 
 
+def test_acepta_nombre_de_proveedor_derivado_del_archivo(monkeypatch):
+    recibidos = []
+
+    def procesar(nombre, contenido, id_usuario, selecciones, metadatos):
+        recibidos.append(metadatos["proveedor"])
+        return {
+            "id_archivo": 1,
+            "nombre": nombre,
+            "tipo": "pdf",
+            "tamano_bytes": len(contenido),
+            "estado": "ok",
+            "filas_ok": 1,
+            "filas_error": 0,
+            "detalle": None,
+        }
+
+    monkeypatch.setattr(inventario.etl_service, "procesar_archivo", procesar)
+    cliente = TestClient(_app())
+
+    respuesta = cliente.post(
+        "/api/v1/inventario/ingesta",
+        files=[
+            (
+                "archivos",
+                ("3JGT CONEXIONES DE RIEGO 2026.pdf", b"contenido", "application/pdf"),
+            )
+        ],
+        data=_datos_metadatos(
+            {
+                **METADATOS,
+                "proveedor": "3JGT CONEXIONES DE RIEGO 2026",
+            }
+        ),
+    )
+
+    assert respuesta.status_code == 200
+    assert recibidos == ["3JGT CONEXIONES DE RIEGO 2026"]
+
+
 def test_carga_exige_la_capacidad_de_ingesta(monkeypatch):
     llamada = False
 

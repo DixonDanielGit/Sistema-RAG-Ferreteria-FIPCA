@@ -113,9 +113,8 @@ async def ingesta(
             status_code=400,
             detail=f"El lote debe contener entre 1 y {etl_service.MAX_ARCHIVOS_INGESTA} archivos",
         )
-
     try:
-        metadatos = _adaptador_metadatos.validate_json(metadatos_catalogo or "")
+            metadatos = _adaptador_metadatos.validate_json(metadatos_catalogo or "[]")
     except ValidationError as exc:
         etiquetas = {
             "proveedor": "nombre del proveedor",

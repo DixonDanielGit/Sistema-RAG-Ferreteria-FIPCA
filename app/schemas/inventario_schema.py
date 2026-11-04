@@ -13,7 +13,7 @@ from app.schemas.usuario_schema import PATRON_CORREO, PATRON_NOMBRE
 EstadoArchivo = Literal["pendiente", "procesando", "ok", "parcial", "error", "rechazado"]
 
 PATRON_PROVEEDOR = re.compile(
-    r"[^\W_][^\W_\u0300-\u036f .,'’&()/#+-]*",
+    r"[^\W_](?:[^\W_]|[\u0300-\u036f]|[ .,'’&()/#+-])*",
     re.UNICODE,
 )
 PATRON_TELEFONO = re.compile(

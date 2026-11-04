@@ -19,7 +19,13 @@ def metadatos(**cambios):
 
 @pytest.mark.parametrize(
     "proveedor",
-    ["Ferre-Inversiones Pérez C.A.", "3M", "Casa & Hogar (Centro)", "Acme/Sur #2"],
+    [
+        "Ferre-Inversiones Pérez C.A.",
+        "3M",
+        "3JGT CONEXIONES DE RIEGO 2026",
+        "Casa & Hogar (Centro)",
+        "Acme/Sur #2",
+    ],
 )
 def test_acepta_nombres_comerciales_comunes(proveedor):
     assert metadatos(proveedor=proveedor).proveedor == proveedor
