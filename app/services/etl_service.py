@@ -32,7 +32,7 @@ from psycopg2 import Error as ErrorPostgres
 logger = logging.getLogger("ferreteria.etl")
 
 EXTENSIONES_PERMITIDAS = frozenset({".pdf", ".xlsx", ".docx", ".txt"})
-MAX_ARCHIVO_MB = 20
+MAX_ARCHIVO_MB = 100
 MAX_ARCHIVO_BYTES = MAX_ARCHIVO_MB * 1024 * 1024
 MAX_ARCHIVOS_INGESTA = 20
 MAX_FILAS_ARCHIVO = 20_000
@@ -1324,6 +1324,28 @@ def _detalle(errores: list[str]) -> str | None:
     return detalle[:MAX_DETALLE]
 
 
+def _aviso_sin_descripcion(productos: Iterable[dict[str, Any]]) -> str | None:
+    """Cuenta los productos que el proveedor no describio.
+
+    No es un error de fila: el producto se guarda igual y se vectoriza. Es un
+    aviso de cobertura para que el operador sepa que esos articulos quedaran
+    indexados con codigo, nombre, marca y categoria, y que la recuperacion
+    depende solo de esos campos.
+    """
+    total = sum(
+        1
+        for producto in productos
+        if not _texto(producto.get("descripcion")).strip()
+    )
+    if not total:
+        return None
+    plural = "producto" if total == 1 else "productos"
+    return (
+        f"{total} {plural} sin descripcion en el archivo; se indexan con "
+        "el nombre y los demas datos disponibles"
+    )
+
+
 def _consolidar_codigos(
     productos: Iterable[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], int, int, list[str]]:
@@ -1429,6 +1451,9 @@ def previsualizar_archivo(
         _consolidar_codigos(productos)
     )
     detalles = detalles_duplicados + detalles
+    aviso_descripcion = _aviso_sin_descripcion(productos)
+    if aviso_descripcion:
+        detalles.append(aviso_descripcion)
     return {
         "productos_detectados": len(productos),
         "filas_error": filas_error + errores_duplicados,
@@ -1555,6 +1580,9 @@ def procesar_archivo(
     )
     filas_error += errores_duplicados
     errores = detalles_duplicados + errores
+    aviso_descripcion = _aviso_sin_descripcion(productos)
+    if aviso_descripcion:
+        errores.append(aviso_descripcion)
 
     try:
         filas_ok, ofertas_guardadas = inventario_model.insertar_catalogo_completo(

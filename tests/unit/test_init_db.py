@@ -270,6 +270,22 @@ def test_migracion_7_0_coincide_con_init_sql():
         assert fragmento in migracion, f"la migracion 7_0 no define {fragmento}"
 
 
+def test_migracion_8_0_completa_proveedor_desde_archivo_sin_adivinar():
+    raiz = Path(__file__).resolve().parents[2]
+    migracion = (raiz / "scripts" / "migracion_8_0.sql").read_text(
+        encoding="utf-8"
+    ).lower()
+
+    assert "update productos as producto" in migracion
+    assert "from archivos_subidos as archivo" in migracion
+    assert "producto.id_archivo = archivo.id_archivo" in migracion
+    assert "producto.id_proveedor is null" in migracion
+    assert "archivo.id_proveedor is not null" in migracion
+    assert "descripcion_vectorial = null" in migracion
+    assert "modelo_embedding = null" in migracion
+    assert "vectorizado_en = null" in migracion
+
+
 # ---------------------------------------------------------------------
 # Bitacora: inmutabilidad y auditoria
 # ---------------------------------------------------------------------

@@ -18,6 +18,12 @@ from dotenv import load_dotenv
 RAIZ = Path(__file__).resolve().parents[1]
 load_dotenv(RAIZ / ".env")
 
+# La vectorizacion automatica lanza hilos que escriben vectores en segundo
+# plano: la suite la apaga para que ninguna prueba dependa de un hilo ajeno
+# ni toque las bases fuera de su propio flujo. Quien pruebe esa rama la
+# habilita a mano en la prueba.
+os.environ["VECTORIZACION_AUTOMATICA"] = "0"
+
 RAG_PLANTILLA = "ferreteria_rag"
 USUARIOS_PLANTILLA = "ferreteria_usuarios"
 RAG_PRUEBA = "ferreteria_rag_test"
@@ -87,7 +93,7 @@ def bases_de_prueba():
         conexion_rag = conexion_admin(RAG_PRUEBA)
         try:
             with conexion_rag.cursor() as cur:
-                for version in ("3_0", "4_0", "7_0"):
+                for version in ("3_0", "4_0", "7_0", "8_0"):
                     migracion = RAIZ / "scripts" / f"migracion_{version}.sql"
                     cur.execute(migracion.read_text(encoding="utf-8"))
         finally:

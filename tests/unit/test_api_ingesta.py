@@ -150,6 +150,56 @@ def test_lista_archivos_consulta_modelo_con_limite(monkeypatch):
     assert respuesta.json() == []
 
 
+def test_estado_de_vectorizacion_cuenta_pendientes_y_total(monkeypatch):
+    monkeypatch.setattr(
+        inventario.inventario_model, "contar_productos_sin_embedding", lambda: 7
+    )
+    monkeypatch.setattr(
+        inventario.inventario_model, "contar_productos_catalogo", lambda: 120
+    )
+    monkeypatch.setattr(inventario.vector_search, "vectorizacion_en_curso", lambda: False)
+    cliente = TestClient(_app(usuario={"id": 10, "rol": "ventas"}))
+
+    respuesta = cliente.get("/api/v1/inventario/vectorizacion")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json() == {"total": 120, "pendientes": 7, "en_curso": False}
+
+
+def test_estado_de_vectorizacion_sin_pendientes(monkeypatch):
+    monkeypatch.setattr(
+        inventario.inventario_model, "contar_productos_sin_embedding", lambda: 0
+    )
+    monkeypatch.setattr(
+        inventario.inventario_model, "contar_productos_catalogo", lambda: 0
+    )
+    monkeypatch.setattr(inventario.vector_search, "vectorizacion_en_curso", lambda: False)
+    cliente = TestClient(_app())
+
+    respuesta = cliente.get("/api/v1/inventario/vectorizacion")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json() == {"total": 0, "pendientes": 0, "en_curso": False}
+
+
+def test_estado_de_vectorizacion_avisa_si_un_lote_esta_corriendo(monkeypatch):
+    """El panel necesita distinguir 'faltan 2036' de 'faltan 2036 y ya se
+    estan indexando', para no mostrar un conteo viejo ni sondear de mas."""
+    monkeypatch.setattr(
+        inventario.inventario_model, "contar_productos_sin_embedding", lambda: 5
+    )
+    monkeypatch.setattr(
+        inventario.inventario_model, "contar_productos_catalogo", lambda: 5
+    )
+    monkeypatch.setattr(inventario.vector_search, "vectorizacion_en_curso", lambda: True)
+    cliente = TestClient(_app(usuario={"id": 10, "rol": "ventas"}))
+
+    respuesta = cliente.get("/api/v1/inventario/vectorizacion")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json() == {"total": 5, "pendientes": 5, "en_curso": True}
+
+
 def test_previsualizar_archivo_sin_guardarlo(monkeypatch):
     llamada = {}
 
@@ -225,6 +275,76 @@ def test_ingesta_envia_seleccion_de_precio_al_procesador(monkeypatch):
             },
         )
     ]
+
+
+def test_ingesta_exitosa_lanza_la_vectorizacion_automatica(monkeypatch):
+    """El catalogo recien cargado se indexa solo: el panel no debe quedar
+    marcando pendientes hasta que alguien recuerde correr el script."""
+    lanzadas = {"n": 0}
+
+    def procesar(nombre, contenido, id_usuario, selecciones, metadatos):
+        return {
+            "id_archivo": 1,
+            "nombre": nombre,
+            "tipo": "txt",
+            "tamano_bytes": len(contenido),
+            "estado": "ok",
+            "filas_ok": 1,
+            "filas_error": 0,
+            "detalle": None,
+        }
+
+    monkeypatch.setattr(inventario.etl_service, "procesar_archivo", procesar)
+    monkeypatch.setattr(
+        inventario.vector_search,
+        "lanzar_vectorizacion_automatica",
+        lambda: lanzadas.__setitem__("n", lanzadas["n"] + 1) or True,
+    )
+    cliente = TestClient(_app())
+
+    respuesta = cliente.post(
+        "/api/v1/inventario/ingesta",
+        files=[("archivos", ("catalogo.txt", b"SKU-1;Martillo;1.25", "text/plain"))],
+        data=_datos_metadatos(),
+    )
+
+    assert respuesta.status_code == 200
+    assert lanzadas["n"] == 1
+
+
+def test_ingesta_solo_con_errores_no_lanza_vectorizacion(monkeypatch):
+    """Nada se guardo: no hay nada que indexar y el bucle no debe arrancar."""
+    procesos = {"n": 0}
+
+    def procesar(nombre, contenido, id_usuario, selecciones, metadatos):
+        return {
+            "id_archivo": 2,
+            "nombre": nombre,
+            "tipo": "txt",
+            "tamano_bytes": len(contenido),
+            "estado": "error",
+            "filas_ok": 0,
+            "filas_error": 1,
+            "detalle": "El archivo no tiene productos legibles",
+        }
+
+    monkeypatch.setattr(inventario.etl_service, "procesar_archivo", procesar)
+    monkeypatch.setattr(
+        inventario.vector_search,
+        "lanzar_vectorizacion_automatica",
+        lambda: procesos.__setitem__("n", procesos["n"] + 1) or True,
+    )
+    cliente = TestClient(_app())
+
+    respuesta = cliente.post(
+        "/api/v1/inventario/ingesta",
+        files=[("archivos", ("malo.txt", b"basura", "text/plain"))],
+        data=_datos_metadatos(),
+    )
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["archivos_error"] == 1
+    assert procesos["n"] == 0
 
 
 def test_ingesta_en_proceso_bloquea_otra_con_409(monkeypatch):

@@ -88,6 +88,8 @@ services:
       SMTP_TLS: ${SMTP_TLS:-true}
       EMBEDDING_CACHE_DIR: /app/model-cache
       HF_HOME: /app/model-cache/huggingface
+      # Vectorizacion del catalogo tras cada ingesta (true por defecto).
+      VECTORIZACION_AUTOMATICA: ${VECTORIZACION_AUTOMATICA:-true}
       # Proveedor de lenguaje del asistente (Semana 4). Vacias = modo
       # provisional: ninguna consulta sale del contenedor.
       LLM_BASE_URL: ${LLM_BASE_URL:-}

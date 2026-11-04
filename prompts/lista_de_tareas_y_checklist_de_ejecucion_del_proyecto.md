@@ -100,13 +100,13 @@ recorrido de consulta de punta a punta y se entrega el MVP.
   preparar la migración `4_0`. (Habilitar la búsqueda de productos parecidos a lo que pregunta la persona.)
 - [x] Aplicar `4_0` en el catálogo de desarrollo y confirmar una vectorización
   y búsqueda técnica inicial. (Actualizar la base de prueba y comprobar que la búsqueda funcione.)
-- [ ] Completar `app/services/llm_service.py` para generar respuestas a partir
+- [x] Completar `app/services/llm_service.py` para generar respuestas a partir
   de los productos recuperados y configuración segura del proveedor elegido. (Hacer que el sistema responda usando los productos encontrados y una conexión protegida.)
 - [ ] Conectar recuperación, generación y validación de respuesta desde
   `POST /api/v1/rag/chat`; conservar el contrato ya publicado. (Unir la búsqueda y la respuesta automática sin cambiar el funcionamiento esperado por otras partes.)
-- [ ] Limitar las respuestas al contexto del catálogo: no inventar productos,
+- [x] Limitar las respuestas al contexto del catálogo: no inventar productos,
   precios, stock ni características; reconocer cuando no hay evidencia. (Asegurar que las respuestas usen solo información real del catálogo.)
-- [ ] Aplicar y probar las defensas contra prompt injection en la consulta y
+- [x] Aplicar y probar las defensas contra prompt injection en la consulta y
   en el contexto recuperado. (Evitar que instrucciones maliciosas alteren las respuestas.)
 - [ ] Conectar el chat y la presentación de fuentes de la interfaz existente
   con la respuesta real del endpoint. (Mostrar en el chat las respuestas del sistema y los productos que las respaldan.)

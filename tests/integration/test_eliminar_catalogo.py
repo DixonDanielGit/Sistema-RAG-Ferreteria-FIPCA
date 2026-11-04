@@ -239,7 +239,7 @@ def test_eliminar_cotizacion_no_borra_la_oferta_de_otro_proveedor(
         with conexion_rag_limpieza.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT pr.nombre, o.precio, o.id_archivo
+                SELECT pr.nombre, o.precio, o.id_archivo, p.id_proveedor
                   FROM producto_proveedor o
                   JOIN proveedores pr ON pr.id_proveedores = o.id_proveedor
                   JOIN productos p ON p.id = o.id_producto
@@ -253,6 +253,7 @@ def test_eliminar_cotizacion_no_borra_la_oferta_de_otro_proveedor(
         assert ofertas[0][0] == f"Proveedor B {sufijo}"
         assert float(ofertas[0][1]) == 11.00
         assert ofertas[0][2] == archivos[1]
+        assert ofertas[0][3] == proveedores[1]
     finally:
         with conexion_rag_limpieza.cursor() as cursor:
             cursor.execute("DELETE FROM productos WHERE codigo = %s", (codigo,))

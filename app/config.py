@@ -76,6 +76,14 @@ class Settings:
             os.getenv("EMBEDDING_CACHE_DIR", ".cache/embeddings")
         ).expanduser()
     )
+    # Vectorizacion del catalogo (Semana 4). Con la activacion por defecto,
+    # cada ingesta exitosa lanza en segundo plano la indexacion de los
+    # productos nuevos y el panel de fuentes baja solo a 0 pendientes. Con
+    # VECTORIZACION_AUTOMATICA=0 se conserva el flujo manual del script
+    # scripts/vectorizar_catalogo.py.
+    vectorizacion_automatica: bool = field(
+        default_factory=lambda: _booleano("VECTORIZACION_AUTOMATICA", True)
+    )
 
     # JWT
     jwt_secret: str = field(default_factory=lambda: os.getenv("JWT_SECRET", ""))

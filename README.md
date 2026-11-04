@@ -160,7 +160,8 @@ El panel y el asistente se adaptan a escritorio y móvil, y siguen el tema del
 sistema operativo (claro u oscuro) hasta que se cambie con el conmutador.
 
 **Panel de fuentes.** El administrador puede cargar lotes de hasta 20 archivos
-PDF, XLSX, DOCX o TXT (máximo 20 MB cada uno). Antes de guardarlo, el sistema
+PDF, XLSX, DOCX o TXT (máximo 100 MB cada uno). Durante el envío se muestra el
+porcentaje de avance de cada archivo. Antes de guardarlo, el sistema
 previsualiza cada catálogo y solicita confirmación; si un Excel tiene varias
 columnas de precio, usted elige cuál importar y registra proveedor y vendedor
 para cada archivo. El teléfono y correo del vendedor son opcionales; la moneda
@@ -332,6 +333,8 @@ venv\Scripts\python.exe scripts\aplicar_migracion.py 3_0
 venv\Scripts\python.exe scripts\aplicar_migracion.py 4_0
 venv\Scripts\python.exe scripts\aplicar_migracion.py 5_0
 venv\Scripts\python.exe scripts\aplicar_migracion.py 6_0
+venv\Scripts\python.exe scripts\aplicar_migracion.py 7_0
+venv\Scripts\python.exe scripts\aplicar_migracion.py 8_0
 ```
 
 La migración `5_0` agrega la imagen de perfil y protege la unicidad sin
@@ -343,6 +346,13 @@ La migración `6_0` agrega el catálogo cerrado `permiso`, la relación
 vigentes al rol `admin` y es seguro volver a ejecutarla para completar esas
 asignaciones si una ejecución anterior dejó la relación vacía. Conserva
 usuarios y roles existentes; aplíquela antes de arrancar la API de esta versión.
+
+La migración `8_0` completa el proveedor de los productos a partir del archivo
+de origen cuando ese archivo ya tiene proveedor registrado y marca sus vectores
+para regenerarlos con los nuevos datos. No adivina la asociación de los
+catálogos históricos que no guardaron ese dato. Si la vectorización automática
+está desactivada, reprocese los pendientes con
+`scripts/vectorizar_catalogo.py --todos`.
 
 ### Piloto local de embeddings (Semana 4)
 
@@ -363,9 +373,12 @@ docker compose exec api python scripts\vectorizar_catalogo.py --lote 10
 docker compose exec api python scripts\buscar_productos_vectorial.py "taladro para concreto"
 ```
 
-La orden de vectorización solo se ejecuta cuando se la invoca. Comprueba los
-resultados antes de procesar el catálogo completo con `--todos`. Para revisar
-el estado desde pgAdmin:
+La orden de vectorización tiene dos caminos. Tras cada ingesta exitosa la
+aplicación lanza en segundo plano la indexación de los productos pendientes
+(`VECTORIZACION_AUTOMATICA=false` la desactiva), así que el panel de fuentes
+baja solo a 0. El script sigue disponible para reanudar a mano un lote o para
+verificar resultados con una muestra pequeña antes de procesar el catálogo
+completo con `--todos`. Para revisar el estado desde pgAdmin:
 
 ```sql
 SELECT COUNT(*) AS productos,

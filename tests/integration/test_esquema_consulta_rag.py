@@ -1,7 +1,7 @@
-"""Pruebas del modelo de consulta del asistente (migracion 7_0).
+"""Pruebas del modelo de consulta del asistente (migracion 8_0).
 
 Corren sobre la copia desechable ``ferreteria_rag_test``, que recibe la
-migracion ``7_0`` desde ``tests/conftest.py``. No tocan la base de desarrollo.
+migracion ``8_0`` desde ``tests/conftest.py``. No tocan la base de desarrollo.
 
 Se comprueba que:
 - existan las tablas y columnas que sostienen las tres preguntas del cliente;
@@ -12,6 +12,7 @@ Se comprueba que:
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -293,6 +294,7 @@ def test_ingesta_persiste_proveedor_vendedor_y_oferta_separada_del_stock(
                        a.nota_proveedor, o.precio, o.moneda, o.iva,
                        o.descuento, o.cantidad_disponible_proveedor,
                        o.politica_ventas, pr.stock,
+                       pr.id_proveedor, a.id_proveedor,
                        (SELECT COUNT(*) FROM historial_precios h
                          WHERE h.id_archivo = a.id_archivo)
                   FROM archivos_subidos a
@@ -313,7 +315,8 @@ def test_ingesta_persiste_proveedor_vendedor_y_oferta_separada_del_stock(
         assert float(resultado[5]) == 10.61
         assert resultado[6:9] == ("VES", 0, None)
         assert resultado[9:12] == (43, "Oferta de prueba", 0)
-        assert resultado[12] == 1
+        assert resultado[12] == resultado[13]
+        assert resultado[14] == 1
     finally:
         with conexion_rag_limpieza.cursor() as cursor:
             cursor.execute("DELETE FROM productos WHERE codigo = %s", (codigo,))
@@ -360,6 +363,61 @@ def test_ingesta_revierte_productos_si_falla_una_oferta(conexion_rag_limpieza):
             assert cursor.fetchone()[0] == 0
     finally:
         with conexion_rag_limpieza.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM archivos_subidos WHERE id_archivo = %s",
+                (archivo["id_archivo"],),
+            )
+            cursor.execute(
+                "DELETE FROM proveedores WHERE LOWER(nombre) = LOWER(%s)",
+                (nombre_proveedor,),
+            )
+
+
+def test_migracion_8_asocia_producto_sin_proveedor_desde_su_archivo(
+    conexion_rag_limpieza,
+):
+    sufijo = uuid.uuid4().hex[:10]
+    nombre_proveedor = f"Proveedor backfill {sufijo}"
+    codigo = f"BACKFILL-{sufijo}"
+    archivo = inventario_model.crear_archivo(
+        nombre="catalogo-backfill.txt",
+        tipo="txt",
+        ruta=f"{sufijo}.txt",
+        hash_sha256=sufijo.ljust(64, "0"),
+        tamano_bytes=10,
+        id_usuario=1,
+        metadatos={"proveedor": nombre_proveedor, "vendedor": "Vendedora"},
+    )
+    try:
+        with conexion_rag_limpieza.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO productos
+                    (id_archivo, id_proveedor, codigo, nombre, precio)
+                VALUES (%s, NULL, %s, 'Producto de prueba', 1.00)
+                """,
+                (archivo["id_archivo"], codigo),
+            )
+            migracion = (
+                Path(__file__).resolve().parents[2] / "scripts" / "migracion_8_0.sql"
+            ).read_text(encoding="utf-8")
+            cursor.execute(migracion)
+            cursor.execute(
+                """
+                SELECT producto.id_proveedor, archivo.id_proveedor
+                  FROM productos AS producto
+                  JOIN archivos_subidos AS archivo
+                    ON archivo.id_archivo = producto.id_archivo
+                 WHERE producto.codigo = %s
+                """,
+                (codigo,),
+            )
+            id_proveedor_producto, id_proveedor_archivo = cursor.fetchone()
+
+        assert id_proveedor_producto == id_proveedor_archivo
+    finally:
+        with conexion_rag_limpieza.cursor() as cursor:
+            cursor.execute("DELETE FROM productos WHERE codigo = %s", (codigo,))
             cursor.execute(
                 "DELETE FROM archivos_subidos WHERE id_archivo = %s",
                 (archivo["id_archivo"],),

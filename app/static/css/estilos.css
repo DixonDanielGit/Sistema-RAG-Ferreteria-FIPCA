@@ -1876,6 +1876,39 @@ body.cuerpo-chat main {
   font-variant-numeric: tabular-nums;
 }
 
+.fuentes__progreso {
+  display: flex;
+  align-items: center;
+  gap: var(--esp-2);
+  width: 100%;
+  margin-top: 2px;
+}
+
+.fuentes__progreso-barra {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--superficie-alt);
+}
+
+.fuentes__progreso-valor {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--azul-acento);
+}
+
+.fuentes__progreso-porcentaje {
+  min-width: 2.5em;
+  color: var(--texto-suave);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
 .fuentes__quitar {
   display: grid;
   place-items: center;
@@ -1957,6 +1990,25 @@ body.cuerpo-chat main {
   line-height: 1.45;
 }
 
+/* Aviso de cobertura del indice: un producto sin vector no aparece en la
+   busqueda del asistente, asi que el panel lo avisa antes de que alguien
+   pregunte por el y no reciba respuesta. */
+.fuentes__pendientes {
+  margin: var(--esp-2) var(--esp-3) 0;
+  padding: var(--esp-2) var(--esp-3);
+  border: 1px solid var(--violeta-texto);
+  border-radius: var(--radio-sm);
+  background: var(--violeta-superficie);
+  color: var(--violeta-texto);
+  font-size: 0.74rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.fuentes__pendientes:empty {
+  display: none;
+}
+
 .fuentes__error {
   margin: 0;
   font-size: 0.76rem;
@@ -1973,9 +2025,11 @@ body.cuerpo-chat main {
 }
 
 .fuentes__dialogo {
-  width: min(820px, calc(100vw - 32px));
+  width: min(1160px, calc(100vw - 32px));
+  height: min(90vh, 900px);
+  height: min(90dvh, 900px);
   max-width: none;
-  max-height: min(82vh, 760px);
+  max-height: calc(100dvh - 24px);
   padding: 0;
   overflow: hidden;
   border: 1px solid var(--borde);
@@ -1993,25 +2047,55 @@ body.cuerpo-chat main {
   display: flex;
   flex-direction: column;
   gap: var(--esp-4);
-  max-height: min(82vh, 760px);
+  height: 100%;
   padding: var(--esp-5);
-  overflow-y: auto;
+  overflow: hidden;
+}
+
+.fuentes__dialogo-cabecera {
+  display: grid;
+  gap: var(--esp-2);
+  padding-bottom: var(--esp-4);
+  border-bottom: 1px solid var(--borde);
 }
 
 .fuentes__dialogo-contenido h2 {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.45rem;
   line-height: 1.25;
 }
 
 .fuentes__dialogo-resumen {
   margin: 0;
   color: var(--texto-suave);
+  line-height: 1.45;
+}
+
+.fuentes__dialogo-cuerpo {
+  display: grid;
+  align-content: start;
+  gap: var(--esp-4);
+  min-height: 0;
+  padding: 0 4px 4px 0;
+  overflow: auto;
+  scrollbar-color: var(--borde-fuerte) transparent;
 }
 
 .fuentes__precios {
   display: grid;
   gap: var(--esp-3);
+}
+
+.fuentes__cotizacion-intro {
+  display: grid;
+  gap: var(--esp-1);
+}
+
+.fuentes__cotizacion-intro h3,
+.fuentes__muestra-seccion h3 {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.3;
 }
 
 .fuentes__precio-campo {
@@ -2040,7 +2124,7 @@ body.cuerpo-chat main {
 
 .fuentes__cotizacion {
   display: grid;
-  gap: var(--esp-3);
+  gap: var(--esp-4);
   padding: var(--esp-4);
   border: 1px solid var(--borde);
   border-radius: var(--radio-md);
@@ -2054,13 +2138,14 @@ body.cuerpo-chat main {
 .fuentes__cotizacion-ayuda {
   margin: 0;
   color: var(--texto-suave);
-  font-size: 0.84rem;
+  font-size: 0.875rem;
+  line-height: 1.45;
 }
 
 .fuentes__cotizacion-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--esp-3) var(--esp-4);
+  gap: var(--esp-4);
 }
 
 .fuentes__campo {
@@ -2070,6 +2155,7 @@ body.cuerpo-chat main {
   color: var(--texto);
   font-size: 0.875rem;
   font-weight: 650;
+  line-height: 1.35;
 }
 
 .fuentes__campo input,
@@ -2105,19 +2191,47 @@ body.cuerpo-chat main {
   outline-offset: 2px;
 }
 
+.fuentes__campo [aria-invalid="true"] {
+  border-color: var(--error-texto);
+}
+
+.fuentes__campo [aria-invalid="true"]:focus-visible {
+  outline-color: var(--error-texto);
+}
+
+.fuentes__campo-ayuda {
+  min-height: 1.25em;
+  color: var(--texto-suave);
+  font-size: 0.78rem;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.fuentes__campo-ayuda[data-error="true"] {
+  color: var(--error-texto);
+}
+
 .fuentes__campo--nota {
   grid-column: 1 / -1;
 }
 
+.fuentes__muestra-seccion {
+  display: grid;
+  gap: var(--esp-2);
+  min-width: 0;
+}
+
 .fuentes__muestra-contenedor {
   max-width: 100%;
-  overflow-x: auto;
+  max-height: 36vh;
+  overflow: auto;
   border: 1px solid var(--borde);
   border-radius: var(--radio-md);
+  scrollbar-color: var(--borde-fuerte) transparent;
 }
 
 .fuentes__muestra {
-  width: 100%;
+  width: max(100%, 900px);
   border-collapse: collapse;
   font-size: 0.9375rem;
   text-align: left;
@@ -2132,6 +2246,9 @@ body.cuerpo-chat main {
 }
 
 .fuentes__muestra th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   background: var(--superficie-alt);
   font-weight: 700;
 }
@@ -2154,7 +2271,8 @@ body.cuerpo-chat main {
   display: flex;
   justify-content: flex-end;
   gap: var(--esp-3);
-  padding-top: var(--esp-2);
+  padding-top: var(--esp-4);
+  border-top: 1px solid var(--borde);
 }
 
 .fuentes__dialogo-acciones button {
@@ -2183,12 +2301,28 @@ body.cuerpo-chat main {
 }
 
 @media (max-width: 560px) {
+  .fuentes__dialogo {
+    width: calc(100vw - 16px);
+    height: calc(100dvh - 16px);
+    max-height: none;
+    border-radius: var(--radio-md);
+  }
+
+  .fuentes__dialogo-contenido {
+    gap: var(--esp-3);
+    padding: var(--esp-4);
+  }
+
   .fuentes__cotizacion-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .fuentes__campo--nota {
     grid-column: auto;
+  }
+
+  .fuentes__dialogo-acciones button {
+    flex: 1;
   }
 }
 

@@ -641,6 +641,54 @@ def test_previsualizacion_muestra_el_total_que_realmente_se_guardara(monkeypatch
     assert vista["filas_error"] == 0
 
 
+def test_el_detalle_informa_productos_sin_descripcion_del_proveedor(monkeypatch):
+    """El aviso no cuenta como fila con error: el producto se guarda igual."""
+    productos = [
+        {
+            "codigo": "SKU-40",
+            "nombre": "Tuerca",
+            "precio": Decimal("1.00"),
+            "descripcion": None,
+        },
+        {
+            "codigo": "SKU-41",
+            "nombre": "Arandela",
+            "precio": Decimal("1.50"),
+            "descripcion": "Zincada",
+        },
+    ]
+    monkeypatch.setattr(
+        etl_service, "_extraer", lambda *_args, **_kwargs: (productos, 0, [])
+    )
+
+    vista = etl_service.previsualizar_archivo("catalogo.txt", b"contenido")
+
+    assert vista["productos_detectados"] == 2
+    assert vista["filas_error"] == 0
+    assert vista["filas_duplicadas"] == 0
+    assert "1 producto sin descripcion en el archivo" in vista["detalle"]
+    assert "se indexan con el nombre y los demas datos disponibles" in vista["detalle"]
+
+
+def test_no_avisa_de_descripcion_cuando_el_catalogo_la_incluye(monkeypatch):
+    productos = [
+        {
+            "codigo": "SKU-42",
+            "nombre": "Clavo",
+            "precio": Decimal("0.50"),
+            "descripcion": "Punta Phillips",
+        }
+    ]
+    monkeypatch.setattr(
+        etl_service, "_extraer", lambda *_args, **_kwargs: (productos, 0, [])
+    )
+
+    vista = etl_service.previsualizar_archivo("catalogo.txt", b"contenido")
+
+    assert vista["productos_detectados"] == 1
+    assert vista["detalle"] is None
+
+
 def test_rechaza_archivo_xlsx_con_zip_danado():
     with pytest.raises(etl_service.ErrorIngesta, match="comprimido"):
         etl_service._validar_paquete(b"no es un zip")
@@ -680,20 +728,26 @@ def test_formatos_no_admitidos_se_rechazan_sin_guardar_archivo():
     assert resultado["id_archivo"] is None
 
 
-def test_limite_de_20_mb_se_aplica_antes_de_guardar(monkeypatch):
+def test_limite_de_100_mb_se_aplica_antes_de_guardar(monkeypatch):
+    assert etl_service.MAX_ARCHIVO_MB == 100
+    assert etl_service.MAX_ARCHIVO_BYTES == 100 * 1024 * 1024
     monkeypatch.setattr(etl_service, "MAX_ARCHIVO_BYTES", 3)
 
     resultado = etl_service.procesar_archivo("catalogo.txt", b"1234", 1)
 
     assert resultado["estado"] == "rechazado"
-    assert "20 MB" in resultado["detalle"]
+    assert "100 MB" in resultado["detalle"]
 
 
 def test_upsert_no_actualiza_stock_y_invalida_vector_si_cambia_descripcion(monkeypatch):
     capturado = {}
 
     class CursorFalso:
-        pass
+        def execute(self, *_):
+            pass
+
+        def fetchone(self):
+            return {"id_proveedor": 17}
 
     class ContextoCursor:
         def __enter__(self):
@@ -722,9 +776,11 @@ def test_upsert_no_actualiza_stock_y_invalida_vector_si_cambia_descripcion(monke
 
     assert total == 1
     assert "stock" not in capturado["consulta"]
+    assert "id_proveedor" in capturado["consulta"]
     assert "descripcion_vectorial = case" in capturado["consulta"]
     assert capturado["valores"][0][0] == 5
-    assert capturado["valores"][0][5] == Decimal("16.00")
+    assert capturado["valores"][0][1] == 17
+    assert capturado["valores"][0][6] == Decimal("16.00")
 
 
 def test_migracion_etl_es_idempotente_y_sin_dependencia_fk_usuario():

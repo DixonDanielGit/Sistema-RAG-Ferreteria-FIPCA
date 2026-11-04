@@ -331,8 +331,9 @@ Reglas de negocio que el borrador de base puede imponer:
   detalle agregado del archivo.
 - La conciliación de códigos distintos, unidades y presentaciones sigue
   requiriendo confirmación; el código global actual no prueba equivalencia.
-- El *backfill* de `7_0` no puede reconstruir el proveedor de catálogos
-  históricos cuyo origen nunca se capturó.
+- La migración `8_0` completa `productos.id_proveedor` desde `id_archivo` si
+  el archivo conserva el proveedor; no puede reconstruir el origen de archivos
+  históricos cuyo proveedor nunca se capturó.
 - El chat no ejecuta todavía estas consultas de negocio; las tablas por sí
   solas no cambian sus respuestas.
 - La eliminación de catálogo debe revisarse junto con la estrategia futura de
@@ -340,6 +341,24 @@ Reglas de negocio que el borrador de base puede imponer:
   ofertas de otros proveedores.
 
 ---
+
+## 6.4 Asociación de productos e indexación: migración `8_0`
+
+La ingesta asigna a cada producto el proveedor registrado en su archivo. La
+migración `8_0` completa las relaciones nulas que aún se pueden recuperar desde
+`archivos_subidos`; los archivos sin proveedor registrado requieren una
+corrección manual y no se asocian por conjetura.
+
+Para productos sin descripción del proveedor, la indexación compone una ficha
+con los campos existentes del producto y el nombre del proveedor. Ese texto se
+usa solo para generar `descripcion_vectorial`: no se guarda como si fuera una
+descripción escrita por el proveedor. Los vectores pendientes se pueden
+reprocesar automáticamente después de la carga o eliminación de catálogos, o
+con `scripts/vectorizar_catalogo.py --todos`.
+
+```powershell
+venv\Scripts\python.exe scripts\aplicar_migracion.py 8_0
+```
 
 ## 7. Ejemplos ilustrativos de consultas
 

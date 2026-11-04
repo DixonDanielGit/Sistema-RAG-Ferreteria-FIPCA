@@ -3,7 +3,7 @@
   "use strict";
 
   var MAX_ARCHIVOS = 20;
-  var MAX_BYTES = 20 * 1024 * 1024;
+  var MAX_BYTES = 100 * 1024 * 1024;
   var EXTENSIONES = ["pdf", "xlsx", "docx", "txt"];
   var ETIQUETAS_ESTADO = {
     pendiente: "Pendiente",
@@ -64,6 +64,7 @@
     var vacio = document.getElementById("fuentes-vacio");
     var cuenta = document.getElementById("cuenta-fuentes");
     var cuentaMovil = document.getElementById("cuenta-fuentes-movil");
+    var avisoVectorizacion = document.getElementById("aviso-vectorizacion");
     var error = document.getElementById("error-fuentes");
     var estadoSubida = document.getElementById("estado-fuentes");
     var textoEstado = document.getElementById("texto-estado-fuentes");
@@ -103,6 +104,65 @@
       moneda: document.getElementById("moneda-fuente"),
       nota_proveedor: document.getElementById("nota-proveedor-fuente"),
     };
+    var ayudasCamposCotizacion = Object.create(null);
+
+    Object.keys(camposCotizacion).forEach(function (campo) {
+      var control = camposCotizacion[campo];
+      var idAyuda = control.getAttribute("aria-describedby");
+      var ayuda = idAyuda && document.getElementById(idAyuda);
+      if (!ayuda) return;
+      ayuda.dataset.textoInicial = ayuda.textContent.trim();
+      ayudasCamposCotizacion[campo] = ayuda;
+      control.dataset.tocado = "false";
+      control.addEventListener("input", function () {
+        if (control.dataset.tocado === "true") {
+          actualizarValidacionCampo(control, true);
+        }
+      });
+      control.addEventListener("blur", function () {
+        control.dataset.tocado = "true";
+        actualizarValidacionCampo(control, true);
+      });
+    });
+
+    function actualizarValidacionCampo(control, mostrar) {
+      control.setCustomValidity("");
+      var mensaje = "";
+      if (control.validity.valueMissing) {
+        mensaje = control.dataset.mensajeRequerido || "Este campo es obligatorio.";
+      } else if (control.validity.typeMismatch) {
+        mensaje = control.dataset.mensajePattern ||
+          "Revise el formato de este campo.";
+      } else if (control.validity.patternMismatch) {
+        mensaje = control.dataset.mensajePattern ||
+          "Revise el formato de este campo.";
+      } else if (control.validity.tooLong) {
+        mensaje = "El contenido supera la longitud permitida.";
+      }
+      control.setCustomValidity(mensaje);
+      var ayuda = ayudasCamposCotizacion[control.name];
+      if (!ayuda) return;
+      if (mostrar && mensaje) {
+        control.setAttribute("aria-invalid", "true");
+        ayuda.textContent = mensaje;
+        ayuda.dataset.error = "true";
+      } else {
+        control.removeAttribute("aria-invalid");
+        ayuda.textContent = ayuda.dataset.textoInicial;
+        delete ayuda.dataset.error;
+      }
+    }
+
+    function restablecerValidacionCampo(control) {
+      control.setCustomValidity("");
+      control.removeAttribute("aria-invalid");
+      control.dataset.tocado = "false";
+      var ayuda = ayudasCamposCotizacion[control.name];
+      if (ayuda) {
+        ayuda.textContent = ayuda.dataset.textoInicial;
+        delete ayuda.dataset.error;
+      }
+    }
 
     var archivos = [];
     var historial = [];
@@ -316,14 +376,17 @@
 
       if (!seleccionarPrecio && resultado.productos_detectados) {
         Object.keys(camposCotizacion).forEach(function (campo) {
-          camposCotizacion[campo].value =
-            campo === "nota_proveedor"
+          var control = camposCotizacion[campo];
+          control.value = campo === "proveedor"
+            ? archivo.nombre.replace(/\.[^.]+$/, "")
+            : campo === "nota_proveedor"
               ? ""
               : datosProveedorPrevios && datosProveedorPrevios[campo]
                 ? datosProveedorPrevios[campo]
                 : campo === "moneda"
                   ? "USD"
                   : "";
+          restablecerValidacionCampo(control);
         });
       }
 
@@ -439,6 +502,8 @@
               var nombreCampo = nombres[campoIndice];
               var control = camposCotizacion[nombreCampo];
               control.value = control.value.trim();
+              control.dataset.tocado = "true";
+              actualizarValidacionCampo(control, true);
               if (!control.reportValidity()) return;
               datos[nombreCampo] = control.value;
             }
@@ -476,14 +541,17 @@
       return Fipca.pedir("/api/v1/inventario/previsualizacion", {
         metodo: "POST",
         cuerpo: formulario,
+        alProgreso: archivo.alProgreso,
       });
     }
 
-    async function prepararImportacion(archivo) {
+    async function prepararImportacion(archivo, alProgreso) {
+      archivo.alProgreso = alProgreso;
       var selecciones = {};
       var resultado;
       for (var intentos = 0; intentos < 20; intentos++) {
         resultado = await previsualizar(archivo, selecciones);
+        mensajeEstado("Archivo recibido; analizando " + archivo.nombre + "…");
         if (!resultado.seleccion_pendiente) break;
         var nuevas = await mostrarRevision(archivo, resultado, true);
         if (!nuevas) return null;
@@ -546,6 +614,9 @@
       function agregarFila(archivo, indice, esLocal) {
         var fila = document.createElement("li");
         fila.className = "fuentes__archivo";
+        if (esLocal && archivo.estado === "subiendo") {
+          fila.dataset.progresoIndice = String(indice);
+        }
 
         var icono = document.createElement("span");
         icono.className = "fuentes__icono";
@@ -592,6 +663,37 @@
 
         datos.appendChild(nombre);
         datos.appendChild(meta);
+        if (esLocal && archivo.estado === "subiendo") {
+          var progreso = document.createElement("span");
+          progreso.className = "fuentes__progreso";
+
+          var barraProgreso = document.createElement("span");
+          barraProgreso.className = "fuentes__progreso-barra";
+          barraProgreso.setAttribute("role", "progressbar");
+          barraProgreso.setAttribute("aria-label", "Carga de " + archivo.nombre);
+          barraProgreso.setAttribute("aria-valuemin", "0");
+          barraProgreso.setAttribute("aria-valuemax", "100");
+          barraProgreso.setAttribute(
+            "aria-valuenow",
+            String(archivo.progreso || 0)
+          );
+          barraProgreso.setAttribute(
+            "aria-valuetext",
+            (archivo.progreso || 0) + " %"
+          );
+
+          var valorProgreso = document.createElement("span");
+          valorProgreso.className = "fuentes__progreso-valor";
+          valorProgreso.style.width = (archivo.progreso || 0) + "%";
+          barraProgreso.appendChild(valorProgreso);
+
+          var textoProgreso = document.createElement("span");
+          textoProgreso.className = "fuentes__progreso-porcentaje";
+          textoProgreso.textContent = (archivo.progreso || 0) + " %";
+          progreso.appendChild(barraProgreso);
+          progreso.appendChild(textoProgreso);
+          datos.appendChild(progreso);
+        }
         fila.appendChild(icono);
         fila.appendChild(datos);
         if (esLocal) {
@@ -735,7 +837,7 @@
         mensajes.push("No se pueden agregar archivos vacíos.");
       }
       if (archivosGrandes) {
-        mensajes.push("Cada archivo debe pesar como máximo 20 MB.");
+        mensajes.push("Cada archivo debe pesar como máximo 100 MB.");
       }
       if (sobrantes) {
         mensajes.push("La lista admite como máximo " + MAX_ARCHIVOS + " archivos.");
@@ -766,14 +868,41 @@
         for (var i = 0; i < archivos.length; i++) {
           var item = archivos[i];
           item.estado = "subiendo";
+          item.progreso = 0;
+          var actualizarPorcentaje = function (porcentaje) {
+            item.progreso = Math.max(0, Math.min(100, Math.floor(porcentaje)));
+            var indice = archivos.indexOf(item);
+            var fila = lista && lista.querySelector(
+              '[data-progreso-indice="' + indice + '"]'
+            );
+            if (!fila) return;
+            var barraProgreso = fila.querySelector('[role="progressbar"]');
+            var valorProgreso = fila.querySelector(".fuentes__progreso-valor");
+            var textoProgreso = fila.querySelector(
+              ".fuentes__progreso-porcentaje"
+            );
+            if (barraProgreso) {
+              barraProgreso.setAttribute("aria-valuenow", String(item.progreso));
+              barraProgreso.setAttribute(
+                "aria-valuetext",
+                item.progreso + " %"
+              );
+            }
+            if (valorProgreso) valorProgreso.style.width = item.progreso + "%";
+            if (textoProgreso) textoProgreso.textContent = item.progreso + " %";
+            mensajeEstado(
+              "Subiendo archivo " + (i + 1) + " de " +
+                archivos.length + ": " + item.progreso + " %"
+            );
+          };
           pintar();
           mensajeEstado(
-            "Analizando catálogo " + (i + 1) + " de " +
+            "Preparando catálogo " + (i + 1) + " de " +
               archivos.length + "…"
           );
 
           try {
-            var revision = await prepararImportacion(item);
+            var revision = await prepararImportacion(item, actualizarPorcentaje);
             if (!revision) {
               item.estado = "cancelado";
               item.detalle = "Importación cancelada; no se guardó ni se modificó el inventario.";
@@ -798,9 +927,12 @@
               "metadatos_catalogo",
               JSON.stringify([revision.metadatos])
             );
+            item.progreso = 0;
+            actualizarPorcentaje(0);
             var respuesta = await Fipca.pedir("/api/v1/inventario/ingesta", {
               metodo: "POST",
               cuerpo: formulario,
+              alProgreso: actualizarPorcentaje,
             });
             var resultado = respuesta.resultados[0];
             item.estado = resultado.estado;
@@ -1145,6 +1277,57 @@
       );
     }
 
+    /* Un producto sin vector no entra en la busqueda semantica: el asistente
+       no puede responder sobre el. El panel lo avisa y, si la ingesta esta
+       indexando en segundo plano, vuelve a consultar hasta que el contador
+       baje a cero. */
+    var reintentosVectorizacion = 0;
+    var temporizadorVectorizacion = null;
+
+    function programarConsultaVectorizacion() {
+      if (temporizadorVectorizacion) return;
+      temporizadorVectorizacion = setTimeout(function () {
+        temporizadorVectorizacion = null;
+        cargarEstadoVectorizacion();
+      }, 2000);
+    }
+
+    async function cargarEstadoVectorizacion() {
+      if (!avisoVectorizacion) return;
+      try {
+        var estado = await Fipca.pedir("/api/v1/inventario/vectorizacion");
+        var pendientes = Number(estado.pendientes || 0);
+        if (estado.en_curso && pendientes > 0 && reintentosVectorizacion < 150) {
+          /* El lote automatico aun no termino: se vuelve a preguntar en dos
+             segundos. El tope (5 minutos) evita sondear para siempre si el
+             servidor se queda sin responder. */
+          reintentosVectorizacion += 1;
+          avisoVectorizacion.textContent =
+            "Vectorizando el catálogo: " + pendientes +
+            (pendientes === 1
+              ? " producto pendiente…"
+              : " productos pendientes…");
+          avisoVectorizacion.hidden = false;
+          programarConsultaVectorizacion();
+          return;
+        }
+        reintentosVectorizacion = 0;
+        if (pendientes > 0) {
+          avisoVectorizacion.textContent =
+            pendientes === 1
+              ? "1 producto aún sin vectorizar: el asistente no lo encontrará hasta vectorizar el catálogo."
+              : pendientes +
+                " productos aún sin vectorizar: el asistente no los encontrará hasta vectorizar el catálogo.";
+          avisoVectorizacion.hidden = false;
+        } else {
+          avisoVectorizacion.textContent = "";
+          avisoVectorizacion.hidden = true;
+        }
+      } catch (fallo) {
+        avisoVectorizacion.hidden = true;
+      }
+    }
+
     async function cargarHistorial() {
       try {
         var nuevosArchivos = await Fipca.pedir("/api/v1/inventario/archivos");
@@ -1158,6 +1341,7 @@
         historial = nuevosArchivos;
         pintar();
         actualizar();
+        await cargarEstadoVectorizacion();
       } catch (fallo) {
         aviso("No se pudo consultar el historial de catálogos.");
       }

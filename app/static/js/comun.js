@@ -154,10 +154,55 @@
     }
 
     var respuesta;
-    try {
-      respuesta = await fetch(ruta, configuracion);
-    } catch (error) {
-      throw new Error("No se pudo contactar con el servidor. Verifique su conexion.");
+    if (typeof opciones.alProgreso === "function" &&
+        opciones.cuerpo instanceof FormData) {
+      respuesta = await new Promise(function (resolver, rechazar) {
+        var solicitud = new XMLHttpRequest();
+        solicitud.open(configuracion.method, ruta, true);
+        solicitud.withCredentials = true;
+        Object.keys(cabeceras).forEach(function (nombre) {
+          solicitud.setRequestHeader(nombre, cabeceras[nombre]);
+        });
+        solicitud.upload.addEventListener("progress", function (evento) {
+          if (!evento.lengthComputable) return;
+          opciones.alProgreso(
+            Math.min(100, (evento.loaded / evento.total) * 100)
+          );
+        });
+        solicitud.upload.addEventListener("load", function () {
+          opciones.alProgreso(100);
+        });
+        solicitud.onload = function () {
+          var datosRespuesta = {};
+          try {
+            datosRespuesta = JSON.parse(solicitud.responseText);
+          } catch (error) {
+            datosRespuesta = {};
+          }
+          resolver({
+            status: solicitud.status,
+            ok: solicitud.status >= 200 && solicitud.status < 300,
+            json: function () {
+              return Promise.resolve(datosRespuesta);
+            },
+          });
+        };
+        solicitud.onerror = function () {
+          rechazar(
+            new Error("No se pudo contactar con el servidor. Verifique su conexion.")
+          );
+        };
+        solicitud.onabort = function () {
+          rechazar(new Error("La carga del archivo fue interrumpida."));
+        };
+        solicitud.send(configuracion.body);
+      });
+    } else {
+      try {
+        respuesta = await fetch(ruta, configuracion);
+      } catch (error) {
+        throw new Error("No se pudo contactar con el servidor. Verifique su conexion.");
+      }
     }
 
     var datos = {};

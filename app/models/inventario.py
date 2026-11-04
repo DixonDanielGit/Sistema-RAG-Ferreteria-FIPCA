@@ -235,8 +235,29 @@ def _retirar_archivos_y_ofertas(
              ORDER BY id_producto, fecha_cotizacion DESC, id DESC
         )
         UPDATE productos AS producto
-           SET id_archivo = fuentes.id_archivo
+           SET id_archivo = fuentes.id_archivo,
+               id_proveedor = archivo_fuente.id_proveedor,
+               descripcion_vectorial = CASE
+                   WHEN producto.id_proveedor
+                        IS DISTINCT FROM archivo_fuente.id_proveedor
+                   THEN NULL
+                   ELSE producto.descripcion_vectorial
+               END,
+               modelo_embedding = CASE
+                   WHEN producto.id_proveedor
+                        IS DISTINCT FROM archivo_fuente.id_proveedor
+                   THEN NULL
+                   ELSE producto.modelo_embedding
+               END,
+               vectorizado_en = CASE
+                   WHEN producto.id_proveedor
+                        IS DISTINCT FROM archivo_fuente.id_proveedor
+                   THEN NULL
+                   ELSE producto.vectorizado_en
+               END
           FROM fuentes
+          JOIN archivos_subidos AS archivo_fuente
+            ON archivo_fuente.id_archivo = fuentes.id_archivo
          WHERE producto.id_archivo = ANY(%s)
            AND producto.id = fuentes.id_producto
         """,
@@ -346,7 +367,7 @@ def eliminar_catalogos(ids_archivos: list[int]) -> dict[str, Any]:
 def insertar_o_actualizar_productos(
     id_archivo: int, productos: Iterable[dict[str, Any]]
 ) -> int:
-    """Hace upsert por codigo sin modificar existencias ni vectores."""
+    """Actualiza el catalogo sin modificar existencias ni conservar vectores obsoletos."""
     productos = list(productos)
     if not productos:
         return 0
@@ -360,9 +381,16 @@ def _insertar_productos_en_cursor(
     id_archivo: int,
     productos: list[dict[str, Any]],
 ) -> int:
+    cursor.execute(
+        "SELECT id_proveedor FROM archivos_subidos WHERE id_archivo = %s",
+        (id_archivo,),
+    )
+    archivo = cursor.fetchone()
+    id_proveedor = archivo["id_proveedor"] if archivo else None
     filas = [
         (
             id_archivo,
+            id_proveedor,
             producto["codigo"],
             producto["nombre"],
             producto.get("marca"),
@@ -378,10 +406,12 @@ def _insertar_productos_en_cursor(
 
     sql = """
         INSERT INTO productos
-            (id_archivo, codigo, nombre, marca, precio, iva, descuentos, descripcion)
+            (id_archivo, id_proveedor, codigo, nombre, marca, precio, iva,
+             descuentos, descripcion)
         VALUES %s
         ON CONFLICT (codigo) DO UPDATE SET
             id_archivo = EXCLUDED.id_archivo,
+            id_proveedor = COALESCE(EXCLUDED.id_proveedor, productos.id_proveedor),
             nombre = EXCLUDED.nombre,
             marca = EXCLUDED.marca,
             precio = EXCLUDED.precio,
@@ -389,9 +419,11 @@ def _insertar_productos_en_cursor(
             descuentos = EXCLUDED.descuentos,
             descripcion = EXCLUDED.descripcion,
             descripcion_vectorial = CASE
-                WHEN (productos.nombre, productos.marca, productos.descripcion)
+                WHEN (productos.id_proveedor, productos.nombre, productos.marca,
+                      productos.descripcion)
                      IS DISTINCT FROM
-                     (EXCLUDED.nombre, EXCLUDED.marca, EXCLUDED.descripcion)
+                     (COALESCE(EXCLUDED.id_proveedor, productos.id_proveedor),
+                      EXCLUDED.nombre, EXCLUDED.marca, EXCLUDED.descripcion)
                 THEN NULL
                 ELSE productos.descripcion_vectorial
             END
@@ -570,14 +602,22 @@ def contar_productos_sin_embedding() -> int:
     return int(fila["total"]) if fila else 0
 
 
+def contar_productos_catalogo() -> int:
+    """Total de productos del catalogo, con o sin vector."""
+    fila = consultar_uno("SELECT COUNT(*) AS total FROM productos", rag=True)
+    return int(fila["total"]) if fila else 0
+
+
 def productos_sin_embedding(limite: int) -> list[dict[str, Any]]:
-    """Obtiene productos pendientes con sus campos descriptivos."""
+    """Obtiene productos y datos reales del proveedor para construir su embedding."""
     return consultar_todos(
         """
         SELECT p.id, p.codigo, p.nombre, p.marca, p.descripcion,
-               c.nombre AS categoria
+               c.nombre AS categoria, p.unidad_medida, p.presentacion,
+               pr.nombre AS proveedor
           FROM productos AS p
           LEFT JOIN categoria AS c ON c.id_categoria = p.id_categoria
+          LEFT JOIN proveedores AS pr ON pr.id_proveedores = p.id_proveedor
          WHERE p.descripcion_vectorial IS NULL
          ORDER BY p.id
          LIMIT %s

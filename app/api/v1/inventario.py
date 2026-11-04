@@ -26,13 +26,14 @@ from app.core.logging import registrar_evento
 from app.models import inventario as inventario_model
 from app.schemas.inventario_schema import (
     ArchivoIngesta,
+    EstadoVectorizacion,
     MetadatosCatalogo,
     RespuestaEliminacionArchivo,
     RespuestaEliminacionCatalogos,
     RespuestaIngesta,
     SolicitudEliminacionCatalogos,
 )
-from app.services import etl_service
+from app.services import etl_service, vector_search
 
 router = APIRouter(prefix="/inventario", tags=["Inventario"])
 
@@ -54,6 +55,31 @@ def archivos(
 ) -> list[dict[str, Any]]:
     """Permite a usuarios autenticados revisar el estado de las ingestas."""
     return inventario_model.listar_archivos(limite)
+
+
+@router.get(
+    "/vectorizacion",
+    response_model=EstadoVectorizacion,
+    summary="Cobertura del indice de busqueda",
+)
+def estado_vectorizacion(
+    _: dict[str, Any] = Depends(usuario_actual),
+) -> dict[str, Any]:
+    """Productos del catalogo todavia sin embedding.
+
+    Un producto sin vector no entra en la busqueda semantica, asi que el
+    asistente no puede responder sobre el: el panel lo muestra para que la
+    vectorizacion no se olvide despues de cada carga. `en_curso` indica si
+    un lote automatico esta corriendo ahora para que el panel espere el
+    resultado en lugar de mostrar un conteo viejo.
+    """
+    pendientes = inventario_model.contar_productos_sin_embedding()
+    total = inventario_model.contar_productos_catalogo()
+    return {
+        "total": total,
+        "pendientes": pendientes,
+        "en_curso": vector_search.vectorizacion_en_curso(),
+    }
 
 
 @router.post(
@@ -91,12 +117,32 @@ async def ingesta(
     try:
         metadatos = _adaptador_metadatos.validate_json(metadatos_catalogo or "")
     except ValidationError as exc:
+        etiquetas = {
+            "proveedor": "nombre del proveedor",
+            "vendedor": "nombre del vendedor",
+            "telefono_vendedor": "telefono",
+            "correo_vendedor": "correo",
+            "moneda": "moneda",
+            "nota_proveedor": "nota",
+        }
+        errores = []
+        for error in exc.errors()[:5]:
+            ubicacion = error.get("loc", ())
+            indice = ubicacion[0] if ubicacion and isinstance(ubicacion[0], int) else None
+            campo = ubicacion[-1] if ubicacion else None
+            etiqueta = etiquetas.get(campo, "datos de cotizacion")
+            mensaje = f"{etiqueta} invalido"
+            if campo in ("proveedor", "vendedor") and error["type"] == "missing":
+                mensaje = f"falta el {etiqueta}"
+            if indice is not None:
+                mensaje = f"Archivo {indice + 1}: {mensaje}"
+            errores.append(mensaje)
+        detalle = "Datos de cotizacion invalidos"
+        if errores:
+            detalle += ": " + "; ".join(errores)
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Cada archivo requiere proveedor, vendedor y una moneda valida; "
-                "revise tambien los datos de contacto"
-            ),
+            detail=detalle,
         ) from exc
     if len(metadatos) != len(archivos):
         raise HTTPException(
@@ -162,6 +208,13 @@ async def ingesta(
         estados = [resultado["estado"] for resultado in resultados]
     finally:
         _cerradura_ingesta.release()
+
+    # La carga deja productos sin vector: se indexan en segundo plano para
+    # que el panel de fuentes no quede marcando pendientes hasta que alguien
+    # recuerde correr el script manual. Solo si algo se guardo de verdad.
+    if any(estado in {"ok", "parcial"} for estado in estados):
+        vector_search.lanzar_vectorizacion_automatica()
+
     return RespuestaIngesta(
         resultados=resultados,
         total_archivos=len(resultados),
@@ -245,6 +298,8 @@ async def eliminar_archivos(
             ),
             id_usuario=usuario["id"],
         )
+    if resultado["eliminados"]:
+        vector_search.lanzar_vectorizacion_automatica()
     return resultado
 
 
@@ -286,4 +341,5 @@ async def eliminar_archivo(
         ),
         id_usuario=usuario["id"],
     )
+    vector_search.lanzar_vectorizacion_automatica()
     return resultado

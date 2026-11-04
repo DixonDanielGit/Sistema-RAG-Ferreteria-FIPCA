@@ -26,7 +26,7 @@ guardan fuera de los recursos públicos bajo un nombre UUID y su hash SHA-256.
 - **Formatos:** PDF con capa de texto, XLSX, DOCX y TXT. No se admiten CSV ni
   XLS. Los documentos tabulares requieren cabeceras reconocibles de código,
   nombre y precio; el TXT también admite el orden posicional documentado.
-- **Protecciones:** máximo de 20 archivos por solicitud, 20 MB por archivo,
+- **Protecciones:** máximo de 20 archivos por solicitud, 100 MB por archivo,
   20 000 filas por archivo y 300 páginas PDF; se verifica además la estructura
   ZIP de XLSX y DOCX.
 - **Persistencia:** metadatos de carga, estado, conteos y detalle; originales

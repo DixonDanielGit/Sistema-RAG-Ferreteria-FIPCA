@@ -208,7 +208,7 @@ interfaz:
 | Sección de archivos | Panel de fuentes a la izquierda del asistente, al estilo de NotebookLM: agregar, arrastrar, listar y quitar archivos |
 
 El panel de fuentes es **solo interfaz**: valida extensión y tamaño (PDF, Excel,
-CSV, Word o TXT, hasta 20 MB y 20 archivos), permite arrastrar y soltar, lista
+CSV, Word o TXT, hasta 100 MB y 20 archivos), permite arrastrar y soltar, lista
 los archivos con su tamaño y los quita de la lista, pero no envía nada al
 servidor. Así queda listo el armazón de la Semana 3. Los controles de carga solo
 se muestran al rol administrador; ventas ve la lista y la explicación.
