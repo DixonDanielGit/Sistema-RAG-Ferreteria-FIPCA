@@ -16,6 +16,12 @@
     if (error.estado === 429) {
       return "Se enviaron demasiadas consultas seguidas. Espere un momento antes de reintentar.";
     }
+    if (error.estado === 502) {
+      return "El proveedor de IA no está disponible en este momento. Espere un poco y vuelva a intentarlo.";
+    }
+    if (error.estado === 503) {
+      return "El motor de búsqueda semántica no está disponible. Intente de nuevo más tarde.";
+    }
     if (error.estado === 422) {
       return error.message;
     }

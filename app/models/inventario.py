@@ -662,10 +662,11 @@ def buscar_productos_por_vector(
     vector_texto = _serializar_vector(vector)
     return consultar_todos(
         """
-        SELECT p.id, p.codigo, p.nombre, p.marca, p.descripcion, p.precio,
-               p.iva, p.stock,
+        SELECT p.id, p.codigo, p.nombre, p.marca, c.nombre AS categoria,
+               p.descripcion, p.precio, p.iva, p.stock,
                1 - (p.descripcion_vectorial <=> %s::vector(384)) AS similitud
           FROM productos AS p
+          LEFT JOIN categoria AS c ON c.id_categoria = p.id_categoria
          WHERE p.descripcion_vectorial IS NOT NULL
          ORDER BY p.descripcion_vectorial <=> %s::vector(384), p.id
          LIMIT %s

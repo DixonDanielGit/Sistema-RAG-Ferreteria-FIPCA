@@ -143,8 +143,7 @@ class Settings:
     # Proveedor de lenguaje del asistente (Semana 4). Cualquier API compatible
     # con POST /chat/completions de OpenAI; para un modelo local (Ollama, LM
     # Studio) basta apuntar LLM_BASE_URL a su endpoint /v1. Sin las tres
-    # variables el chat conserva la respuesta provisional y no sale ninguna
-    # consulta a la red.
+    # variables el asistente no envia solicitudes al proveedor.
     llm_base_url: str = field(
         default_factory=lambda: os.getenv("LLM_BASE_URL", "").strip().rstrip("/")
     )

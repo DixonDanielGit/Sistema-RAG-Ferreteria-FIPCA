@@ -1,8 +1,4 @@
-"""Pruebas de integracion de la vista del chat (Adenda 1).
-
-La vista existe antes que el motor RAG: estas pruebas fijan el contrato para
-que la Semana 5 solo sustituya el servicio, sin tocar plantillas ni JavaScript.
-"""
+"""Pruebas de integracion de la vista y el endpoint del chat RAG."""
 
 from __future__ import annotations
 
@@ -41,7 +37,7 @@ class TestVistaDelChat:
         assert 'id="loader-vista"' in respuesta.text
         assert 'id="form-chat"' in respuesta.text
         assert 'id="pregunta"' in respuesta.text
-        assert "Motor provisional" in respuesta.text
+        assert "RAG experimental" in respuesta.text
 
     def test_incluye_sugerencias_de_ejemplo(self, navegador, sesion):
         html = navegador.get("/chat").text
@@ -182,12 +178,19 @@ class TestPanelDeFuentes:
         assert 'id="fuentes-sin-coincidencias"' in html
 
 
-class TestEndpointProvisional:
+class TestEndpointRAG:
     def test_sin_token_responde_401(self, navegador):
         respuesta = navegador.post("/api/v1/rag/chat", json={"pregunta": "hola"})
         assert respuesta.status_code == 401
 
-    def test_respeta_el_contrato_final(self, navegador, sesion):
+    def test_sin_resultados_se_abstiene_y_respeta_el_contrato(
+        self, navegador, sesion, monkeypatch
+    ):
+        from app.api.v1 import rag_chat
+
+        monkeypatch.setattr(
+            rag_chat.vector_search, "buscar_productos", lambda pregunta: []
+        )
         respuesta = navegador.post(
             "/api/v1/rag/chat",
             json={"pregunta": "cuantos martillos hay"},
@@ -199,7 +202,53 @@ class TestEndpointProvisional:
         assert set(cuerpo) == {"respuesta", "fuentes", "modelo", "aviso"}
         assert isinstance(cuerpo["respuesta"], str) and cuerpo["respuesta"]
         assert cuerpo["fuentes"] == []
-        assert cuerpo["modelo"].startswith("provisional")
+        assert cuerpo["modelo"] == "abstencion-sin-evidencia"
+        assert cuerpo["aviso"]
+
+    def test_devuelve_respuesta_y_fuentes_del_catalogo(
+        self, navegador, sesion, monkeypatch
+    ):
+        from app.api.v1 import rag_chat
+        from app.services.llm_service import RespuestaLLM
+
+        producto = {
+            "codigo": "M-1",
+            "nombre": "Martillo",
+            "marca": "FIPCA",
+            "categoria": "Herramientas",
+            "precio": 12.5,
+            "stock": 4,
+        }
+        monkeypatch.setattr(
+            rag_chat.vector_search, "buscar_productos", lambda pregunta: [producto]
+        )
+        monkeypatch.setattr(
+            rag_chat.llm_service,
+            "generar_respuesta",
+            lambda pregunta, productos: RespuestaLLM(
+                "Hay 4 unidades.", "modelo-prueba"
+            ),
+        )
+
+        respuesta = navegador.post(
+            "/api/v1/rag/chat",
+            json={"pregunta": "cuantos martillos hay"},
+            headers={"X-CSRF-Token": sesion["csrf"]},
+        )
+
+        assert respuesta.status_code == 200
+        assert respuesta.json()["respuesta"] == "Hay 4 unidades."
+        assert respuesta.json()["fuentes"] == [
+            {
+                "codigo": "M-1",
+                "nombre": "Martillo",
+                "marca": "FIPCA",
+                "precio": 12.5,
+                "stock": 4,
+                "categoria": "Herramientas",
+            }
+        ]
+        assert respuesta.json()["modelo"] == "modelo-prueba"
 
     def test_la_pregunta_vacia_se_rechaza(self, navegador, sesion):
         respuesta = navegador.post(
@@ -225,7 +274,14 @@ class TestEndpointProvisional:
         )
         assert respuesta.status_code == 422
 
-    def test_la_consulta_queda_auditada(self, navegador, sesion, conexion_limpieza):
+    def test_la_consulta_queda_auditada(
+        self, navegador, sesion, conexion_limpieza, monkeypatch
+    ):
+        from app.api.v1 import rag_chat
+
+        monkeypatch.setattr(
+            rag_chat.vector_search, "buscar_productos", lambda pregunta: []
+        )
         navegador.post(
             "/api/v1/rag/chat",
             json={"pregunta": "cuantos martillos hay"},
@@ -236,7 +292,21 @@ class TestEndpointProvisional:
             cur.execute("SELECT COUNT(*) FROM bitacora WHERE accion LIKE 'consulta al asistente%'")
             assert cur.fetchone()[0] >= 1
 
-    def test_el_estado_informa_que_el_motor_es_provisional(self, navegador, sesion):
+    def test_el_estado_informa_si_el_proveedor_esta_configurado(
+        self, navegador, sesion, monkeypatch
+    ):
+        from types import SimpleNamespace
+
+        from app.api.v1 import rag_chat
+
+        monkeypatch.setattr(
+            rag_chat,
+            "get_settings",
+            lambda: SimpleNamespace(
+                llm_configurado=True, llm_modelo="modelo-prueba"
+            ),
+        )
         respuesta = navegador.get("/api/v1/rag/estado")
         assert respuesta.status_code == 200
-        assert respuesta.json()["disponible"] is False
+        assert respuesta.json()["disponible"] is True
+        assert respuesta.json()["modelo"] == "modelo-prueba"

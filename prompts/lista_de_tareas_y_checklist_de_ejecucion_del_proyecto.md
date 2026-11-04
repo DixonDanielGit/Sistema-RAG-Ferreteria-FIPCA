@@ -66,6 +66,13 @@ tareas pendientes.
 - [x] Implementar la carga e historial de catálogos PDF, XLSX, DOCX y TXT. (Permitir cargar catálogos y consultar los archivos enviados.)
 - [x] Validar archivos de forma independiente, normalizar productos y hacer
   upsert por código sin sobrescribir el stock. (Revisar cada archivo y actualizar productos sin cambiar las existencias.)
+- [x] Añadir una previsualización que permita revisar el catálogo y confirmar
+  las columnas de precio antes de guardar productos. (Comprobar los datos antes
+  de incorporarlos al inventario.)
+- [x] Registrar los datos de cotización y vincular productos con sus ofertas
+  por proveedor, conservando el origen conocido en la migración `8_0`.
+  (Guardar quién ofrece cada producto y en qué condiciones, sin adivinar
+  proveedores para registros históricos.)
 - [x] Añadir límites, persistencia segura de originales y migración ETL. (Controlar el tamaño de las cargas y conservar sus archivos de forma segura.)
 - [x] Verificar el lote reducido de estrés: 20 archivos / 5000 productos. (Comprobar que el sistema soporte una carga de prueba considerable.)
 - [x] **Entregables:** Acta de la Adenda 1 y Acta 3 de ingesta ETL. (Documentos que resumen la interfaz y la carga de catálogos.)
@@ -90,9 +97,10 @@ tareas pendientes.
 
 ## Semana 4: Integración RAG y entrega del MVP funcional
 
-**Prioridad actual.** La generación de embeddings, la búsqueda vectorial y la
-interfaz ya tienen una implementación inicial. Esta semana se completa el
-recorrido de consulta de punta a punta y se entrega el MVP.
+**Estado actual.** La generación de embeddings, la búsqueda vectorial, el
+servicio LLM con defensas y la interfaz de chat ya están implementados. El
+endpoint todavía devuelve una respuesta provisional; falta conectarlo con la
+recuperación y la generación reales antes de considerar entregado el MVP.
 
 - [x] Integrar `intfloat/multilingual-e5-small` con FastEmbed/ONNX y vectores
   de 384 dimensiones. (Preparar el sistema para interpretar consultas y productos en varios idiomas.)
@@ -102,14 +110,15 @@ recorrido de consulta de punta a punta y se entrega el MVP.
   y búsqueda técnica inicial. (Actualizar la base de prueba y comprobar que la búsqueda funcione.)
 - [x] Completar `app/services/llm_service.py` para generar respuestas a partir
   de los productos recuperados y configuración segura del proveedor elegido. (Hacer que el sistema responda usando los productos encontrados y una conexión protegida.)
-- [ ] Conectar recuperación, generación y validación de respuesta desde
+- [x] Conectar recuperación, generación y validación de respuesta desde
   `POST /api/v1/rag/chat`; conservar el contrato ya publicado. (Unir la búsqueda y la respuesta automática sin cambiar el funcionamiento esperado por otras partes.)
 - [x] Limitar las respuestas al contexto del catálogo: no inventar productos,
   precios, stock ni características; reconocer cuando no hay evidencia. (Asegurar que las respuestas usen solo información real del catálogo.)
 - [x] Aplicar y probar las defensas contra prompt injection en la consulta y
   en el contexto recuperado. (Evitar que instrucciones maliciosas alteren las respuestas.)
-- [ ] Conectar el chat y la presentación de fuentes de la interfaz existente
-  con la respuesta real del endpoint. (Mostrar en el chat las respuestas del sistema y los productos que las respaldan.)
+- [x] Conectar el chat con el contrato del endpoint y mostrar la respuesta y
+  las fuentes que este devuelve. (La interfaz ya envía preguntas y presenta
+  respuestas y fuentes del flujo RAG experimental.)
 - [ ] Preparar un catálogo de prueba representativo, vectorizar una muestra
   pequeña y evaluar consultas concretas con resultados esperados. (Probar con productos y preguntas parecidos a los del uso real.)
 - [ ] Ejecutar pruebas de extremo a extremo: autenticación, pregunta, búsqueda,

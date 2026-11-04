@@ -14,7 +14,7 @@ logger = logging.getLogger("ferreteria.vectorizacion")
 
 MAX_PRODUCTOS_POR_LOTE = 100
 MAX_RESULTADOS_BUSQUEDA = 20
-MAX_LONGITUD_PREGUNTA = 1000
+MAX_LONGITUD_PREGUNTA = 2000
 # Sin avance en dos paginas seguidas se detiene el bucle: otra sesion ya
 # vectorizo esas filas o ninguna fila del lote tenia campos indexables.
 MAX_SIN_AVANCE = 2

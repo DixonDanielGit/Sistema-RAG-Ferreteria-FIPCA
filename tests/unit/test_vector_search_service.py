@@ -368,7 +368,7 @@ def test_busqueda_vectorial_generada_como_query(monkeypatch):
 
 @pytest.mark.parametrize(
     ("pregunta", "limite"),
-    [("", 5), ("x" * 1001, 5), ("martillo", 0), ("martillo", 21)],
+    [("", 5), ("x" * 2001, 5), ("martillo", 0), ("martillo", 21)],
 )
 def test_busqueda_valida_pregunta_y_limite(pregunta, limite):
     with pytest.raises(ValueError):

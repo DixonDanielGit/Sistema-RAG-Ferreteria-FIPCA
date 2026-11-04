@@ -56,5 +56,5 @@ class RespuestaChat(BaseModel):
     modelo: str = Field(description="Motor que genero la respuesta")
     aviso: str | None = Field(
         default=None,
-        description="Nota para el usuario (por ejemplo, si el motor es provisional)",
+        description="Nota complementaria para el usuario",
     )
