@@ -527,7 +527,8 @@ INSERT INTO permiso (clave, nombre, descripcion, orden) VALUES
     ('usuarios:gestionar', 'Gestionar usuarios', 'Consultar y administrar cuentas del sistema.', 10),
     ('catalogos:ingestar', 'Cargar catalogos', 'Cargar catalogos de productos y consultar su procesamiento.', 20),
     ('catalogos:eliminar', 'Eliminar catalogos', 'Eliminar catalogos y los productos que contienen.', 30),
-    ('configuracion:diagnostico', 'Consultar diagnostico', 'Consultar estado de bases de datos y limites tecnicos.', 40)
+    ('configuracion:diagnostico', 'Consultar diagnostico', 'Consultar estado de bases de datos y limites tecnicos.', 40),
+    ('bitacora:consultar', 'Consultar bitacora', 'Consultar el historial de auditoria del sistema.', 50)
 ON CONFLICT (clave) DO UPDATE SET
     nombre = EXCLUDED.nombre,
     descripcion = EXCLUDED.descripcion,

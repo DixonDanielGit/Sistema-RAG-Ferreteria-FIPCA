@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "c4d0f103-5531-4a91-999a-c2663f4177ad",
+  "status": "current",
+  "command": "deliver",
+  "type": "workflow",
+  "input": "C:\\Sistema-RAG-Ferreteria-FIPCA\\.archify\\workflow-chat-ventas-20261105-104733\\candidate.json",
+  "output": "C:\\Sistema-RAG-Ferreteria-FIPCA\\.archify\\workflow-chat-ventas-20261105-104733\\flujo-chat-ventas.html",
+  "specification": {
+    "sha256": "7938f1120f79c8946879a84535d0d80e9aa0fc27699dc7f9f817aa7ae0ce5d68",
+    "bytes": 10247
+  },
+  "artifact": {
+    "sha256": "07be3d730cd624f016b144c3ade585d8bef1ea8b39b73afd4ebdd2c3d27bd216",
+    "bytes": 870977
+  }
+}

@@ -27,6 +27,12 @@ CAPACIDADES: tuple[dict[str, str | int], ...] = (
         "descripcion": "Consultar estado de bases de datos y limites tecnicos.",
         "orden": 40,
     },
+    {
+        "clave": "bitacora:consultar",
+        "nombre": "Consultar bitacora",
+        "descripcion": "Consultar el historial de auditoria del sistema.",
+        "orden": 50,
+    },
 )
 
 CLAVES_CAPACIDADES = frozenset(str(item["clave"]) for item in CAPACIDADES)

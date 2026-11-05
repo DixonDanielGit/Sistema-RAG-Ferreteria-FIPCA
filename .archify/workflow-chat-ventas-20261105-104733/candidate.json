@@ -1,0 +1,255 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Flujo del chat RAG con servicio de ventas (propuesta)",
+    "locale": "es",
+    "quality_profile": "showcase",
+    "output": ".archify/workflow-chat-ventas-20261105-104733/flujo-chat-ventas.html",
+    "repository": {
+      "url": "https://github.com/DixonDanielGit/Sistema-RAG-Ferreteria-FIPCA.git",
+      "provider": "github",
+      "revision": "a2b6bd927813c5803844cc1e5ed157a6fd0bceb8"
+    }
+  },
+  "lanes": [
+    { "id": "navegador", "label": "Navegador" },
+    { "id": "api", "label": "API FastAPI" },
+    { "id": "rag", "label": "Catálogo semántico" },
+    { "id": "generacion", "label": "Generación" },
+    { "id": "ventas", "label": "Servicio de ventas (nuevo)" },
+    { "id": "datos_ventas", "label": "BD de ventas" },
+    { "id": "alternos", "label": "Salidas alternas", "variant": "exception" }
+  ],
+  "phases": [
+    { "id": "entrada", "label": "Entrada", "fromCol": 0, "toCol": 1 },
+    { "id": "consulta", "label": "Consulta en paralelo", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "respuesta", "label": "Contexto y respuesta", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "groups": [
+    { "id": "salidas", "label": "Errores", "lane": "alternos", "fromCol": 2, "toCol": 5, "variant": "security" }
+  ],
+  "mainPath": [
+    "usuario",
+    "chat_ui",
+    "orquestador",
+    "busqueda",
+    "preparacion",
+    "llm",
+    "respuesta",
+    "render"
+  ],
+  "nodes": [
+    {
+      "id": "usuario",
+      "lane": "navegador",
+      "col": 0,
+      "type": "external",
+      "label": "Usuario",
+      "sublabel": "pregunta por ventas o inventario"
+    },
+    {
+      "id": "chat_ui",
+      "lane": "navegador",
+      "col": 1,
+      "type": "frontend",
+      "label": "Interfaz de chat",
+      "sublabel": "valida 1–2000 · envía POST",
+      "tag": "cookie + CSRF",
+      "sources": [
+        { "path": "app/static/js/chat.js", "line": 165, "end_line": 209, "label": "envío" },
+        { "path": "app/static/js/chat.js", "line": 211, "end_line": 233, "label": "validación" },
+        { "path": "templates/chat_rag.html", "line": 335, "end_line": 363, "label": "formulario" }
+      ]
+    },
+    {
+      "id": "orquestador",
+      "lane": "api",
+      "col": 2,
+      "type": "backend",
+      "label": "POST /api/v1/rag/chat",
+      "sublabel": "sesión, CSRF · orquesta fuentes",
+      "tag": "ventas: propuesto",
+      "sources": [
+        { "path": "app/api/v1/rag_chat.py", "line": 48, "end_line": 99, "label": "endpoint" },
+        { "path": "app/schemas/rag_schema.py", "line": 16, "end_line": 35, "label": "validación" },
+        { "path": "app/api/deps.py", "line": 89, "end_line": 114, "label": "sesión y CSRF" }
+      ]
+    },
+    {
+      "id": "busqueda",
+      "lane": "rag",
+      "col": 3,
+      "type": "database",
+      "label": "Catálogo semántico",
+      "sublabel": "e5-small + pgvector · top 5",
+      "tag": "implementado",
+      "sources": [
+        { "path": "app/services/vector_search.py", "line": 185, "end_line": 199, "label": "búsqueda" },
+        { "path": "app/services/embedding_service.py", "line": 74, "end_line": 108, "label": "embedding" },
+        { "path": "app/models/inventario.py", "line": 658, "end_line": 676, "label": "pgvector" }
+      ]
+    },
+    {
+      "id": "servicio_ventas",
+      "lane": "ventas",
+      "col": 3,
+      "type": "cloud",
+      "label": "Servicio de ventas",
+      "sublabel": "API HTTP de consultas",
+      "tag": "nuevo · propuesto"
+    },
+    {
+      "id": "bd_ventas",
+      "lane": "datos_ventas",
+      "col": 4,
+      "type": "database",
+      "label": "BD de ventas",
+      "sublabel": "SQL: totales y tendencias",
+      "tag": "solo lectura · propuesta"
+    },
+    {
+      "id": "preparacion",
+      "lane": "generacion",
+      "col": 4,
+      "type": "security",
+      "label": "Contexto + métricas",
+      "sublabel": "catálogo + ventas · anti-inyección",
+      "tag": "máx 8 productos",
+      "sources": [
+        { "path": "app/services/llm_service.py", "line": 166, "end_line": 199, "label": "contexto" },
+        { "path": "app/services/llm_service.py", "line": 217, "end_line": 253, "label": "mensajes" },
+        { "path": "app/services/llm_service.py", "line": 73, "end_line": 87, "label": "anti-inyección" }
+      ]
+    },
+    {
+      "id": "llm",
+      "lane": "generacion",
+      "col": 5,
+      "type": "cloud",
+      "label": "Proveedor LLM",
+      "sublabel": "/chat/completions · temp 0",
+      "tag": "OpenAI-compatible",
+      "sources": [
+        { "path": "app/services/llm_service.py", "line": 304, "end_line": 389, "label": "proveedor" },
+        { "path": "app/services/llm_service.py", "line": 344, "end_line": 354, "label": "solicitud" }
+      ]
+    },
+    {
+      "id": "respuesta",
+      "lane": "api",
+      "col": 5,
+      "type": "backend",
+      "label": "RespuestaChat + métricas",
+      "sublabel": "texto + fuentes + stats",
+      "sources": [
+        { "path": "app/api/v1/rag_chat.py", "line": 83, "end_line": 99, "label": "respuesta" },
+        { "path": "app/schemas/rag_schema.py", "line": 51, "end_line": 60, "label": "esquema" }
+      ]
+    },
+    {
+      "id": "render",
+      "lane": "navegador",
+      "col": 5,
+      "type": "frontend",
+      "label": "Respuesta + estadísticas",
+      "sublabel": "burbuja, fuentes y gráfico",
+      "tag": "stats: propuesto",
+      "sources": [
+        { "path": "app/static/js/chat.js", "line": 77, "end_line": 133, "label": "burbuja y fuentes" },
+        { "path": "app/static/js/chat.js", "line": 181, "end_line": 203, "label": "respuesta" }
+      ]
+    },
+    {
+      "id": "abstencion",
+      "lane": "api",
+      "col": 4,
+      "type": "security",
+      "label": "Abstención",
+      "sublabel": "sin catálogo ni ventas",
+      "tag": "no llama al LLM",
+      "sources": [
+        { "path": "app/services/llm_service.py", "line": 321, "end_line": 330, "label": "abstención" }
+      ]
+    },
+    {
+      "id": "rechazo",
+      "lane": "alternos",
+      "col": 2,
+      "type": "security",
+      "label": "401 / 403",
+      "sublabel": "sin sesión o CSRF inválido",
+      "sources": [
+        { "path": "app/api/deps.py", "line": 96, "end_line": 106, "label": "401 / 403" },
+        { "path": "app/core/sesion.py", "line": 108, "end_line": 124, "label": "CSRF" }
+      ]
+    },
+    {
+      "id": "err_ventas",
+      "lane": "alternos",
+      "col": 3,
+      "type": "security",
+      "label": "504 / 5xx",
+      "sublabel": "servicio de ventas no disponible"
+    },
+    {
+      "id": "err_llm",
+      "lane": "alternos",
+      "col": 5,
+      "type": "security",
+      "label": "502",
+      "sublabel": "timeout o error del proveedor",
+      "sources": [
+        { "path": "app/api/v1/rag_chat.py", "line": 74, "end_line": 81, "label": "502" },
+        { "path": "app/services/llm_service.py", "line": 363, "end_line": 374, "label": "timeout" }
+      ]
+    }
+  ],
+  "edges": [
+    { "id": "e_pregunta", "from": "usuario", "to": "chat_ui", "label": "pregunta", "variant": "emphasis" },
+    { "id": "e_post", "from": "chat_ui", "to": "orquestador", "label": "POST JSON + CSRF", "variant": "emphasis" },
+    { "id": "e_catalogo", "from": "orquestador", "to": "busqueda", "label": "consulta catálogo", "variant": "default" },
+    { "id": "e_ventas", "from": "orquestador", "to": "servicio_ventas", "label": "consulta de ventas", "variant": "emphasis" },
+    { "id": "e_top5", "from": "busqueda", "to": "preparacion", "label": "top 5 productos", "variant": "default" },
+    { "id": "e_sql", "from": "servicio_ventas", "to": "bd_ventas", "label": "consulta SQL · trae ventas", "variant": "default" },
+    { "id": "e_metricas", "from": "servicio_ventas", "to": "preparacion", "label": "métricas de ventas", "variant": "emphasis" },
+    { "id": "e_mensajes", "from": "preparacion", "to": "llm", "label": "system + user", "variant": "emphasis" },
+    { "id": "e_texto", "from": "llm", "to": "respuesta", "label": "texto generado", "variant": "default" },
+    { "id": "e_json", "from": "respuesta", "to": "render", "label": "JSON + estadísticas", "variant": "emphasis" },
+    { "id": "e_auth", "from": "orquestador", "to": "rechazo", "label": "401 / 403", "variant": "security", "role": "error" },
+    { "id": "e_ventas_fail", "from": "servicio_ventas", "to": "err_ventas", "label": "timeout / error", "variant": "security", "role": "error" },
+    { "id": "e_sin_evidencia", "from": "preparacion", "to": "abstencion", "label": "sin evidencia", "variant": "dashed", "role": "branch", "fromSide": "top", "toSide": "bottom", "route": "straight" },
+    { "id": "e_aviso", "from": "abstencion", "to": "respuesta", "label": "aviso sin datos", "variant": "dashed", "role": "branch" },
+    { "id": "e_llm_fail", "from": "llm", "to": "err_llm", "label": "timeout / error", "variant": "security", "role": "error" }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "Alcance de la propuesta",
+      "items": [
+        "El Servicio de ventas y su BD no existen en el repositorio actual: se dibujan como integración propuesta.",
+        "La API, el catálogo, el LLM y la interfaz sí corresponden al código actual (commit a2b6bd9).",
+        "Faltan por definir el contrato de datos, la autenticación servicio-a-servicio y el despliegue."
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Estadísticas de ventas",
+      "items": [
+        "El servicio devuelve agregados: total vendido, ticket promedio, top productos y serie por período.",
+        "La API valida y normaliza las métricas antes de incluirlas en el contexto del modelo.",
+        "La interfaz muestra la respuesta del asistente y un panel con gráfico o tabla de estadísticas."
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Seguridad y fallos",
+      "items": [
+        "La llamada al servicio de ventas usa credenciales de servicio, no el token del usuario final.",
+        "La BD de ventas se consulta en solo lectura y con parámetros, sin concatenar SQL.",
+        "Si ventas falla o expira, se responde con aviso y sin cifras inventadas.",
+        "Si falla el catálogo (503) y tampoco hay ventas, el asistente se abstiene."
+      ]
+    }
+  ]
+}

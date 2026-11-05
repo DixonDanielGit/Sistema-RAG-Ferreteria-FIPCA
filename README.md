@@ -233,6 +233,8 @@ iniciar sesión y `-b cookies.txt` en las llamadas siguientes.
 | DELETE | `/api/v1/inventario/archivos/{id}` | `catalogos:eliminar` | Elimina un catálogo y sus productos |
 | POST | `/api/v1/rag/chat` | autenticado | Pregunta al asistente (contrato final) |
 | GET | `/api/v1/rag/estado` | autenticado | Disponibilidad del motor RAG |
+| GET | `/api/v1/bitacora` | `bitacora:consultar` | Consulta la bitácora con filtros de fecha, usuario, módulo, IP y límite |
+| GET | `/api/v1/bitacora/modulos` | `bitacora:consultar` | Módulos disponibles para el filtro del visor |
 | GET | `/salud` | público | Estado de las bases de datos |
 | GET | `/docs` | público | Documentación interactiva |
 
@@ -335,6 +337,7 @@ venv\Scripts\python.exe scripts\aplicar_migracion.py 5_0
 venv\Scripts\python.exe scripts\aplicar_migracion.py 6_0
 venv\Scripts\python.exe scripts\aplicar_migracion.py 7_0
 venv\Scripts\python.exe scripts\aplicar_migracion.py 8_0
+venv\Scripts\python.exe scripts\aplicar_migracion.py 9_0
 ```
 
 La migración `5_0` agrega la imagen de perfil y protege la unicidad sin
@@ -353,6 +356,11 @@ para regenerarlos con los nuevos datos. No adivina la asociación de los
 catálogos históricos que no guardaron ese dato. Si la vectorización automática
 está desactivada, reprocese los pendientes con
 `scripts/vectorizar_catalogo.py --todos`.
+
+La migración `9_0` agrega la capacidad `bitacora:consultar` y la asigna al rol
+`admin`. Se ejecuta en `ferreteria_usuarios`, es idempotente y no altera los
+eventos ya registrados; después de aplicarla, la capacidad aparece en la
+pantalla de Roles para asignarla a otros perfiles.
 
 ### Piloto local de embeddings (Semana 4)
 

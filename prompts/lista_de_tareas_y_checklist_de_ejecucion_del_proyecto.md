@@ -154,10 +154,10 @@ recuperación y la generación reales antes de considerar entregado el MVP.
 
 ## Semana 6:  Consulta de bitácora
 
-- [ ] Implementar el endpoint y la vista de consulta de bitácora para
+- [x] Implementar el endpoint y la vista de consulta de bitácora para
   administradores, manteniendo la bitácora inmutable. (Permitir que administradores revisen el historial sin modificarlo.)
-- [ ] Probar permisos, valores límite y trazabilidad de las acciones. (Comprobar quién puede consultar el historial y que las acciones queden registradas.)
-- [ ] **Entregable:** Acta 6 de módulo  de bitácora. (Documento que resume el módulo de consulta del historial.)
+- [x] Probar permisos, valores límite y trazabilidad de las acciones. (Comprobar quién puede consultar el historial y que las acciones queden registradas.)
+- [x] **Entregable:** Acta 6 de módulo  de bitácora. (Documento que resume el módulo de consulta del historial.)
 
 ---
 
