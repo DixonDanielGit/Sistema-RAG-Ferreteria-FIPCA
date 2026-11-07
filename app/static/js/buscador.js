@@ -5,10 +5,7 @@
 (function () {
   "use strict";
 
-  /* Minimo para buscar mientras se teclea; el envio manual del formulario
-     baja a 2 porque asi lo acepta el servidor. */
-  var MINIMO_TECLEO = 3;
-  var MINIMO_ENVIO = 2;
+  var MINIMO_BUSQUEDA = 1;
   var RETRASO_MS = 350;
   var LIMITE = 50;
 
@@ -259,7 +256,7 @@
   entrada.addEventListener("input", function () {
     var consulta = entrada.value.trim();
     cancelarPendiente();
-    if (consulta.length < MINIMO_TECLEO) {
+    if (consulta.length < MINIMO_BUSQUEDA) {
       /* Al acortar la consulta ninguna respuesta en vuelo sigue vigente. */
       peticion += 1;
       mostrarReposo();
@@ -271,8 +268,8 @@
   formulario.addEventListener("submit", function (evento) {
     evento.preventDefault();
     var consulta = entrada.value.trim();
-    if (consulta.length < MINIMO_ENVIO) {
-      mostrarError("Escriba al menos " + MINIMO_ENVIO + " caracteres para buscar.");
+    if (consulta.length < MINIMO_BUSQUEDA) {
+      mostrarError("Escriba al menos " + MINIMO_BUSQUEDA + " carácter para buscar.");
       entrada.focus();
       return;
     }

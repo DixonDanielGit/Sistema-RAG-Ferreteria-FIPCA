@@ -122,12 +122,17 @@ class TestSesionWeb:
         assert "Ana" in respuesta.text
         assert cuenta["correo"] in respuesta.text
 
-    def test_con_sesion_el_login_lleva_al_panel(self, navegador, crear_cuenta):
+    def test_con_sesion_el_login_lleva_al_buscador(self, navegador, crear_cuenta):
         _entrar(navegador, crear_cuenta())
         respuesta = navegador.get("/login", follow_redirects=False)
 
         assert respuesta.status_code == 303
-        assert respuesta.headers["location"] == "/dashboard"
+        assert respuesta.headers["location"] == "/search"
+
+    def test_login_navega_al_buscador_tras_autenticarse(self, navegador):
+        javascript = navegador.get("/static/js/login.js").text
+
+        assert 'Fipca.navegar("/search", true);' in javascript
 
     def test_el_logout_borra_las_cookies(self, navegador, crear_cuenta):
         _entrar(navegador, crear_cuenta())

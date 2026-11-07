@@ -13,7 +13,7 @@ from app.schemas.usuario_schema import PATRON_CORREO, PATRON_NOMBRE
 EstadoArchivo = Literal["pendiente", "procesando", "ok", "parcial", "error", "rechazado"]
 
 # Limites de consulta del Buscador Comercial (RF-03.1 / RNF-01.2).
-LONGITUD_MINIMA_BUSQUEDA = 2
+LONGITUD_MINIMA_BUSQUEDA = 1
 LONGITUD_MAXIMA_BUSQUEDA = 200
 LIMITE_DEFECTO_BUSQUEDA = 50
 LIMITE_MAXIMO_BUSQUEDA = 100

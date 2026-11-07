@@ -116,33 +116,43 @@ tareas pendientes.
 
 ## Semana 4: Buscador Comercial (Live Search) y entrega del MVP funcional
 
-**Estado actual.** La interfaz base, la carga de catálogos y el panel de
-archivos ya existen y se reutilizan; el chat RAG queda fuera de alcance y no se
-termina. Todo lo que hace funcional al buscador —MarkItDown, estructuración con
-Gemini Flash, Full-Text Search y la pantalla de resultados— está pendiente y es
-el foco exclusivo de esta semana.
+**Estado actual.** La conversión a Markdown con MarkItDown, la búsqueda
+Full-Text de PostgreSQL, el endpoint y la interfaz del buscador ya están
+implementados. El chat RAG queda fuera del alcance activo. Por decisión del
+cliente, la conexión con Gemini Flash para estructurar catálogos queda pausada
+hasta nuevo aviso; la búsqueda se prueba directamente contra los productos
+guardados en PostgreSQL, sin exigir archivos cargados. La prueba de integración
+de búsqueda directa está escrita, pero su ejecución quedó pendiente porque una
+conexión activa impidió clonar la base de pruebas.
 
-- [ ] Integrar **Microsoft MarkItDown** en el pipeline ETL para convertir los
+- [x] Integrar **Microsoft MarkItDown** en el pipeline ETL para convertir los
   archivos PDF, Excel y Word a formato Markdown. (Unificar la lectura de los
   documentos en un solo paso de conversión.)
 - [ ] Conectar **Gemini Flash** para que tome el Markdown, estructure los
   registros y genere un **nombre comercial sugerido** cuando el producto no
-  tenga uno. (Ordenar los datos crudos del archivo en campos de producto
-  claros.)
+  tenga uno. (Pausado por solicitud del cliente; no realizar llamadas al
+  proveedor de IA hasta nueva indicación.)
 - [ ] Validar la respuesta del modelo y guardar los datos limpios en las tablas
   relacionales de PostgreSQL, sin alterar stock ni inventar proveedores.
-  (Persistir solo información válida y trazable al archivo de origen.)
-- [ ] Preparar la indexación **Full-Text Search** de PostgreSQL (columna
+  (Pendiente junto con la conexión a Gemini Flash; persistir solo información
+  válida y trazable al archivo de origen.)
+- [x] Preparar la indexación **Full-Text Search** de PostgreSQL (columna
   `tsvector` + índice) sobre productos y consultar con `tsquery`, con respaldo
   `ILIKE`. (Habilitar búsquedas instantáneas y a costo cero en los ~8.000
   productos.)
-- [ ] Exponer el endpoint de búsqueda y consumirlo desde la interfaz web con
+- [x] Exponer el endpoint de búsqueda y consumirlo desde la interfaz web con
   Bootstrap + AJAX, agregando la pantalla del **buscador
   comercial**. (Mostrar resultados de productos en tiempo real sin recargar la
-  página y sin IA en tiempo real.)
+  página y sin IA en tiempo real. La consulta puede tener desde un carácter y
+  busca directamente en `productos`, aunque no se hayan cargado archivos.)
 - [ ] Cubrir el ETL nuevo y la búsqueda con pruebas unitarias y de API,
-  incluidos valores límite. (Comprobar que la conversión, la estructuración y
-  la búsqueda se comporten correctamente.)
+  incluidos valores límite. (Hay pruebas unitarias aprobadas para consulta de
+  un carácter y resultados vacíos; las pruebas de integración quedaron
+  omitidas porque PostgreSQL no permitió clonar la base plantilla al detectar
+  una conexión activa. Completar la validación de integración.)
+- [x] Redirigir al usuario a `/search` después de iniciar sesión y al abrir
+  `/login` con una sesión activa. (Dejar el buscador como destino directo de
+  entrada al sistema.)
 - [ ] Preparar un catálogo de prueba representativo (~8.000 productos) y
   evaluar consultas concretas con resultados esperados. (Probar con productos
   y búsquedas parecidas a las del uso real.)

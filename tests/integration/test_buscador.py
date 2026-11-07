@@ -157,10 +157,11 @@ class TestEndpointDeBusqueda:
 
         assert respuesta.status_code == 422
 
-    def test_consulta_de_un_caracter_se_rechaza(self, navegador, sesion):
+    def test_consulta_de_un_caracter_se_acepta(self, navegador, sesion):
         respuesta = navegador.get(BUSQUEDA, params={"consulta": "a"})
 
-        assert respuesta.status_code == 422
+        assert respuesta.status_code == 200
+        assert respuesta.json()["consulta"] == "a"
 
     def test_consulta_solo_de_espacios_se_rechaza(self, navegador, sesion):
         """Dos espacios pasan el minimo de longitud pero no significan nada."""
@@ -202,6 +203,22 @@ class TestEndpointDeBusqueda:
         datos = respuesta.json()
         assert datos["total"] >= 1
         assert any(fila["codigo"] == producto["codigo"] for fila in datos["productos"])
+
+    def test_busca_producto_insertado_directamente_sin_archivo_usando_un_caracter(
+        self, navegador, sesion, producto_de_prueba
+    ):
+        producto = producto_de_prueba(
+            "Producto de prueba directa {token}",
+            codigo="Q" + uuid.uuid4().hex[:8].upper(),
+        )
+
+        respuesta = navegador.get(BUSQUEDA, params={"consulta": "q"})
+
+        assert respuesta.status_code == 200
+        assert any(
+            fila["codigo"] == producto["codigo"]
+            for fila in respuesta.json()["productos"]
+        )
 
     def test_encuentra_por_full_text_y_no_por_coincidencia_literal(
         self, navegador, sesion, producto_de_prueba

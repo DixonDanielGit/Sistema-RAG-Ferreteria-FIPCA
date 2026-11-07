@@ -94,7 +94,7 @@ def _sesion(request: Request) -> dict[str, Any] | None:
 @router.get("/login", response_class=HTMLResponse, summary="Formulario de acceso")
 def login(request: Request) -> HTMLResponse:
     if _sesion(request):
-        return _redirigir("/dashboard")
+        return _redirigir("/search")
     return _html(request, "login.html", _contexto(request))
 
 

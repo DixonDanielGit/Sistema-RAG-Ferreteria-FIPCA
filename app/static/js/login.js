@@ -42,7 +42,7 @@
           cuerpo: { identificador: usuarioLimpio, password: clave },
           noRedirigir: true,
         });
-        Fipca.navegar("/dashboard", true);
+        Fipca.navegar("/search", true);
       } catch (error) {
         if (error.estado === 401) {
           Fipca.aviso(aviso, "Usuario o contrasena incorrectos.", "error");
