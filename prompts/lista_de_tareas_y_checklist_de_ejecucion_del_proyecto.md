@@ -197,13 +197,10 @@ el foco exclusivo de esta semana.
 
 ## Semana 6:  Consulta de bitácora
 
-- [ ] Aplicar los ajustes de indexación y sinónimos derivados de la validación
-  de la semana 5. (Cerrar los detalles pendientes del Buscador Comercial sin
-  añadir IA en tiempo real.)
 - [ ] Implementar el endpoint y la vista de consulta de bitácora para
   administradores, manteniendo la bitácora inmutable. (Permitir que administradores revisen el historial sin modificarlo.)
-- [ ] Probar permisos, valores límite y trazabilidad de las acciones. (Comprobar quién puede consultar el historial y que las acciones queden registradas.)
-- [ ] **Entregable:** Acta 6 de módulo  de bitácora. (Documento que resume el módulo de consulta del historial.)
+- [x] Probar permisos, valores límite y trazabilidad de las acciones. (Comprobar quién puede consultar el historial y que las acciones queden registradas.)
+- [x] **Entregable:** Acta 6 de módulo  de bitácora. (Documento que resume el módulo de consulta del historial.)
 
 ---
 

@@ -1,0 +1,234 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Flujo del chat RAG del inventario",
+    "locale": "es",
+    "quality_profile": "showcase",
+    "output": ".archify/workflow-chat-rag-20261105-101531/flujo-chat-rag.html",
+    "repository": {
+      "url": "https://github.com/DixonDanielGit/Sistema-RAG-Ferreteria-FIPCA.git",
+      "provider": "github",
+      "revision": "a2b6bd927813c5803844cc1e5ed157a6fd0bceb8"
+    }
+  },
+  "lanes": [
+    { "id": "navegador", "label": "Navegador" },
+    { "id": "api", "label": "API FastAPI" },
+    { "id": "rag", "label": "Recuperación semántica" },
+    { "id": "generacion", "label": "Generación" },
+    { "id": "alternos", "label": "Salidas alternas", "variant": "exception" }
+  ],
+  "phases": [
+    { "id": "entrada", "label": "Entrada", "fromCol": 0, "toCol": 1 },
+    { "id": "recuperacion", "label": "Recuperación", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "generacion_fase", "label": "Generación y respuesta", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "groups": [
+    { "id": "anti_alucinacion", "label": "Anti-alucinación", "lane": "generacion", "fromCol": 4, "toCol": 5, "variant": "security" },
+    { "id": "salidas", "label": "Errores y abstención", "lane": "alternos", "fromCol": 2, "toCol": 5, "variant": "security" }
+  ],
+  "mainPath": [
+    "usuario",
+    "chat_ui",
+    "endpoint",
+    "busqueda",
+    "preparacion",
+    "llm",
+    "respuesta",
+    "render"
+  ],
+  "nodes": [
+    {
+      "id": "usuario",
+      "lane": "navegador",
+      "col": 0,
+      "type": "external",
+      "label": "Usuario",
+      "sublabel": "consulta en lenguaje natural"
+    },
+    {
+      "id": "chat_ui",
+      "lane": "navegador",
+      "col": 1,
+      "type": "frontend",
+      "label": "Interfaz de chat",
+      "sublabel": "valida 1–2000 · envía POST",
+      "tag": "cookie + CSRF",
+      "sources": [
+        { "path": "app/static/js/chat.js", "line": 165, "end_line": 209, "label": "envío" },
+        { "path": "app/static/js/chat.js", "line": 211, "end_line": 233, "label": "validación" },
+        { "path": "templates/chat_rag.html", "line": 335, "end_line": 363, "label": "formulario" }
+      ]
+    },
+    {
+      "id": "endpoint",
+      "lane": "api",
+      "col": 2,
+      "type": "backend",
+      "label": "POST /api/v1/rag/chat",
+      "sublabel": "sesión, CSRF y PreguntaChat",
+      "tag": "registra evento",
+      "sources": [
+        { "path": "app/api/v1/rag_chat.py", "line": 48, "end_line": 99, "label": "endpoint" },
+        { "path": "app/schemas/rag_schema.py", "line": 16, "end_line": 35, "label": "validación" },
+        { "path": "app/api/deps.py", "line": 89, "end_line": 114, "label": "sesión y CSRF" }
+      ]
+    },
+    {
+      "id": "busqueda",
+      "lane": "rag",
+      "col": 3,
+      "type": "database",
+      "label": "Búsqueda semántica",
+      "sublabel": "e5-small 384d + pgvector",
+      "tag": "top 5 por coseno",
+      "sources": [
+        { "path": "app/services/vector_search.py", "line": 185, "end_line": 199, "label": "búsqueda" },
+        { "path": "app/services/embedding_service.py", "line": 74, "end_line": 108, "label": "embedding" },
+        { "path": "app/models/inventario.py", "line": 658, "end_line": 676, "label": "pgvector" }
+      ]
+    },
+    {
+      "id": "preparacion",
+      "lane": "generacion",
+      "col": 4,
+      "type": "security",
+      "label": "Prepara el contexto",
+      "sublabel": "prompt sistema · anti-inyección",
+      "tag": "abstiene si no hay",
+      "sources": [
+        { "path": "app/services/llm_service.py", "line": 166, "end_line": 199, "label": "contexto" },
+        { "path": "app/services/llm_service.py", "line": 217, "end_line": 253, "label": "mensajes" },
+        { "path": "app/services/llm_service.py", "line": 73, "end_line": 87, "label": "anti-inyección" }
+      ]
+    },
+    {
+      "id": "llm",
+      "lane": "generacion",
+      "col": 5,
+      "type": "cloud",
+      "label": "Proveedor LLM",
+      "sublabel": "/chat/completions · temp 0",
+      "tag": "OpenAI-compatible",
+      "sources": [
+        { "path": "app/services/llm_service.py", "line": 304, "end_line": 389, "label": "proveedor" },
+        { "path": "app/services/llm_service.py", "line": 344, "end_line": 354, "label": "solicitud" }
+      ]
+    },
+    {
+      "id": "respuesta",
+      "lane": "api",
+      "col": 5,
+      "type": "backend",
+      "label": "RespuestaChat",
+      "sublabel": "texto + fuentes + aviso",
+      "sources": [
+        { "path": "app/api/v1/rag_chat.py", "line": 83, "end_line": 99, "label": "respuesta" },
+        { "path": "app/schemas/rag_schema.py", "line": 51, "end_line": 60, "label": "esquema" }
+      ]
+    },
+    {
+      "id": "render",
+      "lane": "navegador",
+      "col": 5,
+      "type": "frontend",
+      "label": "Respuesta en pantalla",
+      "sublabel": "burbuja + tarjetas de fuentes",
+      "sources": [
+        { "path": "app/static/js/chat.js", "line": 77, "end_line": 133, "label": "burbuja y fuentes" },
+        { "path": "app/static/js/chat.js", "line": 181, "end_line": 203, "label": "respuesta" }
+      ]
+    },
+    {
+      "id": "rechazo",
+      "lane": "alternos",
+      "col": 2,
+      "type": "security",
+      "label": "401 / 403",
+      "sublabel": "sin sesión o CSRF inválido",
+      "sources": [
+        { "path": "app/api/deps.py", "line": 96, "end_line": 106, "label": "401 / 403" },
+        { "path": "app/core/sesion.py", "line": 108, "end_line": 124, "label": "CSRF" }
+      ]
+    },
+    {
+      "id": "err_embed",
+      "lane": "alternos",
+      "col": 3,
+      "type": "security",
+      "label": "503",
+      "sublabel": "falla el embedding",
+      "sources": [
+        { "path": "app/api/v1/rag_chat.py", "line": 65, "end_line": 72, "label": "503" }
+      ]
+    },
+    {
+      "id": "abstencion",
+      "lane": "alternos",
+      "col": 4,
+      "type": "security",
+      "label": "Abstención",
+      "sublabel": "0 productos: no llama al LLM",
+      "tag": "anti-alucinación",
+      "sources": [
+        { "path": "app/services/llm_service.py", "line": 321, "end_line": 330, "label": "abstención" }
+      ]
+    },
+    {
+      "id": "err_llm",
+      "lane": "alternos",
+      "col": 5,
+      "type": "security",
+      "label": "502",
+      "sublabel": "timeout o error del proveedor",
+      "sources": [
+        { "path": "app/api/v1/rag_chat.py", "line": 74, "end_line": 81, "label": "502" },
+        { "path": "app/services/llm_service.py", "line": 363, "end_line": 374, "label": "timeout" }
+      ]
+    }
+  ],
+  "edges": [
+    { "id": "e_pregunta", "from": "usuario", "to": "chat_ui", "label": "pregunta", "variant": "emphasis" },
+    { "id": "e_post", "from": "chat_ui", "to": "endpoint", "label": "POST JSON + CSRF", "variant": "emphasis" },
+    { "id": "e_vector", "from": "endpoint", "to": "busqueda", "label": "vectoriza consulta", "variant": "default" },
+    { "id": "e_top5", "from": "busqueda", "to": "preparacion", "label": "top 5 productos", "variant": "default" },
+    { "id": "e_mensajes", "from": "preparacion", "to": "llm", "label": "system + user", "variant": "emphasis" },
+    { "id": "e_texto", "from": "llm", "to": "respuesta", "label": "texto generado", "variant": "default" },
+    { "id": "e_json", "from": "respuesta", "to": "render", "label": "JSON RespuestaChat", "variant": "emphasis" },
+    { "id": "e_auth", "from": "endpoint", "to": "rechazo", "label": "401 / 403", "variant": "security", "role": "error" },
+    { "id": "e_embed_fail", "from": "busqueda", "to": "err_embed", "label": "error", "variant": "security", "role": "error" },
+    { "id": "e_sin_evidencia", "from": "preparacion", "to": "abstencion", "label": "no: 0 productos", "variant": "dashed", "role": "branch" },
+    { "id": "e_aviso", "from": "abstencion", "to": "respuesta", "label": "aviso sin evidencia", "variant": "dashed", "role": "branch" },
+    { "id": "e_llm_fail", "from": "llm", "to": "err_llm", "label": "timeout / error", "variant": "security", "role": "error" }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Anti-alucinación",
+      "items": [
+        "Sin productos recuperados no se consulta al LLM: se responde con una abstención explícita.",
+        "El contexto va delimitado y los datos del catálogo se tratan como datos, nunca como instrucciones.",
+        "Se incluyen como máximo 8 productos en el contexto enviado al modelo."
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Recuperación local",
+      "items": [
+        "El embedding de la consulta usa multilingual-e5-small (384 dimensiones) con FastEmbed.",
+        "pgvector ordena por distancia coseno y devuelve los 5 productos más similares.",
+        "La generación usa temperature 0 para reducir variación entre respuestas."
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Errores que ve el cliente",
+      "items": [
+        "503: no se pudo preparar la búsqueda semántica (falla el embedding).",
+        "502: el proveedor de lenguaje no respondió, expiró o devolvió error.",
+        "401 / 403: falta la sesión, la cuenta está inactiva o el CSRF no coincide."
+      ]
+    }
+  ]
+}

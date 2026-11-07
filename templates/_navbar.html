@@ -29,6 +29,10 @@
     <a class="fipca-nav__enlace" href="/roles"
        {% if activo == 'roles' %}aria-current="page"{% endif %}>Roles</a>
     {% endif %}
+    {% if usuario and 'bitacora:consultar' in usuario.permisos %}
+    <a class="fipca-nav__enlace" href="/bitacora"
+       {% if activo == 'bitacora' %}aria-current="page"{% endif %}>Bitácora</a>
+    {% endif %}
     <a class="fipca-nav__enlace" href="/perfil"
        {% if activo == 'perfil' %}aria-current="page"{% endif %}>Perfil</a>
     <a class="fipca-nav__enlace" href="/configuracion"

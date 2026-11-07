@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "workflow",
+  "quality": "showcase",
+  "specification": {
+    "path": "C:\\Sistema-RAG-Ferreteria-FIPCA\\.archify\\workflow-chat-ventas-20261105-104733\\candidate.json",
+    "sha256": "7938f1120f79c8946879a84535d0d80e9aa0fc27699dc7f9f817aa7ae0ce5d68",
+    "bytes": 10247
+  },
+  "artifact": {
+    "path": "C:\\Sistema-RAG-Ferreteria-FIPCA\\.archify\\workflow-chat-ventas-20261105-104733\\flujo-chat-ventas.html",
+    "sha256": "07be3d730cd624f016b144c3ade585d8bef1ea8b39b73afd4ebdd2c3d27bd216",
+    "bytes": 870977
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "diagnostics": [],
+  "diagnosticSummary": {
+    "total": 0,
+    "shown": 0,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "C:\\Sistema-RAG-Ferreteria-FIPCA\\.archify\\workflow-chat-ventas-20261105-104733\\flujo-chat-ventas.finalize.json",
+    "summaryReceipt": "C:\\Sistema-RAG-Ferreteria-FIPCA\\.archify\\workflow-chat-ventas-20261105-104733\\flujo-chat-ventas.finalize-summary.json",
+    "browserCheckReceipt": "C:\\Sistema-RAG-Ferreteria-FIPCA\\.archify\\workflow-chat-ventas-20261105-104733\\flujo-chat-ventas.browser-check.json"
+  },
+  "update": {
+    "status": "current",
+    "installedVersion": "3.2.0",
+    "availableVersion": "3.2.0",
+    "releaseNotes": null,
+    "checkedAt": "2026-11-05T14:17:13.078Z",
+    "source": "cache",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "visualReview": "not-requested",
+  "durationMs": 13683,
+  "browserCheck": {
+    "requested": true,
+    "ran": true
+  }
+}

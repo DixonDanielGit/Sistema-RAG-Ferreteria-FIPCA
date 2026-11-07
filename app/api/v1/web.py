@@ -162,6 +162,16 @@ def gestion_roles(request: Request) -> HTMLResponse:
     return _html(request, "roles.html", _contexto(request, usuario))
 
 
+@router.get("/bitacora", response_class=HTMLResponse, summary="Bitacora de auditoria")
+def bitacora(request: Request) -> HTMLResponse:
+    usuario = _sesion(request)
+    if usuario is None:
+        return _redirigir("/login")
+    if "bitacora:consultar" not in usuario.get("permisos", []):
+        return _redirigir("/dashboard")
+    return _html(request, "bitacora.html", _contexto(request, usuario))
+
+
 @router.get("/perfil", response_class=HTMLResponse, summary="Perfil personal")
 def perfil(request: Request) -> HTMLResponse:
     usuario = _sesion(request)

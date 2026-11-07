@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block titulo %}Bitácora{% endblock %}
+
+{% block estilos_extra %}
+<link rel="stylesheet" href="/static/vendor/datatables.dataTables.min.css" />
+{% endblock %}
+
+{% block navegacion %}
+{% set activo = 'bitacora' %}
+{% include "_navbar.html" %}
+{% endblock %}
+
+{% block contenido %}
+<div class="cuenta-pagina">
+  <header class="cuenta-cabecera">
+    <div>
+      <h1>Bitácora</h1>
+      <p>Historial inmutable de las acciones realizadas en el sistema.</p>
+    </div>
+  </header>
+
+  <section class="cuenta-seccion" aria-labelledby="filtros-bitacora-titulo">
+    <div class="cuenta-seccion__cabecera">
+      <h2 id="filtros-bitacora-titulo">Filtros</h2>
+      <p>La bitácora es de solo lectura: no se puede editar ni eliminar.</p>
+    </div>
+
+    <form id="form-filtros-bitacora" novalidate>
+      <div class="row g-3 align-items-end">
+        <div class="col-12 col-sm-6 col-lg-2">
+          <label class="form-label" for="filtro-desde">Desde</label>
+          <input
+            class="form-control input-custom"
+            type="date"
+            id="filtro-desde"
+            name="desde"
+          />
+        </div>
+        <div class="col-12 col-sm-6 col-lg-2">
+          <label class="form-label" for="filtro-hasta">Hasta</label>
+          <input
+            class="form-control input-custom"
+            type="date"
+            id="filtro-hasta"
+            name="hasta"
+          />
+        </div>
+        <div class="col-12 col-sm-6 col-lg-2">
+          <label class="form-label" for="filtro-usuario">Usuario</label>
+          <input
+            class="form-control input-custom"
+            type="search"
+            id="filtro-usuario"
+            name="usuario"
+            maxlength="50"
+            autocomplete="off"
+            placeholder="Nombre de usuario"
+          />
+        </div>
+        <div class="col-12 col-sm-6 col-lg-2">
+          <label class="form-label" for="filtro-modulo">Módulo</label>
+          <select class="form-select input-custom" id="filtro-modulo" name="modulo">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <div class="col-12 col-sm-6 col-lg-2">
+          <label class="form-label" for="filtro-ip">IP</label>
+          <input
+            class="form-control input-custom"
+            type="search"
+            id="filtro-ip"
+            name="ip"
+            maxlength="45"
+            autocomplete="off"
+            placeholder="Dirección IP"
+          />
+        </div>
+        <div class="col-12 col-sm-6 col-lg-2">
+          <label class="form-label" for="filtro-limite">Mostrar</label>
+          <select class="form-select input-custom" id="filtro-limite" name="limite">
+            <option value="50">50 eventos</option>
+            <option value="100">100 eventos</option>
+            <option value="200" selected>200 eventos</option>
+            <option value="500">500 eventos</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+        <button class="btn-fipca" type="submit" id="filtrar-bitacora">Filtrar</button>
+        <button class="btn-fipca btn-fipca--fantasma" type="button" id="limpiar-filtros">
+          Limpiar
+        </button>
+        <p class="mb-0 ms-sm-auto" id="conteo-bitacora" aria-live="polite"></p>
+      </div>
+    </form>
+
+    <div class="cuenta-aviso" id="aviso-bitacora" role="status" aria-live="polite" hidden></div>
+  </section>
+
+  <section
+    class="cuenta-seccion cuenta-seccion--lista"
+    aria-labelledby="lista-bitacora-titulo"
+  >
+    <div class="cuenta-seccion__cabecera cuenta-lista__cabecera">
+      <div>
+        <h2 id="lista-bitacora-titulo">Eventos registrados</h2>
+        <p>Los más recientes aparecen primero.</p>
+      </div>
+    </div>
+    <div class="datatable-contenedor">
+      <div
+        class="datatable-tabla-scroll"
+        role="region"
+        aria-label="Tabla de bitácora"
+        tabindex="0"
+      >
+        <table class="cuenta-tabla display" id="tabla-bitacora">
+          <thead>
+            <tr>
+              <th scope="col">Fecha y hora</th>
+              <th scope="col">Usuario</th>
+              <th scope="col">Acción</th>
+              <th scope="col">Módulo</th>
+              <th scope="col">IP</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/vendor/jquery.min.js" defer></script>
+<script src="/static/vendor/datatables.core.min.js" defer></script>
+<script src="/static/vendor/datatables.dataTables.min.js" defer></script>
+<script src="/static/js/bitacora.js?v={{ version }}" defer></script>
+{% endblock %}

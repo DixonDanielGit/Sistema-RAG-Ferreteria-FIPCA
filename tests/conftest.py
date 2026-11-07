@@ -102,7 +102,7 @@ def bases_de_prueba():
         conexion_usuarios = conexion_admin(USUARIOS_PRUEBA)
         try:
             with conexion_usuarios.cursor() as cur:
-                for version in ("5_0", "6_0"):
+                for version in ("5_0", "6_0", "9_0"):
                     migracion = RAIZ / "scripts" / f"migracion_{version}.sql"
                     cur.execute(migracion.read_text(encoding="utf-8"))
                 # La base de desarrollo puede tener permisos asignados a mano

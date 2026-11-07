@@ -46,6 +46,7 @@ def listar(
     *,
     desde: date | None = None,
     hasta: date | None = None,
+    usuario: str | None = None,
     id_usuario: int | None = None,
     modulo: str | None = None,
     ip: str | None = None,
@@ -61,6 +62,9 @@ def listar(
     if hasta:
         condiciones.append("b.fecha <= %s")
         parametros.append(hasta)
+    if usuario and usuario.strip():
+        condiciones.append("u.usuario ILIKE %s")
+        parametros.append(f"%{usuario.strip()}%")
     if id_usuario:
         condiciones.append("b.id_usuario = %s")
         parametros.append(id_usuario)
@@ -88,6 +92,19 @@ def listar(
         """,
         parametros,
     )
+
+
+def modulos() -> list[str]:
+    """Modulos con al menos un evento, para el filtro del visor."""
+    filas = consultar_todos(
+        """
+        SELECT DISTINCT modulo
+          FROM bitacora
+         WHERE modulo IS NOT NULL
+         ORDER BY modulo
+        """
+    )
+    return [fila["modulo"] for fila in filas]
 
 
 def ultimos(limite: int = 20) -> list[dict[str, Any]]:

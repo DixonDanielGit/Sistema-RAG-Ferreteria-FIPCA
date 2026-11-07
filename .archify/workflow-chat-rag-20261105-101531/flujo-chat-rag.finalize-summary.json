@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "workflow",
+  "quality": "showcase",
+  "specification": {
+    "path": "C:\\Sistema-RAG-Ferreteria-FIPCA\\.archify\\workflow-chat-rag-20261105-101531\\candidate.json",
+    "sha256": "2fe12e52614ac2be5738b927d58f1e582b2776f1a90c74e43bd6e2a2655aebac",
+    "bytes": 9180
+  },
+  "artifact": {
+    "path": "C:\\Sistema-RAG-Ferreteria-FIPCA\\.archify\\workflow-chat-rag-20261105-101531\\flujo-chat-rag.html",
+    "sha256": "18901d2f380508930620fd46c71d5cc7b186bb954424978eae57b53959c4f4eb",
+    "bytes": 865197
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "diagnostics": [],
+  "diagnosticSummary": {
+    "total": 0,
+    "shown": 0,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "C:\\Sistema-RAG-Ferreteria-FIPCA\\.archify\\workflow-chat-rag-20261105-101531\\flujo-chat-rag.finalize.json",
+    "summaryReceipt": "C:\\Sistema-RAG-Ferreteria-FIPCA\\.archify\\workflow-chat-rag-20261105-101531\\flujo-chat-rag.finalize-summary.json",
+    "browserCheckReceipt": "C:\\Sistema-RAG-Ferreteria-FIPCA\\.archify\\workflow-chat-rag-20261105-101531\\flujo-chat-rag.browser-check.json"
+  },
+  "update": {
+    "status": "current",
+    "installedVersion": "3.2.0",
+    "availableVersion": "3.2.0",
+    "releaseNotes": null,
+    "checkedAt": "2026-11-05T14:17:13.078Z",
+    "source": "network",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "visualReview": "not-requested",
+  "durationMs": 12292,
+  "browserCheck": {
+    "requested": true,
+    "ran": true
+  }
+}
