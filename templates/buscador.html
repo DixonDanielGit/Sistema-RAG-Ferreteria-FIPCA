@@ -1,0 +1,199 @@
+{% extends "base.html" %} {% block titulo %}Buscador comercial{% endblock %} {%
+block clase_cuerpo %}cuerpo-buscador{% endblock %} {% block navegacion %} {% set
+activo = 'search' %} {% include "_navbar.html" %} {% endblock %} {% block
+contenido %} {#- La vista reutiliza los mismos componentes que el asistente: el
+panel de fuentes (carga de catalogos), la cabecera, los botones de panel y los
+atajos del dashboard. La busqueda en si la resuelve PostgreSQL con Full-Text
+Search; aqui solo se pinta lo que el servidor devuelve. -#}
+<div class="buscador">
+  {% include "_panel_fuentes.html" %}
+
+  <div class="chat__principal">
+    <div class="chat__cabecera">
+      <div>
+        <h1>Buscador comercial</h1>
+        <p>Nombre, código, marca, proveedor o categoría del catálogo</p>
+      </div>
+      <div class="chat__acciones">
+        <button
+          class="chat__panel-boton chat__panel-boton--pc"
+          type="button"
+          id="alternar-fuentes-pc"
+          aria-controls="panel-fuentes"
+          aria-expanded="true"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path
+              d="M4 5.5A1.5 1.5 0 0 1 5.5 4H10l2 2h6.5A1.5 1.5 0 0 1 20 7.5v11a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5z"
+            />
+            <path d="M8 10h8M8 14h5" />
+          </svg>
+          Fuentes
+        </button>
+
+        <button
+          class="chat__fuentes-boton"
+          type="button"
+          id="abrir-fuentes"
+          aria-controls="panel-fuentes"
+          aria-expanded="false"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.9"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path
+              d="M4 6.5A1.5 1.5 0 0 1 5.5 5H9l2 2h7.5A1.5 1.5 0 0 1 20 8.5v9A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5z"
+            />
+          </svg>
+          <span class="visually-hidden">Fuentes</span>
+          <span class="chat__fuentes-cuenta" id="cuenta-fuentes-movil">0</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="buscador__cuerpo">
+      <form
+        class="accion__formulario buscador__formulario"
+        id="form-buscador"
+        role="search"
+        novalidate
+      >
+        <label class="visually-hidden" for="consulta-buscador">
+          Buscar productos en el catálogo
+        </label>
+        <input
+          class="accion__campo buscador__entrada"
+          type="search"
+          id="consulta-buscador"
+          name="consulta"
+          maxlength="200"
+          placeholder="Ej.: manguera de riego, M1660, taladro…"
+          autocomplete="off"
+          aria-describedby="ayuda-buscador error-buscador"
+        />
+        <button
+          class="btn-fipca buscador__boton"
+          type="submit"
+          id="boton-buscador"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="28"
+            height="28"
+            fill="currentColor"
+            class="bi bi-search"
+            viewBox="0 0 16 16"
+          >
+            <path
+              d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"
+            />
+          </svg>
+        </button>
+      </form>
+
+      <p class="buscador__ayuda" id="ayuda-buscador">
+        Escriba al menos 3 letras del nombre, código, marca o proveedor.
+        Responde con productos reales del catálogo: si no existe, lo dice
+        claramente.
+      </p>
+      <p
+        class="fipca-campo__error buscador__error"
+        id="error-buscador"
+        role="alert"
+        aria-live="polite"
+        hidden
+      ></p>
+
+      <div
+        class="buscador__atajos"
+        role="group"
+        aria-label="Búsquedas de ejemplo"
+      >
+        <span class="accion__etiqueta">Pruebe con:</span>
+        <button class="accion__atajo" type="button" data-buscar="manguera">
+          manguera
+        </button>
+        <button class="accion__atajo" type="button" data-buscar="riego 60">
+          riego 60
+        </button>
+        <button class="accion__atajo" type="button" data-buscar="M1660">
+          M1660
+        </button>
+      </div>
+
+      <p
+        class="buscador__resumen"
+        id="resumen-buscador"
+        role="status"
+        aria-live="polite"
+        hidden
+      ></p>
+
+      <p
+        class="chat__escribiendo buscador__cargando"
+        id="cargando-buscador"
+        hidden
+      >
+        <span class="spinner" aria-hidden="true"></span>
+        <span>Buscando en el catálogo…</span>
+      </p>
+
+      <div class="buscador__tabla-contenedor" id="contenedor-resultados" hidden>
+        <table class="buscador__tabla">
+          <caption class="visually-hidden">
+            Productos encontrados en el catálogo
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Código</th>
+              <th scope="col">Producto</th>
+              <th scope="col">Proveedor</th>
+              <th scope="col">Precio</th>
+              <th scope="col">Existencias</th>
+            </tr>
+          </thead>
+          <tbody id="filas-buscador"></tbody>
+        </table>
+      </div>
+
+      <div class="buscador__vacio" id="buscador-vacio">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          aria-hidden="true"
+        >
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.8-3.8" />
+        </svg>
+        <h2 id="titulo-vacio-buscador">¿Qué producto necesita?</h2>
+        <p id="texto-vacio-buscador">
+          Escriba al menos 3 letras del nombre, código, marca o proveedor.
+          Responde con productos reales del catálogo: si no existe, lo dice
+          claramente.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %} {% block scripts %} {#- fuentes.js va primero: busca el panel y
+registra su logica antes de que buscador.js sincronice el boton de alternar. -#}
+<script src="/static/js/fuentes.js" defer></script>
+<script src="/static/js/buscador.js" defer></script>
+{% endblock %}

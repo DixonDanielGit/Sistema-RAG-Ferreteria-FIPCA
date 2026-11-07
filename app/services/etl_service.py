@@ -42,6 +42,8 @@ MAX_DESCOMPRIMIDO_ZIP = 100 * 1024 * 1024
 MAX_RAZON_COMPRESION = 100
 MAX_DETALLE = 4000
 MAX_ERRORES_DETALLE = 20
+# Limite del Markdown que MarkItDown produce y que se guarda en la base
+MAX_MARKDOWN_CARACTERES = 10_000_000
 
 # La cabecera de PDF/XLSX/DOCX es obligatoria. TXT puede usar el orden indicado
 # en la documentacion cuando no contiene una cabecera reconocible.
@@ -1416,6 +1418,55 @@ def _extraer(
     return extractores[extension](contenido)
 
 
+# --- Conversion a Markdown con Microsoft MarkItDown (RF-02.4) ----------------
+# MarkItDown es el paso unico de lectura del documento: recibe el PDF, el
+# Excel, el Word o el TXT tal como llego y lo normaliza a Markdown. Ese texto
+# se guarda en archivos_subidos.contenido_markdown y es el insumo documentado
+# del ETL. Los lectores de filas siguientes siguen estructurando las tablas
+# relacionales: si la conversion falla, el catalogo se procesa igual.
+AVISO_SIN_MARKDOWN = (
+    "No se pudo convertir el archivo a Markdown con MarkItDown; el catalogo "
+    "se proceso con los lectores de filas"
+)
+
+
+def convertir_a_markdown(ruta: Path) -> tuple[str | None, str | None]:
+    """Convierte un catalogo a Markdown con Microsoft MarkItDown (RF-02.4).
+
+    Devuelve ``(markdown, aviso)``. Ningun fallo de la conversion detiene la
+    ingesta (RF-02.3): el original ya esta en disco y la extraccion de filas
+    no depende de este texto. Los caracteres ``\\x00`` se eliminan porque
+    PostgreSQL los rechaza en columnas de texto.
+    """
+    try:
+        from markitdown import MarkItDown
+    except ImportError as exc:
+        logger.warning("Microsoft MarkItDown no esta instalado: %s", exc)
+        return None, AVISO_SIN_MARKDOWN
+
+    try:
+        markdown = MarkItDown().convert(str(ruta)).text_content or ""
+    except Exception as exc:  # noqa: BLE001 - una conversion jamas rompe la carga
+        logger.warning("MarkItDown no pudo convertir %s: %s", ruta.name, exc)
+        return None, AVISO_SIN_MARKDOWN
+
+    markdown = markdown.replace("\x00", "")
+    if not markdown.strip():
+        logger.warning("MarkItDown no produjo contenido para %s", ruta.name)
+        return None, AVISO_SIN_MARKDOWN
+    if len(markdown) > MAX_MARKDOWN_CARACTERES:
+        logger.warning(
+            "El Markdown de %s supera %s caracteres y no se guarda",
+            ruta.name,
+            MAX_MARKDOWN_CARACTERES,
+        )
+        return None, (
+            f"El Markdown del archivo supera el limite de "
+            f"{MAX_MARKDOWN_CARACTERES} caracteres y no se guardo"
+        )
+    return markdown, None
+
+
 def previsualizar_archivo(
     nombre: str,
     contenido: bytes,
@@ -1516,6 +1567,9 @@ def procesar_archivo(
     digest = hashlib.sha256(contenido).hexdigest()
     ruta, ruta_relativa = _ruta_original(nombre)
     _escribir_original(ruta, contenido)
+    # RF-02.4: MarkItDown convierte el catalogo a Markdown y ese texto se
+    # guarda en la base junto al registro del archivo original.
+    markdown, aviso_markdown = convertir_a_markdown(ruta)
     try:
         archivo = inventario_model.crear_archivo(
             nombre=nombre,
@@ -1525,6 +1579,7 @@ def procesar_archivo(
             tamano_bytes=len(contenido),
             id_usuario=id_usuario,
             metadatos=metadatos,
+            contenido_markdown=markdown,
         )
     except (ErrorPostgres, BaseDeDatosNoDisponible, OSError, ValueError):
         ruta.unlink(missing_ok=True)
@@ -1632,6 +1687,8 @@ def procesar_archivo(
 
     filas_ok = guardados
     estado = "parcial" if filas_error else "ok"
+    if aviso_markdown:
+        errores.append(aviso_markdown)
     resultado = inventario_model.actualizar_estado_archivo(
         id_archivo,
         estado=estado,

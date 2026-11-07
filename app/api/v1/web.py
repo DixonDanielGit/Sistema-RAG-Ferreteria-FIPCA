@@ -32,7 +32,7 @@ plantillas = Jinja2Templates(directory=str(DIRECTORIO_PLANTILLAS))
 router = APIRouter(tags=["Interfaz web"], include_in_schema=False)
 
 # Vigencia de la cookie CSRF: la de la sesion, con un minimo util.
-MINUTOS_COOKIE_CSRF = 30
+MINUTOS_COOKIE_CSRF = 60
 
 
 def _contexto(request: Request, usuario: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -126,6 +126,20 @@ def chat(request: Request) -> HTMLResponse:
     if usuario is None:
         return _redirigir("/login")
     return _html(request, "chat_rag.html", _contexto(request, usuario))
+
+
+@router.get("/search", response_class=HTMLResponse, summary="Buscador comercial")
+def buscador(request: Request) -> HTMLResponse:
+    """Vista de busqueda de productos (RF-03).
+
+    La consulta en si no viaja aqui: la pagina solo monta la interfaz y el
+    JavaScript pregunta a ``/api/v1/inventario/busqueda``, que responde con
+    Full-Text Search de PostgreSQL.
+    """
+    usuario = _sesion(request)
+    if usuario is None:
+        return _redirigir("/login")
+    return _html(request, "buscador.html", _contexto(request, usuario))
 
 
 @router.get("/usuarios", response_class=HTMLResponse, summary="Gestion de usuarios")

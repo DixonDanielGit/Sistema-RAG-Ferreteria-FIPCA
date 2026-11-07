@@ -1,0 +1,234 @@
+{#- Panel de carga y gestion de catalogos (Semana 3).
+
+    Compartido por el asistente y por el Buscador Comercial: ambas vistas
+    cargan los mismos archivos con el mismo JavaScript (`fuentes.js`), que
+    trabaja con los identificadores de aqui. Todo lo que el panel necesita
+    esta declarado dentro de esta plantilla, asi que incluirla basta.
+-#}
+{% set puede_ingestar = usuario and 'catalogos:ingestar' in usuario.permisos %}
+{% set puede_eliminar = usuario and 'catalogos:eliminar' in usuario.permisos %}
+<div class="fuentes__velo" id="velo-fuentes" hidden></div>
+
+<aside class="fuentes" id="panel-fuentes" aria-labelledby="titulo-fuentes">
+  <div class="fuentes__cabecera">
+    <h2 class="fuentes__titulo" id="titulo-fuentes">Fuentes</h2>
+    <span class="fuentes__cuenta" id="cuenta-fuentes">0 archivos</span>
+    <button class="fuentes__cerrar" type="button" id="cerrar-fuentes"
+            aria-label="Cerrar el panel de fuentes">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+           stroke-linecap="round" aria-hidden="true">
+        <path d="M6 6l12 12M18 6L6 18" />
+      </svg>
+    </button>
+  </div>
+
+  <div class="fuentes__cuerpo">
+    <p class="fuentes__pendientes" id="aviso-vectorizacion" role="status" hidden></p>
+
+    {% if puede_ingestar %}
+    <input class="visually-hidden" type="file" id="archivos" multiple
+           accept=".pdf,.xlsx,.docx,.txt" tabindex="-1" />
+
+    <button class="fuentes__zona" type="button" id="zona-archivos">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5" />
+        <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" />
+      </svg>
+      <strong>Agregue sus archivos aquí</strong>
+      <span>PDF, XLSX, DOCX o TXT</span>
+      <span>Hasta 20 archivos de 100 MB cada uno</span>
+    </button>
+
+    <p class="fuentes__estado" id="estado-fuentes" role="status" hidden>
+      <span class="fuentes__cargando" aria-hidden="true"></span>
+      <span id="texto-estado-fuentes"></span>
+    </p>
+
+    <p class="fuentes__error" id="error-fuentes" role="alert" aria-live="polite"></p>
+    {% endif %}
+
+    <div class="fuentes__busqueda" id="busqueda-fuentes" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+           stroke-linecap="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="7" />
+        <path d="m20 20-3.8-3.8" />
+      </svg>
+      <label class="visually-hidden" for="buscar-fuentes">Buscar catálogos</label>
+      <input class="fuentes__buscador" type="search" id="buscar-fuentes"
+             placeholder="Buscar catálogo…" autocomplete="off" />
+    </div>
+
+    {% if puede_eliminar %}
+    <div class="fuentes__acciones-lote" id="acciones-lote" hidden>
+      <label class="fuentes__seleccionar-visibles">
+        <input type="checkbox" id="seleccionar-visibles"
+               aria-label="Seleccionar todos los catálogos visibles" />
+        <span>Marcar visibles</span>
+      </label>
+      <span class="fuentes__contador-seleccion" id="contador-seleccion"
+            role="status" aria-live="polite">0 seleccionados</span>
+      <button class="fuentes__eliminar-lote" type="button"
+              id="eliminar-seleccionados" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true" focusable="false">
+          <path d="M3 6h18" />
+          <path d="M8 6V4h8v2" />
+          <path d="m19 6-1 14H6L5 6" />
+          <path d="M10 11v5m4-5v5" />
+        </svg>
+        Eliminar
+      </button>
+    </div>
+    {% endif %}
+
+    <ul class="fuentes__lista" id="lista-fuentes" aria-live="polite"
+        data-puede-eliminar="{{ '1' if puede_eliminar else '' }}">
+      <li class="fuentes__vacio" id="fuentes-vacio">
+        <strong>Sin archivos todavía</strong>
+        {% if puede_ingestar %}
+        Agregue el catálogo del proveedor para que el asistente lo consulte.
+        {% else %}
+        Un administrador todavía no ha cargado el catálogo.
+        {% endif %}
+      </li>
+      <li class="fuentes__vacio" id="fuentes-sin-coincidencias" hidden>
+        <strong>Sin coincidencias</strong>
+        Ningún archivo coincide con la búsqueda.
+      </li>
+    </ul>
+  </div>
+
+  <p class="fuentes__nota">
+    Cada catálogo se analiza primero y muestra una vista previa.
+    Confirme los productos y el precio antes de guardarlos.
+    Los archivos se revisan de uno en uno para proteger el inventario.
+  </p>
+</aside>
+
+{% if puede_ingestar %}
+<dialog class="fuentes__dialogo" id="dialogo-revision-fuentes"
+        aria-labelledby="titulo-revision-fuentes">
+  <div class="fuentes__dialogo-contenido">
+    <header class="fuentes__dialogo-cabecera">
+      <h2 id="titulo-revision-fuentes">Revise el catálogo</h2>
+      <p class="fuentes__dialogo-resumen" id="resumen-revision-fuentes"
+         role="status" aria-live="polite"></p>
+    </header>
+    <div class="fuentes__dialogo-cuerpo">
+      <div class="fuentes__precios" id="seleccion-precios-fuentes"></div>
+      <section class="fuentes__cotizacion" id="datos-cotizacion-fuentes"
+               aria-label="Datos de la cotización">
+        <div class="fuentes__cotizacion-intro">
+          <h3>Datos del proveedor</h3>
+          <p class="fuentes__cotizacion-ayuda">
+            El nombre del archivo se usa como proveedor inicial; puede editarlo.
+            Complete el contacto de quien le envió la cotización.
+          </p>
+        </div>
+        <div class="fuentes__cotizacion-grid">
+          <label class="fuentes__campo" for="proveedor-fuente">
+            Proveedor <span aria-hidden="true">*</span>
+            <input id="proveedor-fuente" name="proveedor" type="text"
+                   maxlength="255" autocomplete="organization" required
+                   pattern="[\p{L}\p{N}][\p{L}\p{N}\p{M} .,'’&amp;()/#+-]*"
+                   title="Use letras, números y signos comunes de razón social"
+                   aria-describedby="ayuda-proveedor-fuente"
+                   data-mensaje-requerido="Indique el nombre del proveedor."
+                   data-mensaje-pattern="Use letras, números y signos comunes de razón social." />
+            <small class="fuentes__campo-ayuda" id="ayuda-proveedor-fuente"
+                   aria-live="polite">
+              Use letras, números y signos comunes de razón social.
+            </small>
+          </label>
+          <label class="fuentes__campo" for="vendedor-fuente">
+            Vendedor que le atiende <span aria-hidden="true">*</span>
+            <input id="vendedor-fuente" name="vendedor" type="text"
+                   maxlength="255" autocomplete="name" required
+                   pattern="[^\W\d_](?:[^\W\d_]|[ .'-])*"
+                   title="Use letras, espacios, apóstrofes, puntos y guiones"
+                   aria-describedby="ayuda-vendedor-fuente"
+                   data-mensaje-requerido="Indique quién le atendió."
+                   data-mensaje-pattern="Use letras, espacios, apóstrofes, puntos y guiones." />
+            <small class="fuentes__campo-ayuda" id="ayuda-vendedor-fuente"
+                   aria-live="polite">
+              Use letras, espacios, apóstrofes, puntos y guiones.
+            </small>
+          </label>
+          <label class="fuentes__campo" for="telefono-vendedor-fuente">
+            Teléfono del vendedor
+            <input id="telefono-vendedor-fuente" name="telefono_vendedor"
+                   type="tel" maxlength="40" autocomplete="tel"
+                   pattern="(?=(?:[^0-9]*[0-9]){7,15}[^0-9]*$)\+?[0-9][0-9\s().-]*"
+                   title="Indique entre 7 y 15 dígitos; puede usar +, espacios, paréntesis o guiones"
+                   aria-describedby="ayuda-telefono-vendedor-fuente"
+                   data-mensaje-pattern="Indique entre 7 y 15 dígitos; puede usar +, espacios, paréntesis, puntos o guiones." />
+            <small class="fuentes__campo-ayuda" id="ayuda-telefono-vendedor-fuente"
+                   aria-live="polite">
+              7 a 15 dígitos; puede usar +, espacios, paréntesis, puntos o guiones.
+            </small>
+          </label>
+          <label class="fuentes__campo" for="correo-vendedor-fuente">
+            Correo del vendedor
+            <input id="correo-vendedor-fuente" name="correo_vendedor"
+                   type="email" maxlength="255" autocomplete="email"
+                   pattern="[A-Za-z0-9!#$%&amp;'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&amp;'*+/=?^_`{|}~-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}"
+                   title="Use un correo con un dominio válido, por ejemplo nombre@dominio.com"
+                   aria-describedby="ayuda-correo-vendedor-fuente"
+                   data-mensaje-pattern="Use un correo con un dominio válido, por ejemplo nombre@dominio.com." />
+            <small class="fuentes__campo-ayuda" id="ayuda-correo-vendedor-fuente"
+                   aria-live="polite">
+              Formato: nombre@dominio.com.
+            </small>
+          </label>
+          <label class="fuentes__campo" for="moneda-fuente">
+            Moneda de esta cotización
+            <select id="moneda-fuente" name="moneda">
+              <option value="USD" selected>Dólar estadounidense (USD)</option>
+              <option value="VES">Bolívar (VES)</option>
+            </select>
+          </label>
+          <label class="fuentes__campo fuentes__campo--nota"
+                 for="nota-proveedor-fuente">
+            Nota de la cotización
+            <textarea id="nota-proveedor-fuente" name="nota_proveedor"
+                      maxlength="4000" rows="2"
+                      placeholder="Ej.: descuento válido hasta mañana"></textarea>
+          </label>
+        </div>
+        <p class="fuentes__cotizacion-ayuda">
+          Si el catálogo no informa el IVA, la oferta se guarda sin IVA (0 %).
+          Los descuentos detectados se guardan por producto.
+        </p>
+      </section>
+      <section class="fuentes__muestra-seccion"
+               aria-label="Muestra de productos detectados">
+        <h3>Productos detectados</h3>
+        <div class="fuentes__muestra-contenedor" id="contenedor-muestra-fuentes">
+          <table class="fuentes__muestra">
+            <thead>
+              <tr>
+                <th scope="col">Código</th>
+                <th scope="col">Producto</th>
+                <th scope="col">Precio detectado</th>
+                <th scope="col">Disp. proveedor</th>
+                <th scope="col">Descuento</th>
+                <th scope="col">IVA</th>
+                <th scope="col">Política de ventas</th>
+              </tr>
+            </thead>
+            <tbody id="muestra-fuentes"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+    <div class="fuentes__dialogo-acciones">
+      <button class="fuentes__dialogo-cancelar" id="cancelar-revision-fuentes"
+              type="button">Cancelar</button>
+      <button class="fuentes__dialogo-confirmar" id="confirmar-revision-fuentes"
+              type="button">Continuar</button>
+    </div>
+  </div>
+</dialog>
+{% endif %}

@@ -791,3 +791,128 @@ def test_migracion_etl_es_idempotente_y_sin_dependencia_fk_usuario():
     assert "create index if not exists idx_archivos_hash" in sql
     assert "id_usuario int" in sql
     assert "references usuarios" not in sql
+
+
+# --- Conversion a Markdown con Microsoft MarkItDown (RF-02.4) ----------------
+
+
+def test_convertir_a_markdown_convierte_un_catalogo_de_texto(tmp_path):
+    pytest.importorskip("markitdown")
+    ruta = tmp_path / "catalogo.txt"
+    ruta.write_text("codigo;nombre;precio\nSKU-MD;Martillo;3,25\n", encoding="utf-8")
+
+    markdown, aviso = etl_service.convertir_a_markdown(ruta)
+
+    assert aviso is None
+    assert "SKU-MD" in markdown
+    assert "Martillo" in markdown
+
+
+def test_convertir_a_markdown_quita_los_caracteres_nulos(tmp_path):
+    pytest.importorskip("markitdown")
+    ruta = tmp_path / "catalogo.txt"
+    ruta.write_bytes(b"codigo;nombre;precio\x00\nSKU-99;Pinza;2,50\n")
+
+    markdown, aviso = etl_service.convertir_a_markdown(ruta)
+
+    assert aviso is None
+    assert "\x00" not in markdown
+    assert "SKU-99" in markdown
+
+
+def test_convertir_a_markdown_no_guarda_un_texto_sobre_el_limite(
+    tmp_path, monkeypatch
+):
+    pytest.importorskip("markitdown")
+    monkeypatch.setattr(etl_service, "MAX_MARKDOWN_CARACTERES", 5)
+    ruta = tmp_path / "catalogo.txt"
+    ruta.write_text("codigo;nombre;precio\nSKU-LIMITE;Pinza;2,50\n", encoding="utf-8")
+
+    markdown, aviso = etl_service.convertir_a_markdown(ruta)
+
+    assert markdown is None
+    assert aviso is not None
+    assert "limite" in aviso
+
+
+def _persistencia_simulada(monkeypatch, tmp_path):
+    """Deja procesar_archivo sin base real y devuelve lo que se guardaria."""
+    monkeypatch.setenv("UPLOADS_DIR", str(tmp_path / "cargas"))
+    get_settings.cache_clear()
+    creado = {
+        "id_archivo": 41,
+        "nombre": "catalogo.txt",
+        "tipo": "txt",
+        "tamano_bytes": 0,
+    }
+    datos_archivo = {}
+
+    def crear(**valores):
+        datos_archivo.update(valores)
+        return creado
+
+    monkeypatch.setattr(inventario_model, "crear_archivo", crear)
+    monkeypatch.setattr(
+        inventario_model,
+        "actualizar_estado_archivo",
+        lambda id_archivo, **campos: {
+            **creado,
+            "estado": campos["estado"],
+            "filas_ok": campos.get("filas_ok", 0),
+            "filas_error": campos.get("filas_error", 0),
+            "detalle": campos.get("detalle"),
+        },
+    )
+    monkeypatch.setattr(
+        inventario_model,
+        "insertar_catalogo_completo",
+        lambda id_archivo, productos, *, guardar_ofertas: (len(productos), 0),
+    )
+    monkeypatch.setattr(
+        inventario_model, "contar_productos_de_archivo", lambda id_archivo: 1
+    )
+    return datos_archivo
+
+
+def test_procesar_archivo_guarda_el_markdown_junto_al_archivo(
+    monkeypatch, tmp_path
+):
+    pytest.importorskip("markitdown")
+    datos_archivo = _persistencia_simulada(monkeypatch, tmp_path)
+    contenido = b"codigo;nombre;precio\nSKU-41;Manguera;5,00\n"
+
+    try:
+        resultado = etl_service.procesar_archivo(
+            r"C:\proveedores\catalogo.txt", contenido, 7
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert resultado["estado"] == "ok"
+    assert resultado["filas_ok"] == 1
+    assert "SKU-41" in datos_archivo["contenido_markdown"]
+
+
+def test_si_markitdown_falla_la_carga_sigue_y_el_detalle_lo_avisa(
+    monkeypatch, tmp_path
+):
+    datos_archivo = _persistencia_simulada(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        etl_service,
+        "convertir_a_markdown",
+        lambda ruta: (None, etl_service.AVISO_SIN_MARKDOWN),
+    )
+    contenido = b"codigo;nombre;precio\nSKU-42;Pinza;2,50\n"
+
+    try:
+        resultado = etl_service.procesar_archivo(
+            r"C:\proveedores\catalogo.txt", contenido, 7
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert resultado["estado"] == "ok"
+    assert resultado["filas_ok"] == 1
+    assert datos_archivo["contenido_markdown"] is None
+    assert etl_service.AVISO_SIN_MARKDOWN in resultado["detalle"]
+

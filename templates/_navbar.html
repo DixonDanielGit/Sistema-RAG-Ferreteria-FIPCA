@@ -19,6 +19,8 @@
        {% if activo == 'dashboard' %}aria-current="page"{% endif %}>Panel</a>
     <a class="fipca-nav__enlace" href="/chat"
        {% if activo == 'chat' %}aria-current="page"{% endif %}>Asistente</a>
+    <a class="fipca-nav__enlace" href="/search"
+       {% if activo == 'search' %}aria-current="page"{% endif %}>Búsqueda</a>
     {% if usuario and 'usuarios:gestionar' in usuario.permisos %}
     <a class="fipca-nav__enlace" href="/usuarios"
        {% if activo == 'usuarios' %}aria-current="page"{% endif %}>Usuarios</a>

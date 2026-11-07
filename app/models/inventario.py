@@ -29,8 +29,14 @@ def crear_archivo(
     tamano_bytes: int,
     id_usuario: int,
     metadatos: dict[str, Any] | None = None,
+    contenido_markdown: str | None = None,
 ) -> dict[str, Any]:
-    """Registra el archivo y asocia atómicamente su proveedor y vendedor."""
+    """Registra el archivo y asocia atómicamente su proveedor y vendedor.
+
+    ``contenido_markdown`` guarda el catalogo convertido por MarkItDown junto
+    al registro (RF-02.4); si es ``None`` la conversion no estuvo disponible y
+    el archivo se procesa igual (tolerancia RF-02.3).
+    """
     metadatos = metadatos or {}
     proveedor = metadatos.get("proveedor")
     id_proveedor = None
@@ -104,8 +110,8 @@ def crear_archivo(
             INSERT INTO archivos_subidos
                 (nombre, tipo, ruta, hash_sha256, tamano_bytes, estado, id_usuario,
                  id_proveedor, vendedor_nombre, vendedor_telefono, vendedor_correo,
-                 moneda, nota_proveedor)
-            VALUES (%s, %s, %s, %s, %s, 'pendiente', %s, %s, %s, %s, %s, %s, %s)
+                 moneda, nota_proveedor, contenido_markdown)
+            VALUES (%s, %s, %s, %s, %s, 'pendiente', %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id_archivo, nombre, tipo, fecha_de_subida, tamano_bytes,
                       estado, filas_ok, filas_error, detalle, moneda,
                       vendedor_nombre AS vendedor,
@@ -125,6 +131,7 @@ def crear_archivo(
                 correo_vendedor,
                 moneda,
                 metadatos.get("nota_proveedor"),
+                contenido_markdown,
             ),
         )
         return dict(cursor.fetchone())
@@ -674,6 +681,90 @@ def buscar_productos_por_vector(
         (vector_texto, vector_texto, limite),
         rag=True,
     )
+
+
+def _escapar_ilike(texto: str) -> str:
+    """Escapa los comodines de ILIKE para que el texto se compare literal."""
+    return texto.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _condiciones_busqueda(consulta: str) -> tuple[str, tuple[str, ...]]:
+    """Arma el WHERE compartido por el conteo y el listado del buscador.
+
+    El texto del usuario nunca se concatena en la sentencia: viaja siempre
+    como parametro ``%s``, asi que comillas, comodines o intentos de inyeccion
+    quedan tratados como texto a buscar y no alteran la consulta.
+    """
+    patron = "%" + _escapar_ilike(consulta) + "%"
+    condicion = """
+        p.activo
+        AND (p.texto_busqueda @@ plainto_tsquery('spanish', %s)
+             OR p.nombre ILIKE %s
+             OR p.codigo ILIKE %s
+             OR p.marca ILIKE %s
+             OR p.descripcion ILIKE %s
+             OR pr.nombre ILIKE %s
+             OR c.nombre ILIKE %s)
+    """
+    coincidencias = (consulta, patron, patron, patron, patron, patron, patron)
+    return condicion, coincidencias
+
+
+def buscar_productos_fulltext(
+    consulta: str, limite: int
+) -> tuple[list[dict[str, Any]], int]:
+    """Busca productos con Full-Text Search nativo de PostgreSQL (RF-03).
+
+    Todo lo hace la base de datos: el ``tsvector`` en espanol de la migracion
+    9_0 con ``plainto_tsquery``, mas ``ILIKE`` como respaldo para busquedas
+    parciales de codigo o proveedor. Aqui no participa ningun modelo de IA ni
+    hay latencia de red hacia un proveedor externo: la respuesta sale de los
+    indices GIN en milisegundos.
+
+    Devuelve ``(filas, total)``; ``total`` puede superar ``limite`` porque el
+    listado se corta y el total se informa completo. Sin coincidencias la
+    respuesta es ``([], 0)``, que es un resultado valido y no un error.
+    """
+    condicion, coincidencias = _condiciones_busqueda(consulta)
+    exacto = _escapar_ilike(consulta)
+    prefijo = exacto + "%"
+
+    with cursor_rag(commit=False) as cursor:
+        cursor.execute(
+            f"""
+            SELECT count(*) AS total
+              FROM productos AS p
+              LEFT JOIN categoria AS c ON c.id_categoria = p.id_categoria
+              LEFT JOIN proveedores AS pr ON pr.id_proveedores = p.id_proveedor
+             WHERE {condicion}
+            """,
+            coincidencias,
+        )
+        fila = cursor.fetchone()
+        total = int(fila["total"]) if fila else 0
+        if total == 0:
+            return [], 0
+
+        cursor.execute(
+            f"""
+            SELECT p.id, p.codigo, p.nombre, p.marca,
+                   c.nombre AS categoria, pr.nombre AS proveedor,
+                   p.descripcion, p.presentacion,
+                   p.precio, p.iva, p.descuentos, p.stock, p.moneda,
+                   ts_rank(p.texto_busqueda,
+                           plainto_tsquery('spanish', %s)) AS relevancia
+              FROM productos AS p
+              LEFT JOIN categoria AS c ON c.id_categoria = p.id_categoria
+              LEFT JOIN proveedores AS pr ON pr.id_proveedores = p.id_proveedor
+             WHERE {condicion}
+             ORDER BY CASE WHEN p.codigo ILIKE %s THEN 0 ELSE 1 END,
+                      CASE WHEN p.nombre ILIKE %s THEN 0 ELSE 1 END,
+                      relevancia DESC, p.nombre ASC, p.id
+             LIMIT %s
+            """,
+            (consulta, *coincidencias, exacto, prefijo, limite),
+        )
+        return list(cursor.fetchall()), total
 
 
 def listar_archivos(limite: int = 100) -> list[dict[str, Any]]:

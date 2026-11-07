@@ -12,6 +12,12 @@ from app.schemas.usuario_schema import PATRON_CORREO, PATRON_NOMBRE
 
 EstadoArchivo = Literal["pendiente", "procesando", "ok", "parcial", "error", "rechazado"]
 
+# Limites de consulta del Buscador Comercial (RF-03.1 / RNF-01.2).
+LONGITUD_MINIMA_BUSQUEDA = 2
+LONGITUD_MAXIMA_BUSQUEDA = 200
+LIMITE_DEFECTO_BUSQUEDA = 50
+LIMITE_MAXIMO_BUSQUEDA = 100
+
 PATRON_PROVEEDOR = re.compile(
     r"[^\W_](?:[^\W_]|[\u0300-\u036f]|[ .,'’&()/#+-])*",
     re.UNICODE,
@@ -98,6 +104,42 @@ class ArchivoIngesta(BaseModel):
     proveedor: str | None = None
     vendedor: str | None = None
     moneda: str | None = None
+
+
+class ProductoBusqueda(BaseModel):
+    """Coincidencia del catalogo devuelta por el Buscador Comercial (RF-03)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: int
+    codigo: str | None = None
+    nombre: str
+    marca: str | None = None
+    categoria: str | None = None
+    proveedor: str | None = None
+    descripcion: str | None = None
+    presentacion: str | None = None
+    precio: float
+    iva: float
+    descuentos: float = 0.0
+    stock: int = 0
+    moneda: str = "USD"
+    relevancia: float | None = Field(
+        default=None, description="ts_rank de PostgreSQL; no es un puntaje de IA"
+    )
+
+
+class ResultadoBusqueda(BaseModel):
+    """Respuesta de una consulta del Buscador Comercial.
+
+    Solo devuelve productos reales de la base: si no hay coincidencias,
+    `productos` queda vacio y `total` en cero; el buscador nunca inventa
+    filas ni inventa una respuesta en lenguaje natural.
+    """
+
+    consulta: str
+    total: int = Field(ge=0, description="Coincidencias encontradas")
+    productos: list[ProductoBusqueda] = Field(default_factory=list)
 
 
 class EstadoVectorizacion(BaseModel):

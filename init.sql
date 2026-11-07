@@ -93,7 +93,10 @@ CREATE TABLE archivos_subidos (
     vendedor_correo VARCHAR(255),
     moneda CHAR(3) NOT NULL DEFAULT 'USD',
     nota_proveedor TEXT,
-    terminado_en TIMESTAMPTZ
+    terminado_en TIMESTAMPTZ,
+    -- Markdown del catalogo producido por Microsoft MarkItDown (RF-02.4,
+    -- migracion 10_0); vacio solo si la conversion no pudo ejecutarse.
+    contenido_markdown TEXT
 );
 
 CREATE INDEX idx_archivos_hash ON archivos_subidos (hash_sha256);
@@ -177,6 +180,22 @@ CREATE TABLE productos (
     descripcion_vectorial vector(384),
     modelo_embedding VARCHAR(80),
     vectorizado_en TIMESTAMPTZ,
+    -- Texto indexado del Buscador Comercial (migracion 9_0): se recalcula
+    -- solo con el diccionario espanol y nunca se escribe a mano.
+    texto_busqueda tsvector
+        GENERATED ALWAYS AS (
+            to_tsvector(
+                'spanish'::regconfig,
+                coalesce(nombre, '') || ' ' ||
+                coalesce(codigo, '') || ' ' ||
+                coalesce(codigo_interno, '') || ' ' ||
+                coalesce(marca, '') || ' ' ||
+                coalesce(descripcion, '') || ' ' ||
+                coalesce(presentacion, '') || ' ' ||
+                coalesce(unidad_medida, '') || ' ' ||
+                coalesce(ubicacion, '')
+            )
+        ) STORED,
 
     CONSTRAINT fk_productos_archivo
         FOREIGN KEY (id_archivo) REFERENCES archivos_subidos(id_archivo)
@@ -210,6 +229,19 @@ CREATE INDEX idx_productos_marca_trgm
     ON productos USING gin (marca gin_trgm_ops);
 CREATE INDEX idx_productos_descripcion_trgm
     ON productos USING gin (descripcion gin_trgm_ops);
+
+-- Busqueda por coincidencia parcial en codigo, proveedor y categoria
+-- (Buscador Comercial, migracion 9_0).
+CREATE INDEX idx_productos_codigo_trgm
+    ON productos USING gin (codigo gin_trgm_ops);
+CREATE INDEX idx_proveedores_nombre_trgm
+    ON proveedores USING gin (nombre gin_trgm_ops);
+CREATE INDEX idx_categoria_nombre_trgm
+    ON categoria USING gin (nombre gin_trgm_ops);
+
+-- Busqueda full-text en espanol: tsvector @@ plainto_tsquery (RF-03.2).
+CREATE INDEX idx_productos_texto_busqueda
+    ON productos USING gin (texto_busqueda);
 
 -- Busqueda vectorial por distancia de coseno (RF-03.2, Semana 4).
 CREATE INDEX idx_productos_descripcion_vectorial

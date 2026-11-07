@@ -20,3 +20,8 @@ Pillow
 openpyxl
 python-docx
 pypdf
+
+# Fase 1: conversion de catalogos a Markdown (RF-02.4)
+# markitdown 0.0.2 es la ultima version sin magika/onnxruntime, que no
+# publica ruedas para el Python 3.15 del venv de Windows.
+markitdown==0.0.2

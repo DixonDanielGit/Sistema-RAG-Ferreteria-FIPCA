@@ -93,7 +93,7 @@ def bases_de_prueba():
         conexion_rag = conexion_admin(RAG_PRUEBA)
         try:
             with conexion_rag.cursor() as cur:
-                for version in ("3_0", "4_0", "7_0", "8_0"):
+                for version in ("3_0", "4_0", "7_0", "8_0", "9_0", "10_0"):
                     migracion = RAIZ / "scripts" / f"migracion_{version}.sql"
                     cur.execute(migracion.read_text(encoding="utf-8"))
         finally:

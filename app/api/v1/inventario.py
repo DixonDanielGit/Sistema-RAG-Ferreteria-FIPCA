@@ -27,10 +27,15 @@ from app.models import inventario as inventario_model
 from app.schemas.inventario_schema import (
     ArchivoIngesta,
     EstadoVectorizacion,
+    LIMITE_DEFECTO_BUSQUEDA,
+    LIMITE_MAXIMO_BUSQUEDA,
+    LONGITUD_MAXIMA_BUSQUEDA,
+    LONGITUD_MINIMA_BUSQUEDA,
     MetadatosCatalogo,
     RespuestaEliminacionArchivo,
     RespuestaEliminacionCatalogos,
     RespuestaIngesta,
+    ResultadoBusqueda,
     SolicitudEliminacionCatalogos,
 )
 from app.services import etl_service, vector_search
@@ -55,6 +60,56 @@ def archivos(
 ) -> list[dict[str, Any]]:
     """Permite a usuarios autenticados revisar el estado de las ingestas."""
     return inventario_model.listar_archivos(limite)
+
+
+@router.get(
+    "/busqueda",
+    response_model=ResultadoBusqueda,
+    summary="Buscar productos en el catalogo (Full-Text Search)",
+    responses={
+        401: {"description": "Sesion no valida"},
+        422: {"description": "Consulta vacia o demasiado corta"},
+    },
+)
+def busqueda(
+    request: Request,
+    consulta: str = Query(
+        min_length=LONGITUD_MINIMA_BUSQUEDA,
+        max_length=LONGITUD_MAXIMA_BUSQUEDA,
+        description="Nombre, codigo, marca, descripcion, proveedor o categoria",
+    ),
+    limite: int = Query(
+        default=LIMITE_DEFECTO_BUSQUEDA,
+        ge=1,
+        le=LIMITE_MAXIMO_BUSQUEDA,
+        description="Maximo de productos devueltos",
+    ),
+    usuario: dict[str, Any] = Depends(usuario_actual),
+) -> ResultadoBusqueda:
+    """Busqueda local con Full-Text Search de PostgreSQL (RF-03).
+
+    La ruta no llama a ningun modelo de IA: `tsvector` en espanol y `ILIKE`
+    como respaldo responden en milisegundos sobre el catalogo completo. Que
+    no haya coincidencias es un resultado valido, no un error, y el buscador
+    jamas inventa productos.
+    """
+    limpio = " ".join(consulta.split())
+    if len(limpio) < LONGITUD_MINIMA_BUSQUEDA:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"La busqueda debe tener al menos "
+                f"{LONGITUD_MINIMA_BUSQUEDA} caracteres"
+            ),
+        )
+
+    filas, total = inventario_model.buscar_productos_fulltext(limpio, limite)
+    registrar_evento(
+        request,
+        f"busqueda de catalogo: {limpio}",
+        id_usuario=usuario["id"],
+    )
+    return ResultadoBusqueda(consulta=limpio, total=total, productos=filas)
 
 
 @router.get(
