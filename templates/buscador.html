@@ -105,11 +105,15 @@ Search; aqui solo se pinta lo que el servidor devuelve. -#}
         </button>
       </form>
 
-      <p class="buscador__ayuda" id="ayuda-buscador">
-        Escriba al menos 1 carácter del nombre, código, marca o proveedor.
-        Responde con productos reales del catálogo: si no existe, lo dice
-        claramente.
-      </p>
+      <div
+        class="buscador__atajos"
+        role="group"
+        aria-label="Búsquedas de ejemplo"
+      >
+        <button class="accion__atajo" type="button" id="boton-ver-catalogo">
+          Ver todo el catálogo
+        </button>
+      </div>
       <p
         class="fipca-campo__error buscador__error"
         id="error-buscador"
@@ -117,23 +121,6 @@ Search; aqui solo se pinta lo que el servidor devuelve. -#}
         aria-live="polite"
         hidden
       ></p>
-
-      <div
-        class="buscador__atajos"
-        role="group"
-        aria-label="Búsquedas de ejemplo"
-      >
-        <span class="accion__etiqueta">Pruebe con:</span>
-        <button class="accion__atajo" type="button" data-buscar="manguera">
-          manguera
-        </button>
-        <button class="accion__atajo" type="button" data-buscar="riego 60">
-          riego 60
-        </button>
-        <button class="accion__atajo" type="button" data-buscar="M1660">
-          M1660
-        </button>
-      </div>
 
       <p
         class="buscador__resumen"
@@ -159,16 +146,125 @@ Search; aqui solo se pinta lo que el servidor devuelve. -#}
           </caption>
           <thead>
             <tr>
-              <th scope="col">Código</th>
-              <th scope="col">Producto</th>
-              <th scope="col">Proveedor</th>
-              <th scope="col">Precio</th>
-              <th scope="col">Existencias</th>
+              <th scope="col" aria-sort="none">
+                <button
+                  class="buscador__ordenar"
+                  type="button"
+                  data-ordenar-por="codigo"
+                  data-etiqueta-orden="código"
+                >
+                  Código
+                  <svg
+                    class="buscador__orden-icono"
+                    viewBox="0 0 16 16"
+                    aria-hidden="true"
+                  >
+                    <path class="buscador__orden-arriba" d="m3 7 5-5 5 5" />
+                    <path class="buscador__orden-abajo" d="m3 9 5 5 5-5" />
+                  </svg>
+                </button>
+              </th>
+              <th scope="col" aria-sort="none">
+                <button
+                  class="buscador__ordenar"
+                  type="button"
+                  data-ordenar-por="nombre"
+                  data-etiqueta-orden="producto"
+                >
+                  Producto
+                  <svg
+                    class="buscador__orden-icono"
+                    viewBox="0 0 16 16"
+                    aria-hidden="true"
+                  >
+                    <path class="buscador__orden-arriba" d="m3 7 5-5 5 5" />
+                    <path class="buscador__orden-abajo" d="m3 9 5 5 5-5" />
+                  </svg>
+                </button>
+              </th>
+              <th scope="col" aria-sort="none">
+                <button
+                  class="buscador__ordenar"
+                  type="button"
+                  data-ordenar-por="proveedor"
+                  data-etiqueta-orden="proveedor"
+                >
+                  Proveedor
+                  <svg
+                    class="buscador__orden-icono"
+                    viewBox="0 0 16 16"
+                    aria-hidden="true"
+                  >
+                    <path class="buscador__orden-arriba" d="m3 7 5-5 5 5" />
+                    <path class="buscador__orden-abajo" d="m3 9 5 5 5-5" />
+                  </svg>
+                </button>
+              </th>
+              <th scope="col" aria-sort="none">
+                <button
+                  class="buscador__ordenar"
+                  type="button"
+                  data-ordenar-por="precio"
+                  data-etiqueta-orden="precio"
+                >
+                  Precio
+                  <svg
+                    class="buscador__orden-icono"
+                    viewBox="0 0 16 16"
+                    aria-hidden="true"
+                  >
+                    <path class="buscador__orden-arriba" d="m3 7 5-5 5 5" />
+                    <path class="buscador__orden-abajo" d="m3 9 5 5 5-5" />
+                  </svg>
+                </button>
+              </th>
+              <th scope="col" aria-sort="none">
+                <button
+                  class="buscador__ordenar"
+                  type="button"
+                  data-ordenar-por="stock"
+                  data-etiqueta-orden="existencias"
+                >
+                  Existencias
+                  <svg
+                    class="buscador__orden-icono"
+                    viewBox="0 0 16 16"
+                    aria-hidden="true"
+                  >
+                    <path class="buscador__orden-arriba" d="m3 7 5-5 5 5" />
+                    <path class="buscador__orden-abajo" d="m3 9 5 5 5-5" />
+                  </svg>
+                </button>
+              </th>
             </tr>
           </thead>
           <tbody id="filas-buscador"></tbody>
         </table>
       </div>
+      <nav
+        class="buscador__paginacion"
+        id="paginacion-catalogo"
+        aria-label="Paginación de resultados"
+        hidden
+      >
+        <button
+          class="accion__atajo"
+          type="button"
+          id="pagina-anterior-catalogo"
+          aria-label="Página anterior"
+        >
+          Anterior
+        </button>
+        <span id="estado-paginacion-catalogo" aria-live="polite"></span>
+        <button
+          class="accion__atajo"
+          type="button"
+          id="pagina-siguiente-catalogo"
+          aria-label="Página siguiente"
+        >
+          Siguiente
+        </button>
+      </nav>
 
       <div class="buscador__vacio" id="buscador-vacio">
         <svg
@@ -192,6 +288,63 @@ Search; aqui solo se pinta lo que el servidor devuelve. -#}
     </div>
   </div>
 </div>
+<dialog
+  class="buscador__detalle-dialogo"
+  id="dialogo-detalle-producto"
+  aria-labelledby="titulo-detalle-producto"
+>
+  <div class="buscador__detalle-cabecera">
+    <div>
+      <p class="buscador__detalle-ceja">Ficha comercial</p>
+      <h2 id="titulo-detalle-producto">Detalle del producto</h2>
+    </div>
+    <button
+      class="buscador__detalle-cerrar"
+      type="button"
+      id="cerrar-detalle-producto"
+      aria-label="Cerrar detalle del producto"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+        <path d="m6 6 12 12M18 6 6 18" />
+      </svg>
+    </button>
+  </div>
+  <p
+    class="buscador__detalle-estado"
+    id="estado-detalle-producto"
+    role="status"
+    aria-live="polite"
+    hidden
+  >
+    <span class="spinner" aria-hidden="true"></span>
+    Cargando información del producto…
+  </p>
+  <p
+    class="fipca-campo__error buscador__detalle-error"
+    id="error-detalle-producto"
+    role="alert"
+    hidden
+  ></p>
+  <div id="contenido-detalle-producto" hidden>
+    <section class="buscador__detalle-seccion" aria-labelledby="titulo-seccion-producto">
+      <h3 id="titulo-seccion-producto">Producto</h3>
+      <dl class="buscador__detalle-lista" id="datos-detalle-producto"></dl>
+    </section>
+    <section class="buscador__detalle-seccion" aria-labelledby="titulo-seccion-proveedor">
+      <h3 id="titulo-seccion-proveedor">Proveedor</h3>
+      <dl class="buscador__detalle-lista" id="datos-detalle-proveedor"></dl>
+    </section>
+    <section class="buscador__detalle-seccion" aria-labelledby="titulo-seccion-catalogo">
+      <h3 id="titulo-seccion-catalogo">Catálogo de origen</h3>
+      <dl class="buscador__detalle-lista" id="datos-detalle-catalogo"></dl>
+    </section>
+    <section class="buscador__detalle-seccion" aria-labelledby="titulo-seccion-ofertas">
+      <h3 id="titulo-seccion-ofertas"></h3>
+      <div id="ofertas-detalle-producto"></div>
+    </section>
+  </div>
+</dialog>
 {% endblock %} {% block scripts %} {#- fuentes.js va primero: busca el panel y
 registra su logica antes de que buscador.js sincronice el boton de alternar. -#}
 <script src="/static/js/fuentes.js" defer></script>

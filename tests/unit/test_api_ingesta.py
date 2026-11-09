@@ -47,6 +47,19 @@ def test_admin_carga_lote_y_recibe_resultado_por_archivo(monkeypatch):
             "filas_ok": 1 if nombre.endswith(".txt") else 0,
             "filas_error": 0,
             "detalle": None,
+            "respuesta_ia": (
+                {
+                    "productos": [
+                        {
+                            "codigo": "SKU-1",
+                            "nombre": "Martillo",
+                            "precio": "1.25",
+                        }
+                    ]
+                }
+                if nombre.endswith(".txt")
+                else None
+            ),
         }
 
     monkeypatch.setattr(inventario.etl_service, "procesar_archivo", procesar)
@@ -73,6 +86,7 @@ def test_admin_carga_lote_y_recibe_resultado_por_archivo(monkeypatch):
     assert cuerpo["total_archivos"] == 2
     assert cuerpo["archivos_ok"] == 1
     assert cuerpo["archivos_rechazados"] == 1
+    assert cuerpo["resultados"][0]["respuesta_ia"]["productos"][0]["codigo"] == "SKU-1"
     assert [llamada[2] for llamada in llamadas] == [9, 9]
     assert [llamada[3]["proveedor"] for llamada in llamadas] == [
         "Proveedor de prueba",

@@ -8,6 +8,7 @@
   var MINIMO_BUSQUEDA = 1;
   var RETRASO_MS = 350;
   var LIMITE = 50;
+  var LIMITE_CATALOGO = 50;
 
   var formulario = document.getElementById("form-buscador");
   var entrada = document.getElementById("consulta-buscador");
@@ -21,11 +22,32 @@
   var tituloVacio = document.getElementById("titulo-vacio-buscador");
   var textoVacio = document.getElementById("texto-vacio-buscador");
   var cargando = document.getElementById("cargando-buscador");
+  var botonCatalogo = document.getElementById("boton-ver-catalogo");
+  var paginacion = document.getElementById("paginacion-catalogo");
+  var anteriorCatalogo = document.getElementById("pagina-anterior-catalogo");
+  var siguienteCatalogo = document.getElementById("pagina-siguiente-catalogo");
+  var estadoPaginacion = document.getElementById("estado-paginacion-catalogo");
+  var dialogoDetalle = document.getElementById("dialogo-detalle-producto");
+  var cerrarDetalle = document.getElementById("cerrar-detalle-producto");
+  var estadoDetalle = document.getElementById("estado-detalle-producto");
+  var errorDetalle = document.getElementById("error-detalle-producto");
+  var contenidoDetalle = document.getElementById("contenido-detalle-producto");
+  var tituloDetalle = document.getElementById("titulo-detalle-producto");
+  var datosProducto = document.getElementById("datos-detalle-producto");
+  var datosProveedor = document.getElementById("datos-detalle-proveedor");
+  var datosCatalogo = document.getElementById("datos-detalle-catalogo");
+  var ofertasProducto = document.getElementById("ofertas-detalle-producto");
 
   var tituloInicial = tituloVacio ? tituloVacio.textContent.trim() : "";
   var textoInicial = textoVacio ? textoVacio.textContent.trim() : "";
 
   var temporizador = null;
+  var paginaActual = 1;
+  var totalActual = 0;
+  var modoCatalogo = false;
+  var ordenarPor = null;
+  var direccionOrden = "asc";
+  var solicitudDetalle = 0;
   /* Numero de peticion: si llega una respuesta de una consulta que ya no es
      la vigente, se descarta y no pisa los resultados actuales. */
   var peticion = 0;
@@ -73,6 +95,9 @@
   function mostrarReposo() {
     ocultar(cargando);
     ocultar(resumen);
+    ocultar(paginacion);
+    modoCatalogo = false;
+    if (botonCatalogo) botonCatalogo.disabled = false;
     mostrarError("");
     fijarVacio(tituloInicial, textoInicial);
   }
@@ -94,15 +119,11 @@
 
   function resumenDe(datos, milisegundos) {
     var total = Number(datos.total) || 0;
-    var lista = datos.productos || [];
     var texto =
       total === 1
         ? "1 producto encontrado"
         : total + " productos encontrados";
     texto += " en " + milisegundos + " ms.";
-    if (total > lista.length) {
-      texto += " Mostrando los primeros " + lista.length + ".";
-    }
     return texto;
   }
 
@@ -120,8 +141,171 @@
     contenedor.appendChild(nodo);
   }
 
+  function agregarCampo(lista, etiqueta, valor) {
+    if (valor === null || valor === undefined || valor === "") return;
+    var termino = document.createElement("dt");
+    termino.textContent = etiqueta;
+    var definicion = document.createElement("dd");
+    definicion.textContent = String(valor);
+    lista.appendChild(termino);
+    lista.appendChild(definicion);
+  }
+
+  function fechaLocal(valor, soloFecha) {
+    if (!valor) return "No registrado";
+    var fecha;
+    if (soloFecha && /^\d{4}-\d{2}-\d{2}$/.test(valor)) {
+      var partes = valor.split("-");
+      fecha = new Date(Number(partes[0]), Number(partes[1]) - 1, Number(partes[2]));
+    } else {
+      fecha = new Date(valor);
+    }
+    if (isNaN(fecha.getTime())) return String(valor);
+    return new Intl.DateTimeFormat("es-VE", {
+      dateStyle: "medium",
+      timeStyle: soloFecha ? undefined : "short",
+    }).format(fecha);
+  }
+
+  function limpiarDetalle() {
+    [datosProducto, datosProveedor, datosCatalogo, ofertasProducto].forEach(
+      function (nodo) {
+        if (nodo) nodo.replaceChildren();
+      }
+    );
+  }
+
+  function renderizarDetalle(datos) {
+    var producto = datos.producto || {};
+    if (tituloDetalle) tituloDetalle.textContent = producto.nombre || "Detalle del producto";
+    agregarCampo(datosProducto, "Código", producto.codigo);
+    agregarCampo(datosProducto, "Código interno", producto.codigo_interno);
+    agregarCampo(datosProducto, "Marca", producto.marca);
+    agregarCampo(datosProducto, "Categoría", producto.categoria);
+    agregarCampo(datosProducto, "Descripción", producto.descripcion);
+    agregarCampo(datosProducto, "Unidad", producto.unidad_medida);
+    agregarCampo(datosProducto, "Presentación", producto.presentacion);
+    agregarCampo(
+      datosProducto,
+      "Precio",
+      formatearPrecio(producto.precio, producto.moneda)
+    );
+    agregarCampo(datosProducto, "IVA", Number(producto.iva) + " %");
+    agregarCampo(datosProducto, "Descuento", Number(producto.descuentos) + " %");
+    agregarCampo(datosProducto, "Existencias", producto.stock);
+    agregarCampo(datosProducto, "Punto de reorden", producto.punto_reorden);
+    agregarCampo(datosProducto, "Ubicación", producto.ubicacion);
+    agregarCampo(
+      datosProducto,
+      "Última actualización",
+      fechaLocal(producto.actualizado_en, false)
+    );
+
+    var proveedor = datos.proveedor;
+    if (proveedor) {
+      agregarCampo(datosProveedor, "Nombre", proveedor.nombre);
+      agregarCampo(datosProveedor, "RIF", proveedor.rif);
+      agregarCampo(datosProveedor, "Dirección", proveedor.direccion);
+      agregarCampo(datosProveedor, "Teléfono", proveedor.telefono);
+      agregarCampo(datosProveedor, "Correo", proveedor.correo);
+      agregarCampo(datosProveedor, "Vendedor", proveedor.vendedor);
+      agregarCampo(datosProveedor, "Teléfono del vendedor", proveedor.telefono_vendedor);
+      agregarCampo(datosProveedor, "Correo del vendedor", proveedor.correo_vendedor);
+      agregarCampo(datosProveedor, "Moneda", proveedor.moneda);
+    } else {
+      agregarCampo(datosProveedor, "Estado", "Sin proveedor registrado");
+    }
+
+    var catalogo = datos.catalogo;
+    if (catalogo) {
+      agregarCampo(datosCatalogo, "Archivo", catalogo.nombre);
+      agregarCampo(datosCatalogo, "Formato", catalogo.tipo);
+      agregarCampo(
+        datosCatalogo,
+        "Fecha de carga",
+        fechaLocal(catalogo.fecha_de_subida, false)
+      );
+      agregarCampo(datosCatalogo, "Estado", catalogo.estado);
+      agregarCampo(datosCatalogo, "Filas incorporadas", catalogo.filas_ok);
+      agregarCampo(datosCatalogo, "Filas con error", catalogo.filas_error);
+      agregarCampo(datosCatalogo, "Moneda", catalogo.moneda);
+      agregarCampo(datosCatalogo, "Nota del proveedor", catalogo.nota_proveedor);
+      agregarCampo(datosCatalogo, "Vendedor en la carga", catalogo.vendedor);
+    } else {
+      agregarCampo(datosCatalogo, "Estado", "No hay archivo de origen asociado");
+    }
+
+    var ofertas = datos.ofertas || [];
+    if (ofertas.length === 0) {
+      var sinOfertas = document.createElement("p");
+      sinOfertas.textContent = "No hay otras ofertas registradas.";
+      ofertasProducto.appendChild(sinOfertas);
+    } else {
+      ofertas.forEach(function (oferta) {
+        var articulo = document.createElement("article");
+        articulo.className = "buscador__oferta";
+        var nombre = document.createElement("h4");
+        nombre.textContent = oferta.proveedor || "Proveedor";
+        articulo.appendChild(nombre);
+        var lista = document.createElement("dl");
+        lista.className = "buscador__detalle-lista";
+        agregarCampo(lista, "Código proveedor", oferta.codigo_proveedor);
+        agregarCampo(lista, "Precio", formatearPrecio(oferta.precio, oferta.moneda));
+        agregarCampo(lista, "Descuento", oferta.descuento);
+        agregarCampo(lista, "Disponible", oferta.disponible === null ? null : oferta.disponible ? "Sí" : "No");
+        agregarCampo(
+          lista,
+          "Cantidad disponible",
+          oferta.cantidad_disponible_proveedor
+        );
+        agregarCampo(lista, "Cantidad mínima", oferta.cantidad_minima);
+        agregarCampo(lista, "Plazo de entrega (días)", oferta.plazo_entrega_dias);
+        agregarCampo(lista, "Política de ventas", oferta.politica_ventas);
+        agregarCampo(lista, "Cotización", fechaLocal(oferta.fecha_cotizacion, true));
+        agregarCampo(lista, "Catálogo", oferta.catalogo);
+        articulo.appendChild(lista);
+        // ofertasProducto.appendChild(articulo);
+      });
+    }
+  }
+
+  function mostrarDetalle(idProducto, nombre) {
+    if (!dialogoDetalle) return;
+    var solicitud = ++solicitudDetalle;
+    limpiarDetalle();
+    if (tituloDetalle) tituloDetalle.textContent = nombre || "Detalle del producto";
+    if (errorDetalle) {
+      errorDetalle.textContent = "";
+      errorDetalle.hidden = true;
+    }
+    if (contenidoDetalle) contenidoDetalle.hidden = true;
+    mostrar(estadoDetalle);
+    if (!dialogoDetalle.open) dialogoDetalle.showModal();
+    Fipca.pedir("/api/v1/inventario/productos/" + encodeURIComponent(idProducto))
+      .then(function (datos) {
+        if (solicitud !== solicitudDetalle || !dialogoDetalle.open) return;
+        ocultar(estadoDetalle);
+        renderizarDetalle(datos);
+        mostrar(contenidoDetalle);
+      })
+      .catch(function (falla) {
+        if (solicitud !== solicitudDetalle || !dialogoDetalle.open) return;
+        ocultar(estadoDetalle);
+        if (errorDetalle) {
+          errorDetalle.textContent = motivoDeFallo(falla);
+          mostrar(errorDetalle);
+        }
+      });
+  }
+
   function filaProducto(producto) {
     var fila = document.createElement("tr");
+    fila.dataset.productoId = String(producto.id);
+    fila.tabIndex = 0;
+    fila.setAttribute(
+      "aria-label",
+      "Ver detalle de " + (producto.nombre || "producto")
+    );
 
     var codigo = crearCelda("buscador__codigo");
     if (producto.codigo) {
@@ -185,7 +369,10 @@
   }
 
   function pintarResultados(datos, milisegundos) {
+    modoCatalogo = false;
     var lista = datos.productos || [];
+    paginaActual = datos.pagina;
+    totalActual = datos.total;
     filas.textContent = "";
     lista.forEach(function (producto) {
       filas.appendChild(filaProducto(producto));
@@ -193,11 +380,79 @@
     mostrar(contenedor);
     ocultar(vacio);
     mostrar(resumen);
-    resumen.textContent = resumenDe(datos, milisegundos);
+    resumen.textContent =
+      resumenDe(datos, milisegundos) +
+      " Página " +
+      datos.pagina +
+      " de " +
+      Math.max(1, Math.ceil(datos.total / datos.limite)) +
+      ".";
+    pintarPaginacion(datos);
+  }
+
+  function pintarPaginacion(datos) {
+    var paginas = Math.max(1, Math.ceil(datos.total / datos.limite));
+    var inicio = (datos.pagina - 1) * datos.limite + 1;
+    var fin = inicio + (datos.productos || []).length - 1;
+    mostrar(paginacion);
+    if (estadoPaginacion) {
+      estadoPaginacion.textContent =
+        "Página " +
+        datos.pagina +
+        " de " +
+        paginas +
+        " · " +
+        inicio +
+        "–" +
+        fin +
+        " de " +
+        datos.total;
+    }
+    if (anteriorCatalogo) anteriorCatalogo.disabled = datos.pagina <= 1;
+    if (siguienteCatalogo) siguienteCatalogo.disabled = datos.pagina >= paginas;
+  }
+
+  function pintarCatalogo(datos, milisegundos) {
+    var lista = datos.productos || [];
+    paginaActual = datos.pagina;
+    totalActual = datos.total;
+    filas.textContent = "";
+    lista.forEach(function (producto) {
+      filas.appendChild(filaProducto(producto));
+    });
+    mostrar(resumen);
+
+    if (datos.total === 0) {
+      ocultar(contenedor);
+      fijarVacio(
+        "Catálogo sin productos activos",
+        "Todavía no hay productos activos para mostrar."
+      );
+      resumen.textContent = "Total del catálogo: 0 productos.";
+      ocultar(paginacion);
+      return;
+    }
+
+    mostrar(contenedor);
+    ocultar(vacio);
+    var inicio = (datos.pagina - 1) * datos.limite + 1;
+    var fin = inicio + lista.length - 1;
+    resumen.textContent =
+      "Total del catálogo: " +
+      datos.total +
+      " productos. Mostrando " +
+      inicio +
+      "–" +
+      fin +
+      " en " +
+      milisegundos +
+      " ms.";
+    pintarPaginacion(datos);
   }
 
   function pintarSinCoincidencias(datos, milisegundos, consulta) {
     ocultar(contenedor);
+    ocultar(paginacion);
     mostrar(resumen);
     resumen.textContent = resumenDe(datos, milisegundos);
     fijarVacio(
@@ -209,7 +464,21 @@
     );
   }
 
-  function buscar(consulta) {
+  function parametrosOrden() {
+    if (!ordenarPor) return "";
+    return (
+      "&ordenar_por=" +
+      encodeURIComponent(ordenarPor) +
+      "&direccion=" +
+      encodeURIComponent(direccionOrden)
+    );
+  }
+
+  function buscar(consulta, pagina) {
+    pagina = pagina || 1;
+    modoCatalogo = false;
+    ocultar(paginacion);
+    if (botonCatalogo) botonCatalogo.disabled = false;
     var numero = ++peticion;
     mostrarError("");
     mostrar(cargando);
@@ -218,8 +487,11 @@
     Fipca.pedir(
       "/api/v1/inventario/busqueda?limite=" +
         LIMITE +
+        "&pagina=" +
+        encodeURIComponent(pagina) +
         "&consulta=" +
-        encodeURIComponent(consulta)
+        encodeURIComponent(consulta) +
+        parametrosOrden()
     )
       .then(function (datos) {
         if (numero !== peticion) return;
@@ -236,6 +508,96 @@
         ocultar(cargando);
         mostrarError(motivoDeFallo(falla));
       });
+  }
+
+  function cargarPagina(pagina) {
+    var numero = ++peticion;
+    mostrarError("");
+    mostrar(cargando);
+    if (anteriorCatalogo) anteriorCatalogo.disabled = true;
+    if (siguienteCatalogo) siguienteCatalogo.disabled = true;
+    if (modoCatalogo && botonCatalogo) botonCatalogo.disabled = true;
+    var inicio = Date.now();
+    var consulta = entrada.value.trim();
+    var ruta = modoCatalogo
+      ? "/api/v1/inventario/catalogo?limite=" +
+        LIMITE_CATALOGO +
+        "&pagina=" +
+        encodeURIComponent(pagina) +
+        parametrosOrden()
+      : "/api/v1/inventario/busqueda?limite=" +
+        LIMITE +
+        "&pagina=" +
+        encodeURIComponent(pagina) +
+        "&consulta=" +
+        encodeURIComponent(consulta) +
+        parametrosOrden();
+
+    Fipca.pedir(ruta)
+      .then(function (datos) {
+        if (numero !== peticion) return;
+        ocultar(cargando);
+        if (modoCatalogo) {
+          if (botonCatalogo) botonCatalogo.disabled = false;
+          pintarCatalogo(datos, Math.max(1, Date.now() - inicio));
+        } else if (datos.productos.length) {
+          pintarResultados(datos, Math.max(1, Date.now() - inicio));
+        } else {
+          pintarSinCoincidencias(datos, Math.max(1, Date.now() - inicio), consulta);
+        }
+      })
+      .catch(function (falla) {
+        if (numero !== peticion) return;
+        ocultar(cargando);
+        if (modoCatalogo && botonCatalogo) botonCatalogo.disabled = false;
+        if (anteriorCatalogo) anteriorCatalogo.disabled = paginaActual <= 1;
+        if (siguienteCatalogo) {
+          siguienteCatalogo.disabled =
+            paginaActual >= Math.ceil(totalActual / LIMITE);
+        }
+        mostrarError(motivoDeFallo(falla));
+      });
+  }
+
+  function actualizarOrdenVisual() {
+    document.querySelectorAll("[data-ordenar-por]").forEach(function (boton) {
+      var columna = boton.getAttribute("data-ordenar-por");
+      var encabezado = boton.closest("th");
+      var seleccionado = columna === ordenarPor;
+      if (encabezado) {
+        encabezado.setAttribute(
+          "aria-sort",
+          seleccionado
+            ? direccionOrden === "asc"
+              ? "ascending"
+              : "descending"
+            : "none"
+        );
+      }
+      boton.setAttribute(
+        "aria-label",
+        "Ordenar por " +
+          boton.getAttribute("data-etiqueta-orden") +
+          " " +
+          (seleccionado && direccionOrden === "asc" ? "descendente" : "ascendente")
+      );
+    });
+  }
+
+  function ordenarResultados(columna) {
+    cancelarPendiente();
+    if (ordenarPor === columna) {
+      direccionOrden = direccionOrden === "asc" ? "desc" : "asc";
+    } else {
+      ordenarPor = columna;
+      direccionOrden = "asc";
+    }
+    actualizarOrdenVisual();
+    if (modoCatalogo) {
+      cargarPagina(1);
+    } else if (entrada.value.trim()) {
+      buscar(entrada.value.trim(), 1);
+    }
   }
 
   function cancelarPendiente() {
@@ -256,9 +618,11 @@
   entrada.addEventListener("input", function () {
     var consulta = entrada.value.trim();
     cancelarPendiente();
+    peticion += 1;
+    modoCatalogo = false;
+    ocultar(paginacion);
+    if (botonCatalogo) botonCatalogo.disabled = false;
     if (consulta.length < MINIMO_BUSQUEDA) {
-      /* Al acortar la consulta ninguna respuesta en vuelo sigue vigente. */
-      peticion += 1;
       mostrarReposo();
       return;
     }
@@ -277,10 +641,45 @@
     buscar(consulta);
   });
 
+  if (botonCatalogo) {
+    botonCatalogo.addEventListener("click", function () {
+      cancelarPendiente();
+      entrada.value = "";
+      modoCatalogo = true;
+      cargarPagina(1);
+    });
+  }
+
+  if (anteriorCatalogo) {
+    anteriorCatalogo.addEventListener("click", function () {
+      if (paginaActual > 1) {
+        cargarPagina(paginaActual - 1);
+      }
+    });
+  }
+
+  if (siguienteCatalogo) {
+    siguienteCatalogo.addEventListener("click", function () {
+      if (paginaActual < Math.ceil(totalActual / LIMITE)) {
+        cargarPagina(paginaActual + 1);
+      }
+    });
+  }
+
+  document.querySelectorAll("[data-ordenar-por]").forEach(function (boton) {
+    boton.addEventListener("click", function () {
+      ordenarResultados(boton.getAttribute("data-ordenar-por"));
+    });
+  });
+  actualizarOrdenVisual();
+
   document.querySelectorAll("[data-buscar]").forEach(function (atajo) {
     atajo.addEventListener("click", function () {
       entrada.value = atajo.getAttribute("data-buscar") || "";
       cancelarPendiente();
+      modoCatalogo = false;
+      ocultar(paginacion);
+      if (botonCatalogo) botonCatalogo.disabled = false;
       buscar(entrada.value.trim());
       entrada.focus();
     });
@@ -301,4 +700,35 @@
       );
     });
   }
+
+
+  if (filas) {
+    filas.addEventListener("click", function (evento) {
+      var fila = evento.target.closest("tr[data-producto-id]");
+      if (fila && filas.contains(fila)) {
+        mostrarDetalle(fila.dataset.productoId, fila.getAttribute("aria-label"));
+      }
+    });
+    filas.addEventListener("keydown", function (evento) {
+      if (
+        (evento.key === "Enter" || evento.key === " ") &&
+        evento.target.matches("tr[data-producto-id]")
+      ) {
+        evento.preventDefault();
+        mostrarDetalle(
+          evento.target.dataset.productoId,
+          evento.target.getAttribute("aria-label")
+        );
+      }
+    });
+  }
+  if (cerrarDetalle && dialogoDetalle) {
+    cerrarDetalle.addEventListener("click", function () {
+      dialogoDetalle.close();
+    });
+    dialogoDetalle.addEventListener("close", function () {
+      solicitudDetalle += 1;
+    });
+  }
+
 })();

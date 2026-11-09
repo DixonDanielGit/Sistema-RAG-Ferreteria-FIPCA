@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import threading
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import (
     APIRouter,
@@ -32,9 +32,11 @@ from app.schemas.inventario_schema import (
     LONGITUD_MAXIMA_BUSQUEDA,
     LONGITUD_MINIMA_BUSQUEDA,
     MetadatosCatalogo,
+    DetalleProducto,
     RespuestaEliminacionArchivo,
     RespuestaEliminacionCatalogos,
     RespuestaIngesta,
+    ResultadoCatalogo,
     ResultadoBusqueda,
     SolicitudEliminacionCatalogos,
 )
@@ -82,7 +84,18 @@ def busqueda(
         default=LIMITE_DEFECTO_BUSQUEDA,
         ge=1,
         le=LIMITE_MAXIMO_BUSQUEDA,
-        description="Maximo de productos devueltos",
+        description="Maximo de productos por pagina",
+    ),
+    pagina: int = Query(default=1, ge=1, description="Pagina de resultados"),
+    ordenar_por: Literal[
+        "codigo", "nombre", "proveedor", "precio", "stock"
+    ] | None = Query(
+        default=None,
+        description="Columna para ordenar los resultados",
+    ),
+    direccion: Literal["asc", "desc"] = Query(
+        default="asc",
+        description="Direccion del ordenamiento",
     ),
     usuario: dict[str, Any] = Depends(usuario_actual),
 ) -> ResultadoBusqueda:
@@ -103,13 +116,88 @@ def busqueda(
             ),
         )
 
-    filas, total = inventario_model.buscar_productos_fulltext(limpio, limite)
+    filas, total = inventario_model.buscar_productos_fulltext(
+        limpio,
+        limite,
+        (pagina - 1) * limite,
+        ordenar_por,
+        direccion,
+    )
     registrar_evento(
         request,
         f"busqueda de catalogo: {limpio}",
         id_usuario=usuario["id"],
     )
-    return ResultadoBusqueda(consulta=limpio, total=total, productos=filas)
+    return ResultadoBusqueda(
+        consulta=limpio,
+        total=total,
+        pagina=pagina,
+        limite=limite,
+        productos=filas,
+    )
+
+
+@router.get(
+    "/catalogo",
+    response_model=ResultadoCatalogo,
+    summary="Listar productos activos del catalogo",
+)
+def catalogo(
+    request: Request,
+    pagina: int = Query(default=1, ge=1, description="Pagina del catalogo"),
+    limite: int = Query(
+        default=LIMITE_DEFECTO_BUSQUEDA,
+        ge=1,
+        le=LIMITE_MAXIMO_BUSQUEDA,
+        description="Maximo de productos por pagina",
+    ),
+    ordenar_por: Literal[
+        "codigo", "nombre", "proveedor", "precio", "stock"
+    ] | None = Query(
+        default=None,
+        description="Columna para ordenar los resultados",
+    ),
+    direccion: Literal["asc", "desc"] = Query(
+        default="asc",
+        description="Direccion del ordenamiento",
+    ),
+    usuario: dict[str, Any] = Depends(usuario_actual),
+) -> ResultadoCatalogo:
+    """Lista el catalogo activo sin ejecutar modelos de IA."""
+    filas, total = inventario_model.listar_productos_catalogo(
+        limite, (pagina - 1) * limite, ordenar_por, direccion
+    )
+    registrar_evento(
+        request,
+        f"consulta de catalogo completo: pagina {pagina}",
+        id_usuario=usuario["id"],
+    )
+    return ResultadoCatalogo(
+        total=total, pagina=pagina, limite=limite, productos=filas
+    )
+
+
+@router.get(
+    "/productos/{id_producto}",
+    response_model=DetalleProducto,
+    summary="Consultar detalle comercial y origen de un producto",
+    responses={404: {"description": "Producto no encontrado"}},
+)
+def detalle_producto(
+    request: Request,
+    id_producto: int = Path(ge=1),
+    usuario: dict[str, Any] = Depends(usuario_actual),
+) -> DetalleProducto:
+    """Devuelve datos del producto y la trazabilidad de su catalogo."""
+    detalle = inventario_model.obtener_detalle_producto(id_producto)
+    if detalle is None:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    registrar_evento(
+        request,
+        f"consulta de detalle de producto: {id_producto}",
+        id_usuario=usuario["id"],
+    )
+    return DetalleProducto(**detalle)
 
 
 @router.get(

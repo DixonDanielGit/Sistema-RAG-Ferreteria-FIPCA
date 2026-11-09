@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
-from typing import Annotated, Literal
+from datetime import date, datetime
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -104,6 +104,7 @@ class ArchivoIngesta(BaseModel):
     proveedor: str | None = None
     vendedor: str | None = None
     moneda: str | None = None
+    respuesta_ia: dict[str, Any] | None = None
 
 
 class ProductoBusqueda(BaseModel):
@@ -139,7 +140,101 @@ class ResultadoBusqueda(BaseModel):
 
     consulta: str
     total: int = Field(ge=0, description="Coincidencias encontradas")
+    pagina: int = Field(ge=1)
+    limite: int = Field(ge=1)
     productos: list[ProductoBusqueda] = Field(default_factory=list)
+
+
+class ResultadoCatalogo(BaseModel):
+    """Pagina del catalogo activo para la vista completa del buscador."""
+
+    total: int = Field(ge=0, description="Productos activos del catalogo")
+    pagina: int = Field(ge=1)
+    limite: int = Field(ge=1)
+    productos: list[ProductoBusqueda] = Field(default_factory=list)
+
+
+class ProductoDetalle(BaseModel):
+    """Ficha completa de un producto consultada desde el buscador."""
+
+    id: int
+    codigo: str | None = None
+    codigo_interno: str | None = None
+    nombre: str
+    marca: str | None = None
+    categoria: str | None = None
+    descripcion: str | None = None
+    unidad_medida: str | None = None
+    presentacion: str | None = None
+    precio: float
+    moneda: str
+    iva: float
+    descuentos: float
+    stock: int
+    punto_reorden: int | None = None
+    ubicacion: str | None = None
+    actualizado_en: datetime | None = None
+
+
+class ProveedorProductoDetalle(BaseModel):
+    """Datos registrados del proveedor asociado al producto."""
+
+    id: int
+    nombre: str
+    rif: str | None = None
+    direccion: str | None = None
+    telefono: str | None = None
+    correo: str | None = None
+    vendedor: str | None = None
+    telefono_vendedor: str | None = None
+    correo_vendedor: str | None = None
+    moneda: str | None = None
+
+
+class CatalogoProductoDetalle(BaseModel):
+    """Archivo de origen y datos de su carga."""
+
+    id: int
+    nombre: str
+    tipo: str
+    fecha_de_subida: datetime
+    estado: EstadoArchivo
+    filas_ok: int = Field(ge=0)
+    filas_error: int = Field(ge=0)
+    moneda: str
+    nota_proveedor: str | None = None
+    vendedor: str | None = None
+    telefono_vendedor: str | None = None
+    correo_vendedor: str | None = None
+
+
+class OfertaProductoDetalle(BaseModel):
+    """Cotizacion de un proveedor para el producto."""
+
+    id: int
+    proveedor: str
+    codigo_proveedor: str
+    precio: float
+    moneda: str
+    iva: float
+    iva_incluido: bool | None = None
+    descuento: float | None = None
+    cantidad_disponible_proveedor: int | None = None
+    politica_ventas: str | None = None
+    plazo_entrega_dias: int | None = None
+    cantidad_minima: int
+    disponible: bool | None = None
+    fecha_cotizacion: date
+    catalogo: str | None = None
+
+
+class DetalleProducto(BaseModel):
+    """Detalle comercial y trazabilidad del catálogo de origen."""
+
+    producto: ProductoDetalle
+    proveedor: ProveedorProductoDetalle | None = None
+    catalogo: CatalogoProductoDetalle | None = None
+    ofertas: list[OfertaProductoDetalle] = Field(default_factory=list)
 
 
 class EstadoVectorizacion(BaseModel):

@@ -124,6 +124,8 @@ class TestPanelDeFuentes:
         assert 'id="estado-fuentes"' in html
         assert 'id="texto-estado-fuentes"' in html
         assert 'id="dialogo-revision-fuentes"' in html
+        assert 'id="respuesta-json-ia-fuentes"' in html
+        assert "Ver JSON validado de OpenRouter" in html
         assert "Confirme los productos y el precio antes de guardarlos." in html
 
     def test_fuentes_tiene_buscador_de_catalogos(self, navegador, sesion):

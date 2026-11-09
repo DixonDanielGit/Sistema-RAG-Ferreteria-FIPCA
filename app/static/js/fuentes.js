@@ -93,6 +93,8 @@
     var seleccionPrecios = document.getElementById("seleccion-precios-fuentes");
     var contenedorMuestra = document.getElementById("contenedor-muestra-fuentes");
     var muestraRevision = document.getElementById("muestra-fuentes");
+    var respuestaJSONIA = document.getElementById("respuesta-json-ia-fuentes");
+    var contenidoJSONIA = document.getElementById("contenido-json-ia-fuentes");
     var cancelarRevision = document.getElementById("cancelar-revision-fuentes");
     var confirmarRevision = document.getElementById("confirmar-revision-fuentes");
     var datosCotizacion = document.getElementById("datos-cotizacion-fuentes");
@@ -362,6 +364,14 @@
       if (!dialogoRevision) return Promise.resolve(null);
       seleccionPrecios.replaceChildren();
       muestraRevision.replaceChildren();
+      if (respuestaJSONIA) {
+        respuestaJSONIA.hidden = !resultado.respuesta_ia;
+        if (contenidoJSONIA) {
+          contenidoJSONIA.textContent = resultado.respuesta_ia
+            ? JSON.stringify(resultado.respuesta_ia, null, 2)
+            : "";
+        }
+      }
       contenedorMuestra.hidden = seleccionarPrecio || !resultado.muestra.length;
       datosCotizacion.hidden = seleccionarPrecio || !resultado.productos_detectados;
       confirmarRevision.hidden = !seleccionarPrecio && !resultado.productos_detectados;

@@ -9,6 +9,7 @@ import itertools
 import logging
 import os
 import re
+import tempfile
 import unicodedata
 import uuid
 import zipfile
@@ -94,6 +95,14 @@ class ArchivoSinFilasValidas(ErrorIngesta):
 
     def __init__(self, cantidad: int, detalle: str) -> None:
         self.filas_error = cantidad
+        super().__init__(detalle)
+
+
+class ErrorRespuestaIA(ErrorIngesta):
+    """Error de normalizacion que conserva el JSON validado por el modelo."""
+
+    def __init__(self, detalle: str, respuesta_ia: dict[str, Any]) -> None:
+        self.respuesta_ia = respuesta_ia
         super().__init__(detalle)
 
 
@@ -1295,33 +1304,10 @@ def _extraer_markdown(
     except UnicodeDecodeError as exc:
         raise ErrorIngesta("El archivo Markdown debe estar codificado en UTF-8") from exc
 
-    try:
-        registros = markdown_transform_service.transformar_markdown(markdown)
-    except markdown_transform_service.ErrorTransformacionMarkdown as exc:
-        raise ErrorIngesta(str(exc)) from exc
-
-    columnas = (
-        "codigo",
-        "nombre",
-        "precio",
-        "marca",
-        "descripcion",
-        "descuentos",
-        "iva",
-        "iva_incluido",
-        "cantidad_disponible_proveedor",
-        "politica_ventas",
-    )
-    filas: list[list[Any]] = [list(columnas)]
-    for registro in registros:
-        fila = []
-        for campo in columnas:
-            valor = registro.get(campo)
-            if campo == "iva_incluido" and isinstance(valor, bool):
-                valor = "si" if valor else "no"
-            fila.append("" if valor is None else valor)
-        filas.append(fila)
-    return _extraer_filas(filas, desplazamiento=0, indice_cabecera_forzado=0)
+    productos, errores, detalles, _ = _extraer_registros_markdown(markdown)
+    if not productos:
+        raise ErrorIngesta("El archivo Markdown no contiene productos verificables")
+    return productos, errores, detalles
 
 
 def _nombre_seguro(nombre: str) -> str:
@@ -1522,6 +1508,143 @@ def convertir_a_markdown(ruta: Path) -> tuple[str | None, str | None]:
     return markdown, None
 
 
+def _convertir_contenido_a_markdown(
+    nombre: str, contenido: bytes
+) -> tuple[str | None, str | None]:
+    """Convierte bytes a Markdown durante la vista previa sin guardarlos."""
+    if Path(nombre).suffix.lower() == ".md":
+        try:
+            markdown = contenido.decode("utf-8-sig").replace("\x00", "")
+        except UnicodeDecodeError:
+            return None, AVISO_SIN_MARKDOWN
+        return (markdown, None) if markdown.strip() else (None, AVISO_SIN_MARKDOWN)
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="fipca-preview-") as temporal:
+            ruta = Path(temporal) / f"archivo{Path(nombre).suffix.lower()}"
+            ruta.write_bytes(contenido)
+            return convertir_a_markdown(ruta)
+    except OSError as exc:
+        logger.warning("No se pudo preparar %s para la vista previa: %s", nombre, exc)
+        return None, AVISO_SIN_MARKDOWN
+
+
+def _extraer_registros_markdown(
+    markdown: str,
+) -> tuple[list[dict[str, Any]], int, list[str], dict[str, Any]]:
+    try:
+        registros = markdown_transform_service.transformar_markdown(markdown)
+    except markdown_transform_service.ErrorTransformacionMarkdown as exc:
+        raise ErrorIngesta(str(exc)) from exc
+
+    respuesta_ia = {"productos": registros}
+    if not registros:
+        return [], 0, [], respuesta_ia
+
+    columnas = (
+        "codigo",
+        "nombre",
+        "precio",
+        "marca",
+        "descripcion",
+        "descuentos",
+        "iva",
+        "iva_incluido",
+        "cantidad_disponible_proveedor",
+        "politica_ventas",
+    )
+    filas: list[list[Any]] = [list(columnas)]
+    for registro in registros:
+        fila = []
+        for campo in columnas:
+            valor = registro.get(campo)
+            if campo == "iva_incluido" and isinstance(valor, bool):
+                valor = "si" if valor else "no"
+            fila.append("" if valor is None else valor)
+        filas.append(fila)
+    try:
+        productos, errores, detalles = _extraer_filas(
+            filas, desplazamiento=0, indice_cabecera_forzado=0
+        )
+    except ErrorIngesta as exc:
+        raise ErrorRespuestaIA(str(exc), respuesta_ia) from exc
+    return productos, errores, detalles, respuesta_ia
+
+
+def _extraer_con_respaldo_ia(
+    nombre: str,
+    contenido: bytes,
+    markdown: str | None,
+    selecciones_precio: dict[int, int] | None = None,
+) -> tuple[list[dict[str, Any]], int, list[str], dict[str, Any] | None]:
+    """Prefiere el JSON validado de IA y conserva el lector como respaldo."""
+    extension = Path(nombre).suffix.lower()
+    if extension == ".md":
+        if markdown is None:
+            return (*_extraer(nombre, contenido, selecciones_precio), None)
+        return _extraer_registros_markdown(markdown)
+
+    local: tuple[list[dict[str, Any]], int, list[str]] | None = None
+    error_local: ErrorIngesta | None = None
+    try:
+        local = _extraer(
+            nombre, contenido, selecciones_precio
+        )
+    except SeleccionPrecioRequerida:
+        raise
+    except ErrorIngesta as exc:
+        error_local = exc
+
+    if not markdown:
+        if local is not None:
+            return (*local, None)
+        if error_local is not None:
+            raise error_local
+        raise ErrorIngesta("No se pudo extraer el contenido del archivo")
+
+    # Una seleccion manual de precios en Excel tiene prioridad sobre cualquier
+    # interpretacion del modelo para no cambiar la columna confirmada.
+    if extension == ".xlsx" and selecciones_precio:
+        if local is not None:
+            return (*local, None)
+        if error_local is not None:
+            raise error_local
+        raise ErrorIngesta("No se pudo extraer el contenido del archivo")
+
+    try:
+        productos_ia = _extraer_registros_markdown(markdown)
+    except ErrorRespuestaIA as exc:
+        if local is None:
+            raise ErrorRespuestaIA(
+                f"{error_local}; OpenRouter: {exc}" if error_local else str(exc),
+                exc.respuesta_ia,
+            ) from exc
+        productos, errores, detalles = local
+        detalles.append(f"OpenRouter: {exc}; se conservaron los datos del lector local")
+        return productos, errores, detalles, exc.respuesta_ia
+    except ErrorIngesta as exc:
+        if local is None:
+            if error_local:
+                raise ErrorIngesta(f"{error_local}; OpenRouter: {exc}") from exc
+            raise
+        productos, errores, detalles = local
+        detalles.append(f"OpenRouter: {exc}; se conservaron los datos del lector local")
+        return productos, errores, detalles, None
+
+    productos, errores, detalles, respuesta_ia = productos_ia
+    if productos:
+        return productos, errores, detalles, respuesta_ia
+    if local is not None:
+        productos_locales, errores_locales, detalles_locales = local
+        detalles_locales.append(
+            "OpenRouter no detecto productos; se conservaron los datos del lector local"
+        )
+        return productos_locales, errores_locales, detalles_locales, respuesta_ia
+    if error_local:
+        detalles.append(str(error_local))
+    return productos, errores, detalles, respuesta_ia
+
+
 def previsualizar_archivo(
     nombre: str,
     contenido: bytes,
@@ -1539,9 +1662,15 @@ def previsualizar_archivo(
         raise ErrorIngesta(f"El archivo supera el limite de {MAX_ARCHIVO_MB} MB")
     if not contenido:
         raise ErrorIngesta("El archivo esta vacio")
+    markdown, aviso_markdown = _convertir_contenido_a_markdown(
+        nombre, contenido
+    )
     try:
-        productos, filas_error, detalles = _extraer(
-            nombre, contenido, selecciones_precio
+        productos, filas_error, detalles, respuesta_ia = _extraer_con_respaldo_ia(
+            nombre,
+            contenido,
+            markdown,
+            selecciones_precio,
         )
     except SeleccionPrecioRequerida as exc:
         return {
@@ -1553,6 +1682,12 @@ def previsualizar_archivo(
             "seleccion_pendiente": True,
             "opciones_precio": exc.opciones,
         }
+    except ErrorIngesta as error_local:
+        if not markdown:
+            raise ErrorIngesta(
+                f"{error_local}; {aviso_markdown or AVISO_SIN_MARKDOWN}"
+            ) from error_local
+        raise
     productos, filas_duplicadas, errores_duplicados, detalles_duplicados = (
         _consolidar_codigos(productos)
     )
@@ -1560,6 +1695,8 @@ def previsualizar_archivo(
     aviso_descripcion = _aviso_sin_descripcion(productos)
     if aviso_descripcion:
         detalles.append(aviso_descripcion)
+    if aviso_markdown and respuesta_ia is None:
+        detalles.append(aviso_markdown)
     return {
         "productos_detectados": len(productos),
         "filas_error": filas_error + errores_duplicados,
@@ -1568,6 +1705,7 @@ def previsualizar_archivo(
         "detalle": _detalle(detalles),
         "seleccion_pendiente": False,
         "opciones_precio": [],
+        "respuesta_ia": respuesta_ia,
     }
 
 
@@ -1650,10 +1788,22 @@ def procesar_archivo(
         )
         return dict(resultado)
 
+    respuesta_ia: dict[str, Any] | None = None
     try:
-        productos, filas_error, errores = _extraer(
-            nombre, contenido, selecciones_precio
+        productos, filas_error, errores, respuesta_ia = _extraer_con_respaldo_ia(
+            nombre,
+            contenido,
+            markdown,
+            selecciones_precio,
         )
+    except ErrorRespuestaIA as exc:
+        resultado = inventario_model.actualizar_estado_archivo(
+            id_archivo,
+            estado="error",
+            filas_error=max(1, getattr(exc, "filas_error", 0)),
+            detalle=str(exc)[:MAX_DETALLE],
+        )
+        return {**dict(resultado), "respuesta_ia": exc.respuesta_ia}
     except ArchivoSinFilasValidas as exc:
         resultado = inventario_model.actualizar_estado_archivo(
             id_archivo,
@@ -1663,8 +1813,14 @@ def procesar_archivo(
         )
         return dict(resultado)
     except ErrorIngesta as exc:
+        detalle = str(exc)
+        if aviso_markdown:
+            detalle = f"{detalle}; {aviso_markdown}"
         resultado = inventario_model.actualizar_estado_archivo(
-            id_archivo, estado="error", filas_error=1, detalle=str(exc)[:MAX_DETALLE]
+            id_archivo,
+            estado="error",
+            filas_error=1,
+            detalle=detalle[:MAX_DETALLE],
         )
         return dict(resultado)
     except (
@@ -1684,6 +1840,16 @@ def procesar_archivo(
             detalle="El archivo esta danado o no tiene un formato valido",
         )
         return dict(resultado)
+
+    if not productos:
+        detalle = "OpenRouter no encontro productos verificables en el Markdown"
+        resultado = inventario_model.actualizar_estado_archivo(
+            id_archivo,
+            estado="error",
+            filas_error=1,
+            detalle=detalle,
+        )
+        return {**dict(resultado), "respuesta_ia": respuesta_ia}
 
     productos, _, errores_duplicados, detalles_duplicados = (
         _consolidar_codigos(productos)
@@ -1751,7 +1917,7 @@ def procesar_archivo(
         filas_error=filas_error,
         detalle=_detalle(errores),
     )
-    return dict(resultado)
+    return {**dict(resultado), "respuesta_ia": respuesta_ia}
 
 
 def _eliminar_archivo_original(ruta_relativa: str | None) -> bool:

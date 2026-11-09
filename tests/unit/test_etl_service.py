@@ -703,6 +703,11 @@ def test_el_detalle_informa_productos_sin_descripcion_del_proveedor(monkeypatch)
     monkeypatch.setattr(
         etl_service, "_extraer", lambda *_args, **_kwargs: (productos, 0, [])
     )
+    monkeypatch.setattr(
+        etl_service,
+        "_convertir_contenido_a_markdown",
+        lambda *_args: (None, None),
+    )
 
     vista = etl_service.previsualizar_archivo("catalogo.txt", b"contenido")
 
@@ -724,6 +729,11 @@ def test_no_avisa_de_descripcion_cuando_el_catalogo_la_incluye(monkeypatch):
     ]
     monkeypatch.setattr(
         etl_service, "_extraer", lambda *_args, **_kwargs: (productos, 0, [])
+    )
+    monkeypatch.setattr(
+        etl_service,
+        "_convertir_contenido_a_markdown",
+        lambda *_args: (None, None),
     )
 
     vista = etl_service.previsualizar_archivo("catalogo.txt", b"contenido")
@@ -1002,3 +1012,131 @@ def test_procesar_markdown_persiste_productos_transformados(
     assert datos_archivo["contenido_markdown"] == contenido.decode("utf-8")
     assert productos_guardados[0]["codigo"] == "SKU-MD"
     assert productos_guardados[0]["precio"] == Decimal("3.25")
+    assert resultado["respuesta_ia"]["productos"][0]["codigo"] == "SKU-MD"
+
+
+def test_previsualizacion_usa_openrouter_si_falla_el_lector_local(monkeypatch):
+    markdown = "# Catalogo\nSKU-IA; Martillo; 12.50"
+    respuesta = {
+        "productos": [
+            {
+                "codigo": "SKU-IA",
+                "nombre": "Martillo",
+                "precio": "12.50",
+                "evidencia": "SKU-IA; Martillo; 12.50",
+            }
+        ]
+    }
+
+    def lector_local(*_args, **_kwargs):
+        raise etl_service.CabeceraIngestaAusente("Cabecera no reconocida")
+
+    monkeypatch.setattr(etl_service, "_extraer", lector_local)
+    monkeypatch.setattr(
+        etl_service,
+        "_convertir_contenido_a_markdown",
+        lambda *_args: (markdown, None),
+    )
+    monkeypatch.setattr(
+        etl_service.markdown_transform_service,
+        "transformar_markdown",
+        lambda recibido: respuesta["productos"],
+    )
+
+    vista = etl_service.previsualizar_archivo("catalogo.pdf", b"pdf")
+
+    assert vista["productos_detectados"] == 1
+    assert vista["respuesta_ia"] == respuesta
+    assert vista["muestra"][0]["codigo"] == "SKU-IA"
+
+
+def test_previsualizacion_conserva_lector_local_si_openrouter_falla(monkeypatch):
+    producto = {
+        "codigo": "SKU-LOCAL",
+        "nombre": "Pinza",
+        "precio": Decimal("4.50"),
+        "descripcion": "Acero",
+    }
+
+    monkeypatch.setattr(
+        etl_service,
+        "_extraer",
+        lambda *_args, **_kwargs: ([producto], 0, []),
+    )
+    monkeypatch.setattr(
+        etl_service,
+        "_convertir_contenido_a_markdown",
+        lambda *_args: ("# Catalogo local", None),
+    )
+
+    def openrouter_no_disponible(_markdown):
+        raise etl_service.markdown_transform_service.ErrorTransformacionMarkdown(
+            "El modelo configurado no es gratuito"
+        )
+
+    monkeypatch.setattr(
+        etl_service.markdown_transform_service,
+        "transformar_markdown",
+        openrouter_no_disponible,
+    )
+
+    vista = etl_service.previsualizar_archivo("catalogo.pdf", b"pdf")
+
+    assert vista["productos_detectados"] == 1
+    assert vista["muestra"][0]["codigo"] == "SKU-LOCAL"
+    assert "OpenRouter: El modelo configurado no es gratuito" in vista["detalle"]
+
+
+def test_procesar_archivo_persiste_productos_de_openrouter_si_falla_el_lector(
+    monkeypatch, tmp_path
+):
+    datos_archivo = _persistencia_simulada(monkeypatch, tmp_path)
+    productos_guardados = []
+    respuesta = {
+        "productos": [
+            {
+                "codigo": "SKU-IA",
+                "nombre": "Martillo",
+                "precio": "12.50",
+                "evidencia": "SKU-IA; Martillo; 12.50",
+            }
+        ]
+    }
+    monkeypatch.setattr(
+        etl_service,
+        "convertir_a_markdown",
+        lambda _ruta: ("# Catalogo\nSKU-IA; Martillo; 12.50", None),
+    )
+
+    def lector_local(*_args, **_kwargs):
+        raise etl_service.CabeceraIngestaAusente("Cabecera no reconocida")
+
+    monkeypatch.setattr(
+        etl_service,
+        "_extraer",
+        lector_local,
+    )
+    monkeypatch.setattr(
+        etl_service.markdown_transform_service,
+        "transformar_markdown",
+        lambda _markdown: respuesta["productos"],
+    )
+    monkeypatch.setattr(
+        inventario_model,
+        "insertar_catalogo_completo",
+        lambda _id, productos, *, guardar_ofertas: (
+            productos_guardados.extend(productos) or len(productos),
+            0,
+        ),
+    )
+
+    try:
+        resultado = etl_service.procesar_archivo("catalogo.pdf", b"pdf", 7)
+    finally:
+        get_settings.cache_clear()
+
+    assert resultado["estado"] == "ok"
+    assert resultado["filas_ok"] == 1
+    assert resultado["respuesta_ia"] == respuesta
+    assert productos_guardados[0]["codigo"] == "SKU-IA"
+    assert datos_archivo["contenido_markdown"].startswith("# Catalogo")

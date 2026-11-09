@@ -186,15 +186,18 @@ Ventas puede consultar el historial, pero no cargar catálogos. Los originales
 se guardan bajo un nombre UUID en `UPLOADS_DIR` (un volumen persistente
 `/app/uploads` en Docker), nunca en los estáticos. TXT también admite el orden
 posicional documentado `codigo;nombre;precio;descripcion;marca`. Los archivos
-Markdown se transforman a registros de producto con OpenRouter antes de
-guardarse; configure `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` y
-`OPENROUTER_MODEL` con un modelo que termine en `:free`. Las solicitudes
-temporales por límite de uso se reintentan respetando `Retry-After`, y la vista
-previa reutiliza brevemente el mismo resultado. El Markdown debe contener datos
-explícitos de catálogo y no superar 60 000 caracteres para la transformación:
-el JSON requiere código, nombre, precio y evidencia textual literal de la
-fuente; todos los valores se validan antes de guardarse en el esquema relacional
-del catálogo. El ETL no admite CSV ni XLS.
+se convierten a Markdown y OpenRouter puede estructurar los registros antes de
+guardarlos; configure `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` y
+`OPENROUTER_MODEL` con un modelo que termine en `:free`. Si OpenRouter no está
+disponible o devuelve datos que no pasan la validación, los lectores locales
+siguen siendo el respaldo para PDF, XLSX, DOCX y TXT; la selección manual de
+precio en Excel siempre tiene prioridad. La vista previa muestra el JSON
+validado cuando OpenRouter responde y reutiliza brevemente el resultado durante
+la carga. El Markdown debe contener datos explícitos de catálogo y no superar
+60 000 caracteres para la transformación: el JSON requiere código, nombre,
+precio y evidencia textual literal de la fuente; todos los valores se validan
+antes de guardarse en el esquema relacional del catálogo. El ETL no admite CSV
+ni XLS.
 
 **Recuperación sin SMTP.** Mientras `SMTP_HOST` no esté configurado, el enlace
 de recuperación se escribe en el registro de Uvicorn:
@@ -238,6 +241,9 @@ iniciar sesión y `-b cookies.txt` en las llamadas siguientes.
 | POST | `/api/v1/inventario/previsualizacion` | `catalogos:ingestar` | Analiza un catálogo sin guardarlo |
 | POST | `/api/v1/inventario/ingesta` | `catalogos:ingestar` | Importa los catálogos confirmados |
 | GET | `/api/v1/inventario/archivos` | autenticado | Historial de las últimas 100 cargas |
+| GET | `/api/v1/inventario/busqueda` | autenticado | Busca y pagina coincidencias; permite ordenar por código, producto, proveedor, precio o existencias |
+| GET | `/api/v1/inventario/catalogo` | autenticado | Lista y pagina productos activos con orden por código, producto, proveedor, precio o existencias |
+| GET | `/api/v1/inventario/productos/{id_producto}` | autenticado | Ficha del producto, proveedor, ofertas y archivo de origen |
 | DELETE | `/api/v1/inventario/archivos/{id}` | `catalogos:eliminar` | Elimina un catálogo y sus productos |
 | POST | `/api/v1/rag/chat` | autenticado | Pregunta al asistente (contrato final) |
 | GET | `/api/v1/rag/estado` | autenticado | Disponibilidad del motor RAG |

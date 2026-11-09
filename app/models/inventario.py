@@ -615,6 +615,65 @@ def contar_productos_catalogo() -> int:
     return int(fila["total"]) if fila else 0
 
 
+_COLUMNAS_ORDEN_BUSCADOR = {
+    "codigo": "p.codigo",
+    "nombre": "p.nombre",
+    "proveedor": "pr.nombre",
+    "precio": "p.precio",
+    "stock": "p.stock",
+}
+
+
+def _orden_sql_busqueda(
+    ordenar_por: str | None,
+    direccion: str,
+    orden_predeterminado: str,
+) -> str:
+    if direccion not in ("asc", "desc"):
+        raise ValueError("La direccion de orden debe ser 'asc' o 'desc'")
+    if ordenar_por is None:
+        return orden_predeterminado
+    columna = _COLUMNAS_ORDEN_BUSCADOR.get(ordenar_por)
+    if columna is None:
+        raise ValueError(f"Columna de orden no permitida: {ordenar_por}")
+    return f"{columna} {direccion.upper()} NULLS LAST, p.id ASC"
+
+
+def listar_productos_catalogo(
+    limite: int,
+    desplazamiento: int,
+    ordenar_por: str | None = None,
+    direccion: str = "asc",
+) -> tuple[list[dict[str, Any]], int]:
+    """Lista productos activos en orden estable y devuelve el total exacto."""
+    orden_sql = _orden_sql_busqueda(
+        ordenar_por, direccion, "p.nombre ASC, p.id ASC"
+    )
+    with cursor_rag(commit=False) as cursor:
+        cursor.execute("SELECT COUNT(*) AS total FROM productos WHERE activo")
+        fila = cursor.fetchone()
+        total = int(fila["total"]) if fila else 0
+        if total == 0 or desplazamiento >= total:
+            return [], total
+
+        cursor.execute(
+            f"""
+            SELECT p.id, p.codigo, p.nombre, p.marca,
+                   c.nombre AS categoria, pr.nombre AS proveedor,
+                   p.descripcion, p.presentacion,
+                   p.precio, p.iva, p.descuentos, p.stock, p.moneda
+              FROM productos AS p
+              LEFT JOIN categoria AS c ON c.id_categoria = p.id_categoria
+              LEFT JOIN proveedores AS pr ON pr.id_proveedores = p.id_proveedor
+             WHERE p.activo
+              ORDER BY {orden_sql}
+             LIMIT %s OFFSET %s
+            """,
+            (limite, desplazamiento),
+        )
+        return list(cursor.fetchall()), total
+
+
 def productos_sin_embedding(limite: int) -> list[dict[str, Any]]:
     """Obtiene productos y datos reales del proveedor para construir su embedding."""
     return consultar_todos(
@@ -711,7 +770,11 @@ def _condiciones_busqueda(consulta: str) -> tuple[str, tuple[str, ...]]:
 
 
 def buscar_productos_fulltext(
-    consulta: str, limite: int
+    consulta: str,
+    limite: int,
+    desplazamiento: int = 0,
+    ordenar_por: str | None = None,
+    direccion: str = "asc",
 ) -> tuple[list[dict[str, Any]], int]:
     """Busca productos con Full-Text Search nativo de PostgreSQL (RF-03).
 
@@ -721,10 +784,18 @@ def buscar_productos_fulltext(
     hay latencia de red hacia un proveedor externo: la respuesta sale de los
     indices GIN en milisegundos.
 
-    Devuelve ``(filas, total)``; ``total`` puede superar ``limite`` porque el
-    listado se corta y el total se informa completo. Sin coincidencias la
-    respuesta es ``([], 0)``, que es un resultado valido y no un error.
+    Devuelve ``(filas, total)``; ``total`` cuenta todas las coincidencias
+    antes de aplicar el orden y la pagina. Sin coincidencias la respuesta es
+    ``([], 0)``, que es un resultado valido y no un error.
     """
+    orden_predeterminado = """
+        CASE WHEN p.codigo ILIKE %s THEN 0 ELSE 1 END,
+        CASE WHEN p.nombre ILIKE %s THEN 0 ELSE 1 END,
+        relevancia DESC, p.nombre ASC, p.id ASC
+    """
+    orden_sql = _orden_sql_busqueda(
+        ordenar_por, direccion, orden_predeterminado
+    )
     condicion, coincidencias = _condiciones_busqueda(consulta)
     exacto = _escapar_ilike(consulta)
     prefijo = exacto + "%"
@@ -757,14 +828,121 @@ def buscar_productos_fulltext(
               LEFT JOIN categoria AS c ON c.id_categoria = p.id_categoria
               LEFT JOIN proveedores AS pr ON pr.id_proveedores = p.id_proveedor
              WHERE {condicion}
-             ORDER BY CASE WHEN p.codigo ILIKE %s THEN 0 ELSE 1 END,
-                      CASE WHEN p.nombre ILIKE %s THEN 0 ELSE 1 END,
-                      relevancia DESC, p.nombre ASC, p.id
-             LIMIT %s
+             ORDER BY {orden_sql}
+             LIMIT %s OFFSET %s
             """,
-            (consulta, *coincidencias, exacto, prefijo, limite),
+            (
+                consulta,
+                *coincidencias,
+                *((exacto, prefijo) if ordenar_por is None else ()),
+                limite,
+                desplazamiento,
+            ),
         )
         return list(cursor.fetchall()), total
+
+
+def obtener_detalle_producto(id_producto: int) -> dict[str, Any] | None:
+    """Consulta la ficha, proveedor, catalogo de origen y ofertas activas."""
+    fila = consultar_uno(
+        """
+        SELECT p.id, p.codigo, p.codigo_interno, p.nombre, p.marca,
+               c.nombre AS categoria, p.descripcion, p.unidad_medida,
+               p.presentacion, p.precio, p.moneda, p.iva, p.descuentos,
+               p.stock, p.punto_reorden, p.ubicacion, p.actualizado_en,
+               pr.id_proveedores AS proveedor_id,
+               pr.nombre AS proveedor_nombre, pr.rif AS proveedor_rif,
+               pr.direccion AS proveedor_direccion,
+               pr.telefono AS proveedor_telefono, pr.correo AS proveedor_correo,
+               COALESCE(pr.vendedor, a.vendedor_nombre) AS proveedor_vendedor,
+               COALESCE(pr.telefono_vendedor, a.vendedor_telefono)
+                   AS proveedor_telefono_vendedor,
+               COALESCE(pr.correo_vendedor, a.vendedor_correo)
+                   AS proveedor_correo_vendedor,
+               COALESCE(pr.moneda, a.moneda) AS proveedor_moneda,
+               a.id_archivo AS catalogo_id, a.nombre AS catalogo_nombre,
+               a.tipo AS catalogo_tipo, a.fecha_de_subida AS catalogo_fecha,
+               a.estado AS catalogo_estado, a.filas_ok AS catalogo_filas_ok,
+               a.filas_error AS catalogo_filas_error,
+               a.moneda AS catalogo_moneda,
+               a.nota_proveedor AS catalogo_nota_proveedor,
+               a.vendedor_nombre AS catalogo_vendedor,
+               a.vendedor_telefono AS catalogo_telefono_vendedor,
+               a.vendedor_correo AS catalogo_correo_vendedor
+          FROM productos AS p
+          LEFT JOIN categoria AS c ON c.id_categoria = p.id_categoria
+          LEFT JOIN archivos_subidos AS a ON a.id_archivo = p.id_archivo
+          LEFT JOIN proveedores AS pr
+            ON pr.id_proveedores = COALESCE(p.id_proveedor, a.id_proveedor)
+         WHERE p.id = %s AND p.activo
+        """,
+        (id_producto,),
+        rag=True,
+    )
+    if not fila:
+        return None
+
+    producto = {
+        campo: fila[campo]
+        for campo in (
+            "id", "codigo", "codigo_interno", "nombre", "marca", "categoria",
+            "descripcion", "unidad_medida", "presentacion", "precio", "moneda",
+            "iva", "descuentos", "stock", "punto_reorden", "ubicacion",
+            "actualizado_en",
+        )
+    }
+    proveedor = None
+    if fila["proveedor_id"] is not None:
+        proveedor = {
+            "id": fila["proveedor_id"],
+            "nombre": fila["proveedor_nombre"],
+            "rif": fila["proveedor_rif"],
+            "direccion": fila["proveedor_direccion"],
+            "telefono": fila["proveedor_telefono"],
+            "correo": fila["proveedor_correo"],
+            "vendedor": fila["proveedor_vendedor"],
+            "telefono_vendedor": fila["proveedor_telefono_vendedor"],
+            "correo_vendedor": fila["proveedor_correo_vendedor"],
+            "moneda": fila["proveedor_moneda"],
+        }
+    catalogo = None
+    if fila["catalogo_id"] is not None:
+        catalogo = {
+            "id": fila["catalogo_id"],
+            "nombre": fila["catalogo_nombre"],
+            "tipo": fila["catalogo_tipo"],
+            "fecha_de_subida": fila["catalogo_fecha"],
+            "estado": fila["catalogo_estado"],
+            "filas_ok": fila["catalogo_filas_ok"],
+            "filas_error": fila["catalogo_filas_error"],
+            "moneda": fila["catalogo_moneda"],
+            "nota_proveedor": fila["catalogo_nota_proveedor"],
+            "vendedor": fila["catalogo_vendedor"],
+            "telefono_vendedor": fila["catalogo_telefono_vendedor"],
+            "correo_vendedor": fila["catalogo_correo_vendedor"],
+        }
+    ofertas = consultar_todos(
+        """
+        SELECT o.id, pr.nombre AS proveedor, o.codigo_proveedor, o.precio,
+               o.moneda, o.iva, o.iva_incluido, o.descuento,
+               o.cantidad_disponible_proveedor, o.politica_ventas,
+               o.plazo_entrega_dias, o.cantidad_minima, o.disponible,
+               o.fecha_cotizacion, a.nombre AS catalogo
+          FROM producto_proveedor AS o
+          JOIN proveedores AS pr ON pr.id_proveedores = o.id_proveedor
+          LEFT JOIN archivos_subidos AS a ON a.id_archivo = o.id_archivo
+         WHERE o.id_producto = %s
+         ORDER BY o.es_preferido DESC, o.precio, pr.nombre
+        """,
+        (id_producto,),
+        rag=True,
+    )
+    return {
+        "producto": producto,
+        "proveedor": proveedor,
+        "catalogo": catalogo,
+        "ofertas": ofertas,
+    }
 
 
 def listar_archivos(limite: int = 100) -> list[dict[str, Any]]:
