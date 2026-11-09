@@ -131,7 +131,7 @@ class TestVistaDelBuscador:
         assert 'id="panel-fuentes"' in html
         assert 'id="zona-archivos"' in html
         assert 'id="archivos"' in html
-        assert 'accept=".pdf,.xlsx,.docx,.txt"' in html
+        assert 'accept=".pdf,.xlsx,.docx,.txt,.md"' in html
         assert 'id="dialogo-revision-fuentes"' in html
         assert "Agregue sus archivos aquí" in html
 

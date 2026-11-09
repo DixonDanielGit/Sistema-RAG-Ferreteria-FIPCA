@@ -154,6 +154,23 @@ class Settings:
     )
     llm_max_tokens: int = field(default_factory=lambda: _entero("LLM_MAX_TOKENS", 500))
 
+    # Transformacion de catalogos Markdown. Se mantiene separada del proveedor
+    # configurable del chat: esta etapa solo admite modelos gratuitos de OpenRouter.
+    openrouter_api_key: str = field(
+        default_factory=lambda: os.getenv("OPENROUTER_API_KEY", "").strip()
+    )
+    openrouter_base_url: str = field(
+        default_factory=lambda: os.getenv(
+            "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
+        ).strip().rstrip("/")
+    )
+    openrouter_model: str = field(
+        default_factory=lambda: os.getenv("OPENROUTER_MODEL", "").strip()
+    )
+    openrouter_timeout_segundos: int = field(
+        default_factory=lambda: _entero("OPENROUTER_TIMEOUT_SEGUNDOS", 60)
+    )
+
     @property
     def es_produccion(self) -> bool:
         return self.entorno == "produccion"
@@ -167,6 +184,15 @@ class Settings:
     def llm_configurado(self) -> bool:
         """True cuando el proveedor de lenguaje tiene endpoint, clave y modelo."""
         return bool(self.llm_base_url and self.llm_api_key and self.llm_modelo)
+
+    @property
+    def openrouter_configurado(self) -> bool:
+        """True cuando OpenRouter tiene URL, clave y modelo definidos."""
+        return bool(
+            self.openrouter_base_url
+            and self.openrouter_api_key
+            and self.openrouter_model
+        )
 
     @property
     def cookie_segura(self) -> bool:

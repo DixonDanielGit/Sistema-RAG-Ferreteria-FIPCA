@@ -94,8 +94,8 @@ CREATE TABLE archivos_subidos (
     moneda CHAR(3) NOT NULL DEFAULT 'USD',
     nota_proveedor TEXT,
     terminado_en TIMESTAMPTZ,
-    -- Markdown del catalogo producido por Microsoft MarkItDown (RF-02.4,
-    -- migracion 10_0); vacio solo si la conversion no pudo ejecutarse.
+    -- Markdown del catalogo: original .md o conversion de MarkItDown
+    -- (RF-02.4, migracion 10_0); puede ser NULL si no se pudo leer.
     contenido_markdown TEXT
 );
 

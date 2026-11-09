@@ -109,8 +109,8 @@ class TestPanelDeFuentes:
         assert 'id="panel-fuentes"' in html
         assert "Agregue sus archivos aquí" in html
         assert 'id="archivos"' in html
-        assert 'accept=".pdf,.xlsx,.docx,.txt"' in html
-        assert "PDF, XLSX, DOCX o TXT" in html
+        assert 'accept=".pdf,.xlsx,.docx,.txt,.md"' in html
+        assert "PDF, XLSX, DOCX, TXT o Markdown" in html
 
     def test_la_previsualizacion_es_automatica_y_exige_confirmacion(
         self, navegador, sesion
@@ -158,7 +158,7 @@ class TestPanelDeFuentes:
         html = navegador.get("/chat").text
         assert "muestra una vista previa" in html
         assert "Confirme los productos y el precio antes de guardarlos." in html
-        assert "PDF, XLSX, DOCX o TXT" in html
+        assert "PDF, XLSX, DOCX, TXT o Markdown" in html
 
     def test_ventas_no_ve_los_controles_de_carga(self, navegador, sesion_ventas):
         html = navegador.get("/chat").text

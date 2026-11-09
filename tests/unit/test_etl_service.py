@@ -78,6 +78,49 @@ def test_txt_posicional_con_comas_ambiguas_se_rechaza():
         etl_service._extraer_txt(b"SKU-1,Martillo,1,25\n")
 
 
+def test_markdown_transforma_productos_y_aplica_validaciones_del_etl(monkeypatch):
+    markdown = "# Catalogo\n\nSKU-MD | Martillo | 1.234,50"
+    monkeypatch.setattr(
+        etl_service.markdown_transform_service,
+        "transformar_markdown",
+        lambda recibido: [
+            {
+                "codigo": "SKU-MD",
+                "nombre": "Martillo",
+                "precio": "1.234,50",
+                "marca": "FIPCA",
+                "descripcion": "Acero",
+                "iva": "16",
+                "iva_incluido": True,
+            }
+        ],
+    )
+
+    productos, errores, detalles = etl_service._extraer(
+        "catalogo.md", markdown.encode("utf-8")
+    )
+
+    assert errores == 0
+    assert detalles == []
+    assert productos == [
+        {
+            "codigo": "SKU-MD",
+            "nombre": "Martillo",
+            "precio": Decimal("1234.50"),
+            "marca": "FIPCA",
+            "descripcion": "Acero",
+            "descuentos": Decimal("0.00"),
+            "iva_oferta": Decimal("16.00"),
+            "iva_incluido": True,
+        }
+    ]
+
+
+def test_markdown_rechaza_archivos_que_no_son_utf8():
+    with pytest.raises(etl_service.ErrorIngesta, match="UTF-8"):
+        etl_service._extraer("catalogo.md", b"\xff\xfe")
+
+
 def test_txt_informa_filas_invalidas_sin_perder_las_validas():
     contenido = b"codigo;nombre;precio\nA1;Martillo;12,50\nA2;Clavo;-1\n"
 
@@ -808,6 +851,16 @@ def test_convertir_a_markdown_convierte_un_catalogo_de_texto(tmp_path):
     assert "Martillo" in markdown
 
 
+def test_convertir_a_markdown_lee_archivos_md_sin_markitdown(tmp_path):
+    ruta = tmp_path / "catalogo.md"
+    ruta.write_text("# Catalogo\nSKU-MD", encoding="utf-8")
+
+    markdown, aviso = etl_service.convertir_a_markdown(ruta)
+
+    assert markdown == "# Catalogo\nSKU-MD"
+    assert aviso is None
+
+
 def test_convertir_a_markdown_quita_los_caracteres_nulos(tmp_path):
     pytest.importorskip("markitdown")
     ruta = tmp_path / "catalogo.txt"
@@ -916,3 +969,36 @@ def test_si_markitdown_falla_la_carga_sigue_y_el_detalle_lo_avisa(
     assert datos_archivo["contenido_markdown"] is None
     assert etl_service.AVISO_SIN_MARKDOWN in resultado["detalle"]
 
+
+def test_procesar_markdown_persiste_productos_transformados(
+    monkeypatch, tmp_path
+):
+    datos_archivo = _persistencia_simulada(monkeypatch, tmp_path)
+    productos_guardados = []
+    monkeypatch.setattr(
+        etl_service.markdown_transform_service,
+        "transformar_markdown",
+        lambda markdown: [
+            {"codigo": "SKU-MD", "nombre": "Martillo", "precio": "3,25"}
+        ],
+    )
+    monkeypatch.setattr(
+        inventario_model,
+        "insertar_catalogo_completo",
+        lambda _id, productos, *, guardar_ofertas: (
+            productos_guardados.extend(productos) or len(productos),
+            0,
+        ),
+    )
+    contenido = b"# Catalogo\n\nMartillo SKU-MD, precio 3,25"
+
+    try:
+        resultado = etl_service.procesar_archivo("catalogo.md", contenido, 7)
+    finally:
+        get_settings.cache_clear()
+
+    assert resultado["estado"] == "ok"
+    assert resultado["filas_ok"] == 1
+    assert datos_archivo["contenido_markdown"] == contenido.decode("utf-8")
+    assert productos_guardados[0]["codigo"] == "SKU-MD"
+    assert productos_guardados[0]["precio"] == Decimal("3.25")

@@ -160,8 +160,8 @@ El panel y el asistente se adaptan a escritorio y móvil, y siguen el tema del
 sistema operativo (claro u oscuro) hasta que se cambie con el conmutador.
 
 **Panel de fuentes.** El administrador puede cargar lotes de hasta 20 archivos
-PDF, XLSX, DOCX o TXT (máximo 100 MB cada uno). Durante el envío se muestra el
-porcentaje de avance de cada archivo. Antes de guardarlo, el sistema
+PDF, XLSX, DOCX, TXT o Markdown (máximo 100 MB cada uno). Durante el envío se
+muestra el porcentaje de avance de cada archivo. Antes de guardarlo, el sistema
 previsualiza cada catálogo y solicita confirmación; si un Excel tiene varias
 columnas de precio, usted elige cuál importar y registra proveedor y vendedor
 para cada archivo. El teléfono y correo del vendedor son opcionales; la moneda
@@ -185,8 +185,16 @@ guardaría después de esa consolidación.
 Ventas puede consultar el historial, pero no cargar catálogos. Los originales
 se guardan bajo un nombre UUID en `UPLOADS_DIR` (un volumen persistente
 `/app/uploads` en Docker), nunca en los estáticos. TXT también admite el orden
-posicional documentado `codigo;nombre;precio;descripcion;marca`. El ETL no
-admite CSV ni XLS.
+posicional documentado `codigo;nombre;precio;descripcion;marca`. Los archivos
+Markdown se transforman a registros de producto con OpenRouter antes de
+guardarse; configure `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` y
+`OPENROUTER_MODEL` con un modelo que termine en `:free`. Las solicitudes
+temporales por límite de uso se reintentan respetando `Retry-After`, y la vista
+previa reutiliza brevemente el mismo resultado. El Markdown debe contener datos
+explícitos de catálogo y no superar 60 000 caracteres para la transformación:
+el JSON requiere código, nombre, precio y evidencia textual literal de la
+fuente; todos los valores se validan antes de guardarse en el esquema relacional
+del catálogo. El ETL no admite CSV ni XLS.
 
 **Recuperación sin SMTP.** Mientras `SMTP_HOST` no esté configurado, el enlace
 de recuperación se escribe en el registro de Uvicorn:

@@ -27,11 +27,12 @@ from pypdf.errors import PdfReadError
 from app.config import get_settings
 from app.db.session import BaseDeDatosNoDisponible
 from app.models import inventario as inventario_model
+from app.services import markdown_transform_service
 from psycopg2 import Error as ErrorPostgres
 
 logger = logging.getLogger("ferreteria.etl")
 
-EXTENSIONES_PERMITIDAS = frozenset({".pdf", ".xlsx", ".docx", ".txt"})
+EXTENSIONES_PERMITIDAS = frozenset({".pdf", ".xlsx", ".docx", ".txt", ".md"})
 MAX_ARCHIVO_MB = 100
 MAX_ARCHIVO_BYTES = MAX_ARCHIVO_MB * 1024 * 1024
 MAX_ARCHIVOS_INGESTA = 20
@@ -65,6 +66,7 @@ SINONIMOS = {
     "iva": {"iva", "impuesto", "porcentajeiva", "tasaiva", "tax"},
     "iva_incluido": {"ivaincluido", "incluyeiva", "precioconiva"},
     "cantidad_disponible_proveedor": {
+        "cantidaddisponibleproveedor",
         "cantidaddisp",
         "cantidaddisponible",
         "disponibilidadproveedor",
@@ -1285,6 +1287,43 @@ def _extraer_txt(contenido: bytes) -> tuple[list[dict[str, Any]], int, list[str]
     return _extraer_filas(filas, permitir_posicional=True)
 
 
+def _extraer_markdown(
+    contenido: bytes,
+) -> tuple[list[dict[str, Any]], int, list[str]]:
+    try:
+        markdown = contenido.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise ErrorIngesta("El archivo Markdown debe estar codificado en UTF-8") from exc
+
+    try:
+        registros = markdown_transform_service.transformar_markdown(markdown)
+    except markdown_transform_service.ErrorTransformacionMarkdown as exc:
+        raise ErrorIngesta(str(exc)) from exc
+
+    columnas = (
+        "codigo",
+        "nombre",
+        "precio",
+        "marca",
+        "descripcion",
+        "descuentos",
+        "iva",
+        "iva_incluido",
+        "cantidad_disponible_proveedor",
+        "politica_ventas",
+    )
+    filas: list[list[Any]] = [list(columnas)]
+    for registro in registros:
+        fila = []
+        for campo in columnas:
+            valor = registro.get(campo)
+            if campo == "iva_incluido" and isinstance(valor, bool):
+                valor = "si" if valor else "no"
+            fila.append("" if valor is None else valor)
+        filas.append(fila)
+    return _extraer_filas(filas, desplazamiento=0, indice_cabecera_forzado=0)
+
+
 def _nombre_seguro(nombre: str) -> str:
     nombre = nombre.replace("\\", "/").rsplit("/", 1)[-1]
     nombre = "".join(caracter for caracter in nombre if caracter.isprintable())
@@ -1412,6 +1451,7 @@ def _extraer(
         ".xlsx": _extraer_xlsx,
         ".docx": _extraer_docx,
         ".txt": _extraer_txt,
+        ".md": _extraer_markdown,
     }
     if extension == ".xlsx":
         return _extraer_xlsx(contenido, selecciones_precio)
@@ -1419,11 +1459,10 @@ def _extraer(
 
 
 # --- Conversion a Markdown con Microsoft MarkItDown (RF-02.4) ----------------
-# MarkItDown es el paso unico de lectura del documento: recibe el PDF, el
-# Excel, el Word o el TXT tal como llego y lo normaliza a Markdown. Ese texto
-# se guarda en archivos_subidos.contenido_markdown y es el insumo documentado
-# del ETL. Los lectores de filas siguientes siguen estructurando las tablas
-# relacionales: si la conversion falla, el catalogo se procesa igual.
+# MarkItDown convierte PDF, Excel, Word y TXT a Markdown; los archivos .md se
+# leen directamente. El texto se guarda en archivos_subidos.contenido_markdown
+# y es el insumo documentado del ETL. La conversion no reemplaza la validacion
+# ni la extraccion estructurada que carga los productos relacionales.
 AVISO_SIN_MARKDOWN = (
     "No se pudo convertir el archivo a Markdown con MarkItDown; el catalogo "
     "se proceso con los lectores de filas"
@@ -1431,13 +1470,29 @@ AVISO_SIN_MARKDOWN = (
 
 
 def convertir_a_markdown(ruta: Path) -> tuple[str | None, str | None]:
-    """Convierte un catalogo a Markdown con Microsoft MarkItDown (RF-02.4).
+    """Convierte un catalogo a Markdown; lee directamente los archivos .md.
 
-    Devuelve ``(markdown, aviso)``. Ningun fallo de la conversion detiene la
-    ingesta (RF-02.3): el original ya esta en disco y la extraccion de filas
-    no depende de este texto. Los caracteres ``\\x00`` se eliminan porque
-    PostgreSQL los rechaza en columnas de texto.
+    Devuelve ``(markdown, aviso)``. Si falla la conversion MarkItDown, los
+    lectores de filas de PDF, Excel, Word y TXT siguen operando; los archivos
+    .md requieren que el contenido fuente se pueda leer. Se eliminan los
+    caracteres ``\\x00`` porque PostgreSQL los rechaza en columnas de texto.
     """
+    if ruta.suffix.lower() == ".md":
+        try:
+            markdown = ruta.read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeDecodeError) as exc:
+            logger.warning("No se pudo leer el Markdown %s: %s", ruta.name, exc)
+            return None, AVISO_SIN_MARKDOWN
+        markdown = markdown.replace("\x00", "")
+        if not markdown.strip():
+            return None, AVISO_SIN_MARKDOWN
+        if len(markdown) > MAX_MARKDOWN_CARACTERES:
+            return None, (
+                f"El Markdown del archivo supera el limite de "
+                f"{MAX_MARKDOWN_CARACTERES} caracteres y no se guardo"
+            )
+        return markdown, None
+
     try:
         from markitdown import MarkItDown
     except ImportError as exc:
@@ -1479,7 +1534,7 @@ def previsualizar_archivo(
         raise ErrorIngesta(str(exc)) from exc
     extension = Path(nombre).suffix.lower()
     if extension not in EXTENSIONES_PERMITIDAS:
-        raise ErrorIngesta("Formato no permitido; use PDF, XLSX, DOCX o TXT")
+        raise ErrorIngesta("Formato no permitido; use PDF, XLSX, DOCX, TXT o MD")
     if len(contenido) > MAX_ARCHIVO_BYTES:
         raise ErrorIngesta(f"El archivo supera el limite de {MAX_ARCHIVO_MB} MB")
     if not contenido:
@@ -1550,7 +1605,7 @@ def procesar_archivo(
             "estado": "rechazado",
             "filas_ok": 0,
             "filas_error": 0,
-            "detalle": "Formato no permitido; use PDF, XLSX, DOCX o TXT",
+            "detalle": "Formato no permitido; use PDF, XLSX, DOCX, TXT o MD",
         }
     if len(contenido) > MAX_ARCHIVO_BYTES:
         return {
@@ -1567,8 +1622,8 @@ def procesar_archivo(
     digest = hashlib.sha256(contenido).hexdigest()
     ruta, ruta_relativa = _ruta_original(nombre)
     _escribir_original(ruta, contenido)
-    # RF-02.4: MarkItDown convierte el catalogo a Markdown y ese texto se
-    # guarda en la base junto al registro del archivo original.
+    # RF-02.4: conserva el Markdown fuente o el texto convertido junto al
+    # registro del archivo original.
     markdown, aviso_markdown = convertir_a_markdown(ruta)
     try:
         archivo = inventario_model.crear_archivo(

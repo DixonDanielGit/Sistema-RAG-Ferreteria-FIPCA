@@ -4,7 +4,7 @@
 
   var MAX_ARCHIVOS = 20;
   var MAX_BYTES = 100 * 1024 * 1024;
-  var EXTENSIONES = ["pdf", "xlsx", "docx", "txt"];
+  var EXTENSIONES = ["pdf", "xlsx", "docx", "txt", "md"];
   var ETIQUETAS_ESTADO = {
     pendiente: "Pendiente",
     procesando: "Procesando",
@@ -831,7 +831,7 @@
 
       var mensajes = [];
       if (extensionesInvalidas) {
-        mensajes.push("Solo se aceptan archivos PDF, XLSX, DOCX o TXT.");
+        mensajes.push("Solo se aceptan archivos PDF, XLSX, DOCX, TXT o Markdown.");
       }
       if (archivosVacios) {
         mensajes.push("No se pueden agregar archivos vacíos.");

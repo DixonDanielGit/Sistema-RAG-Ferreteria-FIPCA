@@ -152,7 +152,7 @@ def estado_vectorizacion(
 async def ingesta(
     request: Request,
     archivos: list[UploadFile] | None = File(
-        default=None, description="PDF, XLSX, DOCX o TXT"
+        default=None, description="PDF, XLSX, DOCX, TXT o Markdown"
     ),
     selecciones_precio: str | None = Form(default=None),
     metadatos_catalogo: str | None = Form(default=None),
@@ -288,7 +288,7 @@ async def ingesta(
     },
 )
 async def previsualizacion(
-    archivo: UploadFile = File(description="PDF, XLSX, DOCX o TXT"),
+    archivo: UploadFile = File(description="PDF, XLSX, DOCX, TXT o Markdown"),
     selecciones_precio: str | None = Form(default=None),
     _: dict[str, Any] = Depends(requiere_permiso("catalogos:ingestar")),
 ) -> dict[str, Any]:
