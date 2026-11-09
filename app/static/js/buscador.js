@@ -18,6 +18,8 @@
   var resumen = document.getElementById("resumen-buscador");
   var contenedor = document.getElementById("contenedor-resultados");
   var filas = document.getElementById("filas-buscador");
+  var tarjetas = document.getElementById("tarjetas-buscador");
+  var ordenMovil = document.getElementById("orden-movil-buscador");
   var vacio = document.getElementById("buscador-vacio");
   var tituloVacio = document.getElementById("titulo-vacio-buscador");
   var textoVacio = document.getElementById("texto-vacio-buscador");
@@ -368,15 +370,94 @@
     return fila;
   }
 
+  function tarjetaProducto(producto) {
+    var nombre = producto.nombre || "Sin nombre registrado";
+    var elemento = document.createElement("li");
+    var boton = document.createElement("button");
+    boton.className = "buscador__tarjeta";
+    boton.type = "button";
+    boton.dataset.productoId = String(producto.id);
+    boton.setAttribute("aria-label", "Ver detalle de " + nombre);
+
+    var cabecera = document.createElement("span");
+    cabecera.className = "buscador__tarjeta-cabecera";
+    var titulo = document.createElement("strong");
+    titulo.className = "buscador__tarjeta-nombre";
+    titulo.textContent = nombre;
+    cabecera.appendChild(titulo);
+    if (producto.codigo) {
+      var codigo = document.createElement("code");
+      codigo.className = "buscador__tarjeta-codigo";
+      codigo.textContent = producto.codigo;
+      cabecera.appendChild(codigo);
+    }
+    boton.appendChild(cabecera);
+
+    var datos = document.createElement("span");
+    datos.className = "buscador__tarjeta-datos";
+    var precio = document.createElement("span");
+    precio.className = "buscador__tarjeta-valor";
+    var etiquetaPrecio = document.createElement("span");
+    etiquetaPrecio.className = "buscador__tarjeta-etiqueta";
+    etiquetaPrecio.textContent = "Precio";
+    var valorPrecio = document.createElement("strong");
+    valorPrecio.textContent = formatearPrecio(producto.precio, producto.moneda);
+    precio.appendChild(etiquetaPrecio);
+    precio.appendChild(valorPrecio);
+
+    var stock = document.createElement("span");
+    stock.className = "buscador__tarjeta-valor buscador__tarjeta-existencias";
+    var etiquetaStock = document.createElement("span");
+    etiquetaStock.className = "buscador__tarjeta-etiqueta";
+    etiquetaStock.textContent = "Existencias";
+    var existencias = Number(producto.stock);
+    var valorStock = document.createElement("strong");
+    valorStock.textContent = String(isNaN(existencias) ? 0 : existencias);
+    valorStock.dataset.agotado =
+      isNaN(existencias) || existencias <= 0 ? "1" : "";
+    stock.appendChild(etiquetaStock);
+    stock.appendChild(valorStock);
+    datos.appendChild(precio);
+    datos.appendChild(stock);
+    boton.appendChild(datos);
+
+    var proveedor = document.createElement("span");
+    proveedor.className = "buscador__tarjeta-proveedor";
+    var etiquetaProveedor = document.createElement("span");
+    etiquetaProveedor.className = "buscador__tarjeta-etiqueta";
+    etiquetaProveedor.textContent = "Proveedor";
+    var nombreProveedor = document.createElement("span");
+    nombreProveedor.textContent =
+      producto.proveedor || "Sin proveedor registrado";
+    proveedor.appendChild(etiquetaProveedor);
+    proveedor.appendChild(nombreProveedor);
+    boton.appendChild(proveedor);
+
+    elemento.appendChild(boton);
+    return elemento;
+  }
+
+  function renderizarProductos(lista) {
+    if (filas) {
+      filas.replaceChildren();
+      lista.forEach(function (producto) {
+        filas.appendChild(filaProducto(producto));
+      });
+    }
+    if (tarjetas) {
+      tarjetas.replaceChildren();
+      lista.forEach(function (producto) {
+        tarjetas.appendChild(tarjetaProducto(producto));
+      });
+    }
+  }
+
   function pintarResultados(datos, milisegundos) {
     modoCatalogo = false;
     var lista = datos.productos || [];
     paginaActual = datos.pagina;
     totalActual = datos.total;
-    filas.textContent = "";
-    lista.forEach(function (producto) {
-      filas.appendChild(filaProducto(producto));
-    });
+    renderizarProductos(lista);
     mostrar(contenedor);
     ocultar(vacio);
     mostrar(resumen);
@@ -416,10 +497,7 @@
     var lista = datos.productos || [];
     paginaActual = datos.pagina;
     totalActual = datos.total;
-    filas.textContent = "";
-    lista.forEach(function (producto) {
-      filas.appendChild(filaProducto(producto));
-    });
+    renderizarProductos(lista);
     mostrar(resumen);
 
     if (datos.total === 0) {
@@ -582,6 +660,20 @@
           (seleccionado && direccionOrden === "asc" ? "descendente" : "ascendente")
       );
     });
+    if (ordenMovil) {
+      ordenMovil.value = ordenarPor
+        ? ordenarPor + ":" + direccionOrden
+        : "";
+    }
+  }
+
+  function actualizarResultadosOrdenados() {
+    actualizarOrdenVisual();
+    if (modoCatalogo) {
+      cargarPagina(1);
+    } else if (entrada.value.trim()) {
+      buscar(entrada.value.trim(), 1);
+    }
   }
 
   function ordenarResultados(columna) {
@@ -592,12 +684,7 @@
       ordenarPor = columna;
       direccionOrden = "asc";
     }
-    actualizarOrdenVisual();
-    if (modoCatalogo) {
-      cargarPagina(1);
-    } else if (entrada.value.trim()) {
-      buscar(entrada.value.trim(), 1);
-    }
+    actualizarResultadosOrdenados();
   }
 
   function cancelarPendiente() {
@@ -671,6 +758,15 @@
       ordenarResultados(boton.getAttribute("data-ordenar-por"));
     });
   });
+  if (ordenMovil) {
+    ordenMovil.addEventListener("change", function () {
+      var valor = ordenMovil.value.split(":");
+      cancelarPendiente();
+      ordenarPor = valor.length === 2 ? valor[0] : null;
+      direccionOrden = valor.length === 2 ? valor[1] : "asc";
+      actualizarResultadosOrdenados();
+    });
+  }
   actualizarOrdenVisual();
 
   document.querySelectorAll("[data-buscar]").forEach(function (atajo) {
@@ -719,6 +815,14 @@
           evento.target.dataset.productoId,
           evento.target.getAttribute("aria-label")
         );
+      }
+    });
+  }
+  if (tarjetas) {
+    tarjetas.addEventListener("click", function (evento) {
+      var boton = evento.target.closest("button[data-producto-id]");
+      if (boton && tarjetas.contains(boton)) {
+        mostrarDetalle(boton.dataset.productoId, boton.getAttribute("aria-label"));
       }
     });
   }

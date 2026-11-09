@@ -101,6 +101,8 @@ class TestVistaDelBuscador:
         assert 'maxlength="200"' in respuesta.text
         assert 'id="contenedor-resultados"' in respuesta.text
         assert 'id="filas-buscador"' in respuesta.text
+        assert 'id="tarjetas-buscador"' in respuesta.text
+        assert 'id="orden-movil-buscador"' in respuesta.text
         assert 'id="buscador-vacio"' in respuesta.text
         assert 'id="resumen-buscador"' in respuesta.text
         assert 'id="boton-ver-catalogo"' in respuesta.text

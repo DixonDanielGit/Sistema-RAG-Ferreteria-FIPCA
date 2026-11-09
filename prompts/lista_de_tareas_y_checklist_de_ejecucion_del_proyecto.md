@@ -28,7 +28,7 @@ RAG)" se sustituye **exclusivamente** por el **Módulo de Buscador Comercial
   (`tsvector`/`tsquery` o `ILIKE`)**: respuestas en milisegundos sobre los
   ~8.000 productos, a costo cero y **sin IA en tiempo real**.
 - El ETL convierte los archivos con **Microsoft MarkItDown** a Markdown y un
-  modelo rápido (**Gemini Flash**) estructura los registros (sugiriendo un
+  modelo rápido (**OpenRouter**) estructura los registros (sugiriendo un
   nombre comercial cuando falte) antes de guardarlos en PostgreSQL.
 
 **Fase 1 (prioritaria y exclusiva):** las semanas 4 y 5 se dedican de lleno al
@@ -119,22 +119,26 @@ tareas pendientes.
 **Estado actual.** La conversión a Markdown con MarkItDown, la búsqueda
 Full-Text de PostgreSQL, el endpoint y la interfaz del buscador ya están
 implementados. El chat RAG queda fuera del alcance activo. Por decisión del
-cliente, la conexión con Gemini Flash para estructurar catálogos queda pausada
-hasta nuevo aviso; la búsqueda se prueba directamente contra los productos
-guardados en PostgreSQL, sin exigir archivos cargados. La prueba de integración
-de búsqueda directa está escrita, pero su ejecución quedó pendiente porque una
-conexión activa impidió clonar la base de pruebas.
+cliente, el uso de OpenRouter para estructurar catálogos queda pausado hasta
+nuevo aviso; aunque hay integración y pruebas simuladas en el código, esta
+revisión no efectuó llamadas reales al proveedor ni valida el flujo remoto.
+La búsqueda trabaja directamente sobre los productos guardados en PostgreSQL,
+sin exigir archivos cargados. En la validación focalizada actual pasaron 69
+pruebas unitarias/API y se omitieron 29 pruebas de integración: no se pudo
+preparar la base de pruebas (`relation "productos" does not exist`). Siguen
+pendientes la validación con catálogo representativo, el recorrido de extremo
+a extremo y la demostración del MVP.
 
 - [x] Integrar **Microsoft MarkItDown** en el pipeline ETL para convertir los
   archivos PDF, Excel y Word a formato Markdown. (Unificar la lectura de los
   documentos en un solo paso de conversión.)
-- [ ] Conectar **Gemini Flash** para que tome el Markdown, estructure los
+- [ ] Conectar **OpenRouter** para que tome el Markdown, estructure los
   registros y genere un **nombre comercial sugerido** cuando el producto no
   tenga uno. (Pausado por solicitud del cliente; no realizar llamadas al
   proveedor de IA hasta nueva indicación.)
 - [ ] Validar la respuesta del modelo y guardar los datos limpios en las tablas
   relacionales de PostgreSQL, sin alterar stock ni inventar proveedores.
-  (Pendiente junto con la conexión a Gemini Flash; persistir solo información
+  (Pendiente junto con la conexión a OpenRouter; persistir solo información
   válida y trazable al archivo de origen.)
 - [x] Preparar la indexación **Full-Text Search** de PostgreSQL (columna
   `tsvector` + índice) sobre productos y consultar con `tsquery`, con respaldo
@@ -145,11 +149,12 @@ conexión activa impidió clonar la base de pruebas.
   comercial**. (Mostrar resultados de productos en tiempo real sin recargar la
   página y sin IA en tiempo real. La consulta puede tener desde un carácter y
   busca directamente en `productos`, aunque no se hayan cargado archivos.)
-- [ ] Cubrir el ETL nuevo y la búsqueda con pruebas unitarias y de API,
-  incluidos valores límite. (Hay pruebas unitarias aprobadas para consulta de
-  un carácter y resultados vacíos; las pruebas de integración quedaron
-  omitidas porque PostgreSQL no permitió clonar la base plantilla al detectar
-  una conexión activa. Completar la validación de integración.)
+- [x] Cubrir el ETL nuevo y la búsqueda con pruebas unitarias y de API,
+  incluidos valores límite. (En la ejecución focalizada pasaron 69 pruebas
+  unitarias/API de ETL, transformación Markdown y búsqueda, incluidas consultas
+  límite. Las 29 pruebas de integración se omitieron porque no se pudo preparar
+  la base de pruebas (`relation "productos" does not exist`); completar esa
+  validación antes de dar por aceptado el MVP.)
 - [x] Redirigir al usuario a `/search` después de iniciar sesión y al abrir
   `/login` con una sesión activa. (Dejar el buscador como destino directo de
   entrada al sistema.)
@@ -191,7 +196,7 @@ conexión activa impidió clonar la base de pruebas.
 - [ ] Verificar que ninguna consulta del usuario invoque un modelo de
   lenguaje ni embeddings en tiempo real. (Confirmar que la búsqueda sea local
   en PostgreSQL y a costo cero.)
-- [ ] Probar fallos del ETL con modelo (respuesta inválida de Gemini Flash,
+- [ ] Probar fallos del ETL con modelo (respuesta inválida de OpenRouter,
   límite de tokens, proveedor caído) y mensajes de recuperación para el
   usuario. (Comprobar que el sistema informe claramente si un servicio falla
   o tarda.)
@@ -222,7 +227,7 @@ conexión activa impidió clonar la base de pruebas.
 - [ ] Preparar proxy inverso, HTTPS y dominio, según los datos disponibles del
   cliente. (Configurar una dirección web segura para acceder al sistema.)
 - [ ] Definir respaldos, persistencia de base de datos, archivos cargados y
-  claves del ETL (Gemini Flash); documentar recuperación básica. (Planificar copias de seguridad y cómo restaurar la información.)
+  claves del ETL (OpenRouter); documentar recuperación básica. (Planificar copias de seguridad y cómo restaurar la información.)
 - [ ] Revisar salud, logs, permisos, límites de recursos y configuración de la
   API para el entorno de producción. (Comprobar que el sistema esté preparado para funcionar en el servidor.)
 - [ ] Redactar y revisar manual técnico y guía breve de uso para el personal. (Preparar instrucciones para quienes administren y utilicen el sistema.)
@@ -283,7 +288,7 @@ conexión activa impidió clonar la base de pruebas.
 | Hito | Fecha objetivo | Condición de aceptación |
 |---|---|---|
 | Replanificación | Día 3 | Semanas 1–3 registradas como completadas; alcance del Buscador Comercial priorizado; autenticación y roles intactos |
-| MVP funcional | Cierre de semana 4 | Catálogo subido, ETL con MarkItDown + Gemini Flash, búsqueda full-text en milisegundos desde la web, resultados reales y pruebas de flujo |
+| MVP funcional | Cierre de semana 4 | Catálogo subido, ETL con MarkItDown + OpenRouter, búsqueda full-text en milisegundos desde la web, resultados reales y pruebas de flujo |
 | Validación del piloto | Cierre de semana 5 | Relevancia, latencia (milisegundos), seguridad y comportamiento sin coincidencias documentados |
 | Módulos administrativos | Cierre de semana 6 | Inventario y bitácora operables con permisos y reglas de negocio |
 | Preparación de producción | Cierre de semana 7 | Despliegue ensayado, secretos, respaldos y documentación listos |

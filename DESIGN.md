@@ -244,6 +244,8 @@ porque los equipos son de gama baja y la conexión es irregular.
 | Título de estado vacío | 26 px | 700 | "¿Qué necesita del inventario?" |
 | Rótulo | 11.5 px, tracking 0.1 em | 700 | "Estado del sistema" |
 | Micro | 11.2 px | 600 | Lema de marca, chips |
+| Dato principal móvil | 16 px | 700 | Nombre, precio, existencias y selector |
+| Etiqueta de tarjeta móvil | 12 px | 650 | "Precio", "Existencias", "Proveedor" |
 
 Reglas:
 
@@ -265,6 +267,10 @@ Reglas:
 - **Usuarios:** tabla de cuentas con búsqueda, ordenamiento, paginación y
   expansión responsive; alta y edición ocurren en un modal. Las acciones
   permiten activar o desactivar sin borrar el historial.
+- **Buscador comercial:** tabla con ordenamiento en escritorio; en teléfonos,
+  tarjetas de producto sin desplazamiento horizontal, con precio y existencias
+  prioritarios. El selector compacto conserva el ordenamiento y tocar una
+  tarjeta abre la ficha del producto.
 - **Perfil:** fotografía, rol y datos personales en una ficha compacta con
   superficies y colores de tema; los cambios de datos y fotografía se realizan
   en un modal con vista previa y validación en vivo.

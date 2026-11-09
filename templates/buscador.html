@@ -139,107 +139,131 @@ Search; aqui solo se pinta lo que el servidor devuelve. -#}
         <span>Buscando en el catálogo…</span>
       </p>
 
-      <div class="buscador__tabla-contenedor" id="contenedor-resultados" hidden>
-        <table class="buscador__tabla">
-          <caption class="visually-hidden">
-            Productos encontrados en el catálogo
-          </caption>
-          <thead>
-            <tr>
-              <th scope="col" aria-sort="none">
-                <button
-                  class="buscador__ordenar"
-                  type="button"
-                  data-ordenar-por="codigo"
-                  data-etiqueta-orden="código"
-                >
-                  Código
-                  <svg
-                    class="buscador__orden-icono"
-                    viewBox="0 0 16 16"
-                    aria-hidden="true"
+      <div class="buscador__resultados" id="contenedor-resultados" hidden>
+        <div class="buscador__tabla-contenedor">
+          <table class="buscador__tabla">
+            <caption class="visually-hidden">
+              Productos encontrados en el catálogo
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col" aria-sort="none">
+                  <button
+                    class="buscador__ordenar"
+                    type="button"
+                    data-ordenar-por="codigo"
+                    data-etiqueta-orden="código"
                   >
-                    <path class="buscador__orden-arriba" d="m3 7 5-5 5 5" />
-                    <path class="buscador__orden-abajo" d="m3 9 5 5 5-5" />
-                  </svg>
-                </button>
-              </th>
-              <th scope="col" aria-sort="none">
-                <button
-                  class="buscador__ordenar"
-                  type="button"
-                  data-ordenar-por="nombre"
-                  data-etiqueta-orden="producto"
-                >
-                  Producto
-                  <svg
-                    class="buscador__orden-icono"
-                    viewBox="0 0 16 16"
-                    aria-hidden="true"
+                    Código
+                    <svg
+                      class="buscador__orden-icono"
+                      viewBox="0 0 16 16"
+                      aria-hidden="true"
+                    >
+                      <path class="buscador__orden-arriba" d="m3 7 5-5 5 5" />
+                      <path class="buscador__orden-abajo" d="m3 9 5 5 5-5" />
+                    </svg>
+                  </button>
+                </th>
+                <th scope="col" aria-sort="none">
+                  <button
+                    class="buscador__ordenar"
+                    type="button"
+                    data-ordenar-por="nombre"
+                    data-etiqueta-orden="producto"
                   >
-                    <path class="buscador__orden-arriba" d="m3 7 5-5 5 5" />
-                    <path class="buscador__orden-abajo" d="m3 9 5 5 5-5" />
-                  </svg>
-                </button>
-              </th>
-              <th scope="col" aria-sort="none">
-                <button
-                  class="buscador__ordenar"
-                  type="button"
-                  data-ordenar-por="proveedor"
-                  data-etiqueta-orden="proveedor"
-                >
-                  Proveedor
-                  <svg
-                    class="buscador__orden-icono"
-                    viewBox="0 0 16 16"
-                    aria-hidden="true"
+                    Producto
+                    <svg
+                      class="buscador__orden-icono"
+                      viewBox="0 0 16 16"
+                      aria-hidden="true"
+                    >
+                      <path class="buscador__orden-arriba" d="m3 7 5-5 5 5" />
+                      <path class="buscador__orden-abajo" d="m3 9 5 5 5-5" />
+                    </svg>
+                  </button>
+                </th>
+                <th scope="col" aria-sort="none">
+                  <button
+                    class="buscador__ordenar"
+                    type="button"
+                    data-ordenar-por="proveedor"
+                    data-etiqueta-orden="proveedor"
                   >
-                    <path class="buscador__orden-arriba" d="m3 7 5-5 5 5" />
-                    <path class="buscador__orden-abajo" d="m3 9 5 5 5-5" />
-                  </svg>
-                </button>
-              </th>
-              <th scope="col" aria-sort="none">
-                <button
-                  class="buscador__ordenar"
-                  type="button"
-                  data-ordenar-por="precio"
-                  data-etiqueta-orden="precio"
-                >
-                  Precio
-                  <svg
-                    class="buscador__orden-icono"
-                    viewBox="0 0 16 16"
-                    aria-hidden="true"
+                    Proveedor
+                    <svg
+                      class="buscador__orden-icono"
+                      viewBox="0 0 16 16"
+                      aria-hidden="true"
+                    >
+                      <path class="buscador__orden-arriba" d="m3 7 5-5 5 5" />
+                      <path class="buscador__orden-abajo" d="m3 9 5 5 5-5" />
+                    </svg>
+                  </button>
+                </th>
+                <th scope="col" aria-sort="none">
+                  <button
+                    class="buscador__ordenar"
+                    type="button"
+                    data-ordenar-por="precio"
+                    data-etiqueta-orden="precio"
                   >
-                    <path class="buscador__orden-arriba" d="m3 7 5-5 5 5" />
-                    <path class="buscador__orden-abajo" d="m3 9 5 5 5-5" />
-                  </svg>
-                </button>
-              </th>
-              <th scope="col" aria-sort="none">
-                <button
-                  class="buscador__ordenar"
-                  type="button"
-                  data-ordenar-por="stock"
-                  data-etiqueta-orden="existencias"
-                >
-                  Existencias
-                  <svg
-                    class="buscador__orden-icono"
-                    viewBox="0 0 16 16"
-                    aria-hidden="true"
+                    Precio
+                    <svg
+                      class="buscador__orden-icono"
+                      viewBox="0 0 16 16"
+                      aria-hidden="true"
+                    >
+                      <path class="buscador__orden-arriba" d="m3 7 5-5 5 5" />
+                      <path class="buscador__orden-abajo" d="m3 9 5 5 5-5" />
+                    </svg>
+                  </button>
+                </th>
+                <th scope="col" aria-sort="none">
+                  <button
+                    class="buscador__ordenar"
+                    type="button"
+                    data-ordenar-por="stock"
+                    data-etiqueta-orden="existencias"
                   >
-                    <path class="buscador__orden-arriba" d="m3 7 5-5 5 5" />
-                    <path class="buscador__orden-abajo" d="m3 9 5 5 5-5" />
-                  </svg>
-                </button>
-              </th>
-            </tr>
-          </thead>
-          <tbody id="filas-buscador"></tbody>
-        </table>
+                    Existencias
+                    <svg
+                      class="buscador__orden-icono"
+                      viewBox="0 0 16 16"
+                      aria-hidden="true"
+                    >
+                      <path class="buscador__orden-arriba" d="m3 7 5-5 5 5" />
+                      <path class="buscador__orden-abajo" d="m3 9 5 5 5-5" />
+                    </svg>
+                  </button>
+                </th>
+              </tr>
+            </thead>
+            <tbody id="filas-buscador"></tbody>
+          </table>
+        </div>
+        <section
+          class="buscador__resultados-movil"
+          aria-label="Resultados de productos"
+        >
+          <label class="buscador__orden-movil" for="orden-movil-buscador">
+            <span>Ordenar resultados</span>
+            <select id="orden-movil-buscador">
+              <option value="">Orden recomendado</option>
+              <option value="nombre:asc">Producto (A-Z)</option>
+              <option value="nombre:desc">Producto (Z-A)</option>
+              <option value="precio:asc">Precio (menor a mayor)</option>
+              <option value="precio:desc">Precio (mayor a menor)</option>
+              <option value="stock:asc">Existencias (menor a mayor)</option>
+              <option value="stock:desc">Existencias (mayor a menor)</option>
+              <option value="proveedor:asc">Proveedor (A-Z)</option>
+              <option value="proveedor:desc">Proveedor (Z-A)</option>
+              <option value="codigo:asc">Código (A-Z)</option>
+              <option value="codigo:desc">Código (Z-A)</option>
+            </select>
+          </label>
+          <ul class="buscador__tarjetas" id="tarjetas-buscador"></ul>
+        </section>
       </div>
       <nav
         class="buscador__paginacion"

@@ -1613,11 +1613,19 @@ body.cuerpo-buscador main {
 }
 
 /* --- Tabla de resultados --- */
+.buscador__resultados {
+  min-width: 0;
+}
+
 .buscador__tabla-contenedor {
   overflow-x: auto;
   border: 1px solid var(--borde);
   border-radius: var(--radio-md);
   background: var(--superficie);
+}
+
+.buscador__resultados-movil {
+  display: none;
 }
 
 .buscador__tabla {
@@ -1906,6 +1914,134 @@ body.cuerpo-buscador main {
 
 .buscador__stock[data-agotado="1"] {
   color: var(--texto-suave);
+}
+
+@media (max-width: 767.98px) {
+  .buscador__tabla-contenedor {
+    display: none;
+  }
+
+  .buscador__resultados-movil {
+    display: block;
+  }
+
+  .buscador__orden-movil {
+    display: grid;
+    gap: var(--esp-2);
+    margin-bottom: var(--esp-3);
+    color: var(--texto);
+    font-size: 0.9375rem;
+    font-weight: 650;
+  }
+
+  .buscador__orden-movil select {
+    width: 100%;
+    min-height: 44px;
+    padding: 0 var(--esp-3);
+    border: 1px solid var(--borde-fuerte);
+    border-radius: var(--radio-sm);
+    background: var(--superficie);
+    color: var(--texto);
+    font: inherit;
+    font-size: 1rem;
+  }
+
+  .buscador__orden-movil select:focus-visible {
+    outline: 3px solid var(--anillo);
+    outline-offset: 2px;
+  }
+
+  .buscador__tarjetas {
+    display: grid;
+    gap: var(--esp-2);
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .buscador__tarjeta {
+    display: grid;
+    gap: var(--esp-3);
+    width: 100%;
+    min-height: 44px;
+    padding: var(--esp-4);
+    border: 1px solid var(--borde);
+    border-radius: var(--radio-md);
+    background: var(--superficie);
+    color: var(--texto);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .buscador__tarjeta:hover,
+  .buscador__tarjeta:focus-visible {
+    background: var(--accion-suave);
+  }
+
+  .buscador__tarjeta:focus-visible {
+    outline: 3px solid var(--anillo);
+    outline-offset: 2px;
+  }
+
+  .buscador__tarjeta-cabecera,
+  .buscador__tarjeta-valor,
+  .buscador__tarjeta-proveedor {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+  }
+
+  .buscador__tarjeta-nombre {
+    font-size: 1rem;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  .buscador__tarjeta-codigo {
+    width: fit-content;
+    max-width: 100%;
+    padding: 2px 6px;
+    border: 1px solid var(--borde);
+    border-radius: 6px;
+    background: var(--superficie-alt);
+    font-size: 0.9375rem;
+    overflow-wrap: anywhere;
+  }
+
+  .buscador__tarjeta-datos {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.7fr);
+    gap: var(--esp-3);
+    padding-top: var(--esp-3);
+    border-top: 1px solid var(--borde);
+  }
+
+  .buscador__tarjeta-etiqueta {
+    color: var(--texto-suave);
+    font-size: 0.75rem;
+    font-weight: 650;
+  }
+
+  .buscador__tarjeta-valor strong {
+    font-size: 1rem;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+  }
+
+  .buscador__tarjeta-existencias strong {
+    justify-self: start;
+  }
+
+  .buscador__tarjeta-existencias strong[data-agotado="1"] {
+    color: var(--texto-suave);
+  }
+
+  .buscador__tarjeta-proveedor > span:last-child {
+    font-size: 0.9375rem;
+    overflow-wrap: anywhere;
+  }
 }
 
 /* --- Estado inicial y sin coincidencias --- */
