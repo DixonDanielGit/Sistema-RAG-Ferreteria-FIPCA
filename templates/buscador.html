@@ -140,6 +140,21 @@ Search; aqui solo se pinta lo que el servidor devuelve. -#}
       </p>
 
       <div class="buscador__resultados" id="contenedor-resultados" hidden>
+        <div class="buscador__controles-tabla">
+          <label class="buscador__limite" for="limite-resultados-buscador">
+            <span>Mostrar</span>
+            <select
+              id="limite-resultados-buscador"
+              aria-label="Cantidad de productos por página"
+            >
+              <option value="25" selected>25</option>
+              <option value="50">50</option>
+              <option value="75">75</option>
+              <option value="100">100</option>
+            </select>
+            <span>por página</span>
+          </label>
+        </div>
         <div class="buscador__tabla-contenedor">
           <table class="buscador__tabla">
             <caption class="visually-hidden">

@@ -27,8 +27,9 @@ guardan fuera de los recursos públicos bajo un nombre UUID y su hash SHA-256.
   XLS. Los documentos tabulares requieren cabeceras reconocibles de código,
   nombre y precio; el TXT también admite el orden posicional documentado.
 - **Protecciones:** máximo de 20 archivos por solicitud, 100 MB por archivo,
-  20 000 filas por archivo y 300 páginas PDF; se verifica además la estructura
-  ZIP de XLSX y DOCX.
+  20 000 filas por archivo y 500 páginas para PDF y DOCX. DOCX se renderiza con
+  LibreOffice para contar páginas; se verifica además la estructura ZIP de XLSX
+  y DOCX.
 - **Persistencia:** metadatos de carga, estado, conteos y detalle; originales
   con UUID y SHA-256 en `UPLOADS_DIR`; inserción o actualización parametrizada
   de productos sin modificar stock ni vectores.

@@ -7,8 +7,7 @@
 
   var MINIMO_BUSQUEDA = 1;
   var RETRASO_MS = 350;
-  var LIMITE = 50;
-  var LIMITE_CATALOGO = 50;
+  var LIMITE = 25;
 
   var formulario = document.getElementById("form-buscador");
   var entrada = document.getElementById("consulta-buscador");
@@ -29,6 +28,7 @@
   var anteriorCatalogo = document.getElementById("pagina-anterior-catalogo");
   var siguienteCatalogo = document.getElementById("pagina-siguiente-catalogo");
   var estadoPaginacion = document.getElementById("estado-paginacion-catalogo");
+  var limiteResultados = document.getElementById("limite-resultados-buscador");
   var dialogoDetalle = document.getElementById("dialogo-detalle-producto");
   var cerrarDetalle = document.getElementById("cerrar-detalle-producto");
   var estadoDetalle = document.getElementById("estado-detalle-producto");
@@ -329,13 +329,15 @@
         .filter(Boolean)
         .join(" · ")
     );
-    agregarDetalle(
-      celdaProducto,
-      "buscador__descripcion",
-      producto.descripcion && producto.descripcion.length > 180
-        ? producto.descripcion.slice(0, 179) + "…"
-        : producto.descripcion
-    );
+    // agregarDetalle(
+    //   celdaProducto,
+    //   "buscador__descripcion",
+    //   producto.descripcion && producto.descripcion.length > 180
+    //     ? producto.descripcion.slice(0, 179) + "…"
+    //     : producto.descripcion
+    // );
+
+    agregarDetalle(celdaProducto, "buscador__descripcion", "");
     fila.appendChild(celdaProducto);
 
     var proveedor = crearCelda("buscador__proveedor");
@@ -599,7 +601,7 @@
     var consulta = entrada.value.trim();
     var ruta = modoCatalogo
       ? "/api/v1/inventario/catalogo?limite=" +
-        LIMITE_CATALOGO +
+        LIMITE +
         "&pagina=" +
         encodeURIComponent(pagina) +
         parametrosOrden()
@@ -749,6 +751,18 @@
     siguienteCatalogo.addEventListener("click", function () {
       if (paginaActual < Math.ceil(totalActual / LIMITE)) {
         cargarPagina(paginaActual + 1);
+      }
+    });
+  }
+
+  if (limiteResultados) {
+    limiteResultados.addEventListener("change", function () {
+      LIMITE = Number(limiteResultados.value);
+      cancelarPendiente();
+      if (modoCatalogo) {
+        cargarPagina(1);
+      } else if (entrada.value.trim()) {
+        buscar(entrada.value.trim(), 1);
       }
     });
   }

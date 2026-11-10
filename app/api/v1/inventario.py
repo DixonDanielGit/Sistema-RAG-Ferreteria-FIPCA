@@ -292,6 +292,22 @@ async def ingesta(
             detail="Debe indicar los datos del proveedor para cada archivo y en el mismo orden",
         )
 
+    metadatos_archivos = []
+    for indice, archivo in enumerate(archivos):
+        datos = {
+            **metadatos[indice].model_dump(),
+            "proveedor": etl_service.nombre_proveedor_desde_archivo(
+                archivo.filename or ""
+            ),
+        }
+        try:
+            metadatos_archivos.append(MetadatosCatalogo.model_validate(datos))
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Archivo {indice + 1}: nombre de proveedor invalido",
+            ) from exc
+
     try:
         opciones = json.loads(selecciones_precio or "{}")
     except json.JSONDecodeError as exc:
@@ -336,7 +352,7 @@ async def ingesta(
                     etl_service.procesar_archivo,
                     *argumentos,
                     selecciones,
-                    metadatos[indice].model_dump(),
+                    metadatos_archivos[indice].model_dump(),
                 )
                 resultados.append(resultado)
             finally:

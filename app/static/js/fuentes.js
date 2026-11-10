@@ -5,6 +5,13 @@
   var MAX_ARCHIVOS = 20;
   var MAX_BYTES = 100 * 1024 * 1024;
   var EXTENSIONES = ["pdf", "xlsx", "docx", "txt", "md"];
+  var REGEX_CONTACTO = {
+    vendedor: /^[\p{L}\p{M}](?:[\p{L}\p{M} .'-])*$/u,
+    telefono_vendedor:
+      /^(?=(?:[^0-9]*[0-9]){7,15}[^0-9]*$)\+?[0-9][0-9\s().-]*$/,
+    correo_vendedor:
+      /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/,
+  };
   var ETIQUETAS_ESTADO = {
     pendiente: "Pendiente",
     procesando: "Procesando",
@@ -20,7 +27,17 @@
     return punto === -1 ? "" : nombre.slice(punto + 1).toLowerCase();
   }
 
+  function nombreProveedor(nombreArchivo) {
+    var nombre = String(nombreArchivo || "")
+      .replace(/\\/g, "/")
+      .split("/")
+      .pop();
+    var punto = nombre.lastIndexOf(".");
+    return punto > 0 ? nombre.slice(0, punto) : nombre;
+  }
+
   function formatear(bytes) {
+    if (bytes === null || bytes === undefined) return "Tamaño desconocido";
     if (!bytes) return "0 KB";
     if (bytes < 1024 * 1024) {
       return Math.max(1, Math.round(bytes / 1024)) + " KB";
@@ -89,22 +106,18 @@
     var velo = document.getElementById("velo-fuentes");
     var principal = document.querySelector(".chat__principal");
     var dialogoRevision = document.getElementById("dialogo-revision-fuentes");
-    var resumenRevision = document.getElementById("resumen-revision-fuentes");
+    var tituloRevision = document.getElementById("titulo-revision-fuentes");
     var seleccionPrecios = document.getElementById("seleccion-precios-fuentes");
-    var contenedorMuestra = document.getElementById("contenedor-muestra-fuentes");
-    var muestraRevision = document.getElementById("muestra-fuentes");
     var respuestaJSONIA = document.getElementById("respuesta-json-ia-fuentes");
     var contenidoJSONIA = document.getElementById("contenido-json-ia-fuentes");
     var cancelarRevision = document.getElementById("cancelar-revision-fuentes");
     var confirmarRevision = document.getElementById("confirmar-revision-fuentes");
     var datosCotizacion = document.getElementById("datos-cotizacion-fuentes");
     var camposCotizacion = {
-      proveedor: document.getElementById("proveedor-fuente"),
       vendedor: document.getElementById("vendedor-fuente"),
       telefono_vendedor: document.getElementById("telefono-vendedor-fuente"),
       correo_vendedor: document.getElementById("correo-vendedor-fuente"),
       moneda: document.getElementById("moneda-fuente"),
-      nota_proveedor: document.getElementById("nota-proveedor-fuente"),
     };
     var ayudasCamposCotizacion = Object.create(null);
 
@@ -135,7 +148,11 @@
       } else if (control.validity.typeMismatch) {
         mensaje = control.dataset.mensajePattern ||
           "Revise el formato de este campo.";
-      } else if (control.validity.patternMismatch) {
+      } else if (
+        control.value.trim() &&
+        REGEX_CONTACTO[control.name] &&
+        !REGEX_CONTACTO[control.name].test(control.value.trim())
+      ) {
         mensaje = control.dataset.mensajePattern ||
           "Revise el formato de este campo.";
       } else if (control.validity.tooLong) {
@@ -148,10 +165,12 @@
         control.setAttribute("aria-invalid", "true");
         ayuda.textContent = mensaje;
         ayuda.dataset.error = "true";
+        ayuda.hidden = false;
       } else {
         control.removeAttribute("aria-invalid");
         ayuda.textContent = ayuda.dataset.textoInicial;
         delete ayuda.dataset.error;
+        ayuda.hidden = true;
       }
     }
 
@@ -163,6 +182,7 @@
       if (ayuda) {
         ayuda.textContent = ayuda.dataset.textoInicial;
         delete ayuda.dataset.error;
+        ayuda.hidden = true;
       }
     }
 
@@ -363,7 +383,6 @@
     function mostrarRevision(archivo, resultado, seleccionarPrecio) {
       if (!dialogoRevision) return Promise.resolve(null);
       seleccionPrecios.replaceChildren();
-      muestraRevision.replaceChildren();
       if (respuestaJSONIA) {
         respuestaJSONIA.hidden = !resultado.respuesta_ia;
         if (contenidoJSONIA) {
@@ -372,46 +391,24 @@
             : "";
         }
       }
-      contenedorMuestra.hidden = seleccionarPrecio || !resultado.muestra.length;
       datosCotizacion.hidden = seleccionarPrecio || !resultado.productos_detectados;
       confirmarRevision.hidden = !seleccionarPrecio && !resultado.productos_detectados;
       confirmarRevision.textContent = seleccionarPrecio
         ? "Usar selección"
         : "Confirmar e importar";
-      resumenRevision.textContent = seleccionarPrecio
-        ? "El archivo " + archivo.nombre +
-          " tiene varios precios en la hoja indicada. Elija cuál corresponde al precio de la cotización. Si el catálogo no informa el IVA, se registrará como sin IVA (0 %)."
-        : resultado.productos_detectados + " producto(s) detectado(s) en " +
-          archivo.nombre + ". Revise la muestra antes de guardar.";
+      tituloRevision.textContent =
+        seleccionarPrecio ? "Seleccione la columna de precio" : "Revise el catálogo";
 
       if (!seleccionarPrecio && resultado.productos_detectados) {
         Object.keys(camposCotizacion).forEach(function (campo) {
           var control = camposCotizacion[campo];
-          control.value = campo === "proveedor"
-            ? archivo.nombre.replace(/\.[^.]+$/, "")
-            : campo === "nota_proveedor"
-              ? ""
-              : datosProveedorPrevios && datosProveedorPrevios[campo]
-                ? datosProveedorPrevios[campo]
-                : campo === "moneda"
-                  ? "USD"
-                  : "";
+          control.value = datosProveedorPrevios && datosProveedorPrevios[campo]
+            ? datosProveedorPrevios[campo]
+            : campo === "moneda"
+              ? "USD"
+              : "";
           restablecerValidacionCampo(control);
         });
-      }
-
-      if (resultado.filas_duplicadas) {
-        resumenRevision.textContent +=
-          " " + resultado.filas_duplicadas +
-          " fila(s) repiten un código; se consolidan solo si todos sus datos coinciden.";
-      }
-      if (resultado.filas_error) {
-        resumenRevision.textContent +=
-          " " + resultado.filas_error +
-          " fila(s) requieren revisión y no se importarán.";
-      }
-      if (resultado.detalle && !seleccionarPrecio) {
-        resumenRevision.textContent += " " + resultado.detalle;
       }
 
       if (seleccionarPrecio) {
@@ -451,37 +448,6 @@
           etiqueta.appendChild(selector);
           seleccionPrecios.appendChild(etiqueta);
         });
-      } else {
-        resultado.muestra.forEach(function (producto) {
-          var fila = document.createElement("tr");
-          var iva = producto.iva_oferta;
-          var etiquetaIva = iva === null || iva === undefined
-            ? "Sin IVA (0 %; sin dato)"
-            : String(iva) + " %";
-          if (iva !== null && iva !== undefined) {
-            etiquetaIva += producto.iva_incluido === true
-              ? " incluido"
-              : producto.iva_incluido === false
-                ? " no incluido"
-                : " (inclusión no indicada)";
-          }
-          [
-            producto.codigo,
-            producto.nombre,
-            producto.precio,
-            producto.cantidad_disponible_proveedor,
-            producto.descuento_oferta,
-            etiquetaIva,
-            producto.politica_ventas,
-          ].forEach(function (valor) {
-            var celda = document.createElement("td");
-            celda.textContent = valor === null || valor === undefined || valor === ""
-              ? "—"
-              : String(valor);
-            fila.appendChild(celda);
-          });
-          muestraRevision.appendChild(fila);
-        });
       }
 
       dialogoRevision.showModal();
@@ -506,7 +472,7 @@
               terminar(null);
               return;
             }
-            var datos = {};
+            var datos = { proveedor: nombreProveedor(archivo.nombre) };
             var nombres = Object.keys(camposCotizacion);
             for (var campoIndice = 0; campoIndice < nombres.length; campoIndice++) {
               var nombreCampo = nombres[campoIndice];
@@ -517,9 +483,7 @@
               if (!control.reportValidity()) return;
               datos[nombreCampo] = control.value;
             }
-            datosProveedorPrevios = Object.assign({}, datos, {
-              nota_proveedor: "",
-            });
+            datosProveedorPrevios = Object.assign({}, datos);
             terminar(datos);
             return;
           }
@@ -571,7 +535,6 @@
         throw new Error("No se completó la selección de precios del catálogo.");
       }
       if (!resultado.productos_detectados) {
-        await mostrarRevision(archivo, resultado, false);
         return { selecciones: selecciones, confirmado: false, resultado: resultado };
       }
       var metadatos = await mostrarRevision(archivo, resultado, false);
@@ -644,7 +607,7 @@
         var meta = document.createElement("span");
         meta.className = "fuentes__meta";
         var tamano = archivo.tamano === undefined
-          ? Number(archivo.tamano_bytes || 0)
+          ? archivo.tamano_bytes
           : archivo.tamano;
         var detalles = [
           String(archivo.ext || archivo.tipo || "").toUpperCase(),

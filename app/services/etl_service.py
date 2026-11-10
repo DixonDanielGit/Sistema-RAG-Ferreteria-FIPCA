@@ -9,6 +9,8 @@ import itertools
 import logging
 import os
 import re
+import shutil
+import subprocess
 import tempfile
 import unicodedata
 import uuid
@@ -38,7 +40,9 @@ MAX_ARCHIVO_MB = 100
 MAX_ARCHIVO_BYTES = MAX_ARCHIVO_MB * 1024 * 1024
 MAX_ARCHIVOS_INGESTA = 20
 MAX_FILAS_ARCHIVO = 20_000
-MAX_PAGINAS_PDF = 300
+MAX_PAGINAS_PDF = 500
+MAX_PAGINAS_DOCX = 500
+TIEMPO_MAXIMO_PAGINACION_DOCX_SEGUNDOS = 120
 MAX_ENTRADAS_ZIP = 500
 MAX_DESCOMPRIMIDO_ZIP = 100 * 1024 * 1024
 MAX_RAZON_COMPRESION = 100
@@ -670,8 +674,12 @@ def _extraer_fichas_etiquetadas(texto: str) -> tuple[list[dict[str, Any]], int, 
     return productos, len(errores), errores[:MAX_ERRORES_DETALLE]
 
 
-def _extraer_docx(contenido: bytes) -> tuple[list[dict[str, Any]], int, list[str]]:
+def _extraer_docx(
+    contenido: bytes, paginas: int | None = None
+) -> tuple[list[dict[str, Any]], int, list[str]]:
     _validar_paquete(contenido)
+    paginas = _contar_paginas_docx(contenido) if paginas is None else paginas
+    _validar_paginas_docx(paginas)
     try:
         documento = Document(io.BytesIO(contenido))
     except (PackageNotFoundError, zipfile.BadZipFile, OSError, ValueError) as exc:
@@ -711,6 +719,87 @@ def _extraer_docx(contenido: bytes) -> tuple[list[dict[str, Any]], int, list[str
             "El documento no contiene tablas ni fichas con codigo, descripcion y precio"
         )
     return productos, errores, detalles
+
+
+def _validar_paginas_docx(paginas: int) -> None:
+    if paginas > MAX_PAGINAS_DOCX:
+        raise ErrorIngesta(
+            f"El documento Word supera el maximo de {MAX_PAGINAS_DOCX} paginas"
+        )
+
+
+def _contar_paginas_docx(contenido: bytes) -> int:
+    """Renderiza el DOCX aislado y cuenta sus páginas PDF resultantes."""
+    ejecutable = shutil.which("libreoffice") or shutil.which("soffice")
+    if not ejecutable:
+        raise ErrorIngesta(
+            "No esta disponible el conversor de documentos Word para validar sus paginas"
+        )
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="fipca-docx-") as temporal:
+            directorio = Path(temporal)
+            entrada = directorio / "documento.docx"
+            salida = directorio / "convertido"
+            perfil = directorio / "perfil-libreoffice"
+            salida.mkdir()
+            entrada.write_bytes(contenido)
+            cache = directorio / "cache"
+            configuracion = directorio / "config"
+            cache.mkdir()
+            configuracion.mkdir()
+            entorno = os.environ.copy()
+            entorno.update(
+                {
+                    "HOME": str(directorio),
+                    "XDG_CACHE_HOME": str(cache),
+                    "XDG_CONFIG_HOME": str(configuracion),
+                }
+            )
+            conversion = subprocess.run(
+                [
+                    ejecutable,
+                    "--headless",
+                    f"-env:UserInstallation={perfil.as_uri()}",
+                    "--convert-to",
+                    "pdf",
+                    "--outdir",
+                    str(salida),
+                    str(entrada),
+                ],
+                capture_output=True,
+                text=True,
+                env=entorno,
+                timeout=TIEMPO_MAXIMO_PAGINACION_DOCX_SEGUNDOS,
+                check=False,
+            )
+            archivo_pdf = salida / "documento.pdf"
+            if conversion.returncode != 0 or not archivo_pdf.is_file():
+                logger.warning(
+                    "No se pudo paginar el documento Word con LibreOffice: %s",
+                    conversion.stderr.strip() or conversion.stdout.strip(),
+                )
+                raise ErrorIngesta(
+                    "No se pudo determinar la cantidad de paginas del documento Word"
+                )
+            with archivo_pdf.open("rb") as archivo:
+                paginas = len(PdfReader(archivo, strict=True).pages)
+    except ErrorIngesta:
+        raise
+    except subprocess.TimeoutExpired as exc:
+        raise ErrorIngesta(
+            "La paginacion del documento Word excedio el tiempo permitido"
+        ) from exc
+    except (OSError, PdfReadError, ValueError) as exc:
+        raise ErrorIngesta(
+            "No se pudo determinar la cantidad de paginas del documento Word"
+        ) from exc
+
+    if paginas < 1:
+        raise ErrorIngesta(
+            "No se pudo determinar la cantidad de paginas del documento Word"
+        )
+    return paginas
 
 
 def _filas_pdf(texto: str) -> list[list[str]]:
@@ -1319,6 +1408,13 @@ def _nombre_seguro(nombre: str) -> str:
     return nombre
 
 
+def nombre_proveedor_desde_archivo(nombre_archivo: str) -> str:
+    """Deriva el proveedor del nombre base del archivo, sin su extension."""
+    nombre = nombre_archivo.replace("\\", "/").rsplit("/", 1)[-1]
+    punto = nombre.rfind(".")
+    return nombre[:punto] if punto > 0 else nombre
+
+
 def _directorio_cargas_seguro() -> Path:
     """Devuelve ``UPLOADS_DIR`` resuelto y fuera del directorio de estaticos."""
     directorio = get_settings().uploads_dir.resolve()
@@ -1479,6 +1575,7 @@ def _extraer(
     nombre: str,
     contenido: bytes,
     selecciones_precio: dict[int, int] | None = None,
+    paginas_docx: int | None = None,
 ) -> tuple[list[dict[str, Any]], int, list[str]]:
     extension = Path(nombre).suffix.lower()
     extractores = {
@@ -1490,6 +1587,8 @@ def _extraer(
     }
     if extension == ".xlsx":
         return _extraer_xlsx(contenido, selecciones_precio)
+    if extension == ".docx":
+        return _extraer_docx(contenido, paginas_docx)
     return extractores[extension](contenido)
 
 
@@ -1625,6 +1724,7 @@ def _extraer_con_respaldo_ia(
     contenido: bytes,
     markdown: str | None,
     selecciones_precio: dict[int, int] | None = None,
+    paginas_docx: int | None = None,
 ) -> tuple[list[dict[str, Any]], int, list[str], dict[str, Any] | None]:
     """Prefiere el JSON validado de IA y conserva el lector como respaldo."""
     extension = Path(nombre).suffix.lower()
@@ -1636,9 +1736,7 @@ def _extraer_con_respaldo_ia(
     local: tuple[list[dict[str, Any]], int, list[str]] | None = None
     error_local: ErrorIngesta | None = None
     try:
-        local = _extraer(
-            nombre, contenido, selecciones_precio
-        )
+        local = _extraer(nombre, contenido, selecciones_precio, paginas_docx)
     except SeleccionPrecioRequerida:
         raise
     except ErrorIngesta as exc:
@@ -1711,6 +1809,11 @@ def previsualizar_archivo(
         raise ErrorIngesta(f"El archivo supera el limite de {MAX_ARCHIVO_MB} MB")
     if not contenido:
         raise ErrorIngesta("El archivo esta vacio")
+    paginas_docx = None
+    if extension == ".docx":
+        _validar_paquete(contenido)
+        paginas_docx = _contar_paginas_docx(contenido)
+        _validar_paginas_docx(paginas_docx)
     markdown, aviso_markdown = _convertir_contenido_a_markdown(
         nombre, contenido
     )
@@ -1720,6 +1823,7 @@ def previsualizar_archivo(
             contenido,
             markdown,
             selecciones_precio,
+            paginas_docx,
         )
     except SeleccionPrecioRequerida as exc:
         return {
@@ -1806,12 +1910,25 @@ def procesar_archivo(
             "detalle": f"El archivo supera el limite de {MAX_ARCHIVO_MB} MB",
         }
 
+    paginas_docx = None
+    error_paginas_docx = None
+    if extension == ".docx" and contenido:
+        try:
+            _validar_paquete(contenido)
+            paginas_docx = _contar_paginas_docx(contenido)
+            _validar_paginas_docx(paginas_docx)
+        except ErrorIngesta as exc:
+            error_paginas_docx = exc
+
     digest = hashlib.sha256(contenido).hexdigest()
     ruta, ruta_relativa = _ruta_original(nombre)
     _escribir_original(ruta, contenido)
     # RF-02.4: conserva el Markdown fuente o el texto convertido junto al
     # registro del archivo original.
-    markdown, aviso_markdown = convertir_a_markdown(ruta)
+    if error_paginas_docx:
+        markdown, aviso_markdown = None, None
+    else:
+        markdown, aviso_markdown = convertir_a_markdown(ruta)
     try:
         archivo = inventario_model.crear_archivo(
             nombre=nombre,
@@ -1827,6 +1944,15 @@ def procesar_archivo(
         raise
 
     id_archivo = archivo["id_archivo"]
+    if error_paginas_docx:
+        resultado = inventario_model.actualizar_estado_archivo(
+            id_archivo,
+            estado="error",
+            filas_error=1,
+            detalle=str(error_paginas_docx)[:MAX_DETALLE],
+        )
+        return dict(resultado)
+
     aviso_guardado_markdown: str | None = None
     if markdown and not _guardar_markdown(id_archivo, markdown):
         aviso_guardado_markdown = (
@@ -1849,6 +1975,7 @@ def procesar_archivo(
             contenido,
             markdown,
             selecciones_precio,
+            paginas_docx,
         )
     except ErrorRespuestaIA as exc:
         resultado = inventario_model.actualizar_estado_archivo(

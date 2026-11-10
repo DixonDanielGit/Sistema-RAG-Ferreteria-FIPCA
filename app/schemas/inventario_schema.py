@@ -19,7 +19,7 @@ LIMITE_DEFECTO_BUSQUEDA = 50
 LIMITE_MAXIMO_BUSQUEDA = 100
 
 PATRON_PROVEEDOR = re.compile(
-    r"[^\W_](?:[^\W_]|[\u0300-\u036f]|[ .,'’&()/#+-])*",
+    r"[^\W_](?:[^\W_]|[\u0300-\u036f]|[ .,'’&()/#+_$-])*",
     re.UNICODE,
 )
 PATRON_TELEFONO = re.compile(
@@ -32,8 +32,8 @@ class MetadatosCatalogo(BaseModel):
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    proveedor: str = Field(min_length=2, max_length=255)
-    vendedor: str = Field(min_length=2, max_length=255)
+    proveedor: str | None = Field(default=None, min_length=2, max_length=255)
+    vendedor: str | None = Field(default=None, max_length=255)
     telefono_vendedor: str | None = Field(default=None, max_length=40)
     correo_vendedor: str | None = Field(default=None, max_length=255)
     moneda: Literal["USD", "VES"] = "USD"
@@ -41,10 +41,8 @@ class MetadatosCatalogo(BaseModel):
 
     @field_validator("proveedor")
     @classmethod
-    def validar_proveedor(cls, valor: str) -> str:
-        if not valor.strip():
-            raise ValueError("El proveedor es obligatorio")
-        if not PATRON_PROVEEDOR.fullmatch(valor):
+    def validar_proveedor(cls, valor: str | None) -> str | None:
+        if valor and not PATRON_PROVEEDOR.fullmatch(valor):
             raise ValueError(
                 "El proveedor admite letras, numeros y signos comunes de razon social"
             )
@@ -52,16 +50,20 @@ class MetadatosCatalogo(BaseModel):
 
     @field_validator("vendedor")
     @classmethod
-    def validar_vendedor(cls, valor: str) -> str:
-        if not valor.strip():
-            raise ValueError("El vendedor es obligatorio")
-        if not PATRON_NOMBRE.fullmatch(valor):
+    def validar_vendedor(cls, valor: str | None) -> str | None:
+        if valor and not PATRON_NOMBRE.fullmatch(valor):
             raise ValueError(
                 "El vendedor admite letras, espacios, apostrofes, puntos y guiones"
             )
         return valor
 
-    @field_validator("telefono_vendedor", "correo_vendedor", "nota_proveedor")
+    @field_validator(
+        "proveedor",
+        "vendedor",
+        "telefono_vendedor",
+        "correo_vendedor",
+        "nota_proveedor",
+    )
     @classmethod
     def vacio_a_nulo(cls, valor: str | None) -> str | None:
         if valor is None:
@@ -84,7 +86,7 @@ class MetadatosCatalogo(BaseModel):
     def validar_correo(cls, valor: str | None) -> str | None:
         if valor and not PATRON_CORREO.fullmatch(valor):
             raise ValueError("El correo del vendedor no tiene un formato valido")
-        return valor
+        return valor.lower() if valor else None
 
 
 class ArchivoIngesta(BaseModel):
@@ -96,7 +98,7 @@ class ArchivoIngesta(BaseModel):
     nombre: str
     tipo: str
     fecha_de_subida: datetime | None = None
-    tamano_bytes: int = Field(ge=0)
+    tamano_bytes: int | None = Field(default=None, ge=0)
     estado: EstadoArchivo
     filas_ok: int = Field(default=0, ge=0)
     filas_error: int = Field(default=0, ge=0)

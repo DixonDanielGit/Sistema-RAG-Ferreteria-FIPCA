@@ -89,8 +89,8 @@ def test_admin_carga_lote_y_recibe_resultado_por_archivo(monkeypatch):
     assert cuerpo["resultados"][0]["respuesta_ia"]["productos"][0]["codigo"] == "SKU-1"
     assert [llamada[2] for llamada in llamadas] == [9, 9]
     assert [llamada[3]["proveedor"] for llamada in llamadas] == [
-        "Proveedor de prueba",
-        "Otro proveedor",
+        "catalogo",
+        "datos",
     ]
 
 
@@ -118,19 +118,44 @@ def test_acepta_nombre_de_proveedor_derivado_del_archivo(monkeypatch):
         files=[
             (
                 "archivos",
-                ("3JGT CONEXIONES DE RIEGO 2026.pdf", b"contenido", "application/pdf"),
+                (
+                    "GLOBAL COMPANY DOLARES $.pdf",
+                    b"contenido",
+                    "application/pdf",
+                ),
             )
         ],
         data=_datos_metadatos(
             {
-                **METADATOS,
-                "proveedor": "3JGT CONEXIONES DE RIEGO 2026",
+                "vendedor": "",
+                "telefono_vendedor": "",
+                "correo_vendedor": "",
+                "moneda": "USD",
             }
         ),
     )
 
     assert respuesta.status_code == 200
-    assert recibidos == ["3JGT CONEXIONES DE RIEGO 2026"]
+    assert recibidos == ["GLOBAL COMPANY DOLARES $"]
+
+
+def test_rechaza_nombre_de_archivo_no_valido_para_proveedor():
+    cliente = TestClient(_app())
+    respuesta = cliente.post(
+        "/api/v1/inventario/ingesta",
+        files=[("archivos", ("Proveedor?.xlsx", b"contenido", "application/octet-stream"))],
+        data=_datos_metadatos(
+            {
+                "vendedor": "",
+                "telefono_vendedor": "",
+                "correo_vendedor": "",
+                "moneda": "USD",
+            }
+        ),
+    )
+
+    assert respuesta.status_code == 400
+    assert "nombre de proveedor invalido" in respuesta.json()["detail"]
 
 
 def test_carga_exige_la_capacidad_de_ingesta(monkeypatch):
@@ -201,6 +226,35 @@ def test_lista_archivos_consulta_modelo_con_limite(monkeypatch):
 
     assert respuesta.status_code == 200
     assert respuesta.json() == []
+
+
+def test_lista_archivos_admite_tamano_desconocido_en_registros_anteriores(monkeypatch):
+    monkeypatch.setattr(
+        inventario.inventario_model,
+        "listar_archivos",
+        lambda limite: [
+            {
+                "id_archivo": 12,
+                "nombre": "catalogo-antiguo.pdf",
+                "tipo": "pdf",
+                "fecha_de_subida": None,
+                "tamano_bytes": None,
+                "estado": "error",
+                "filas_ok": 0,
+                "filas_error": 0,
+                "detalle": None,
+                "proveedor": None,
+                "vendedor": None,
+                "moneda": None,
+            }
+        ],
+    )
+    cliente = TestClient(_app(usuario={"id": 10, "rol": "ventas"}))
+
+    respuesta = cliente.get("/api/v1/inventario/archivos")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()[0]["tamano_bytes"] is None
 
 
 def test_estado_de_vectorizacion_cuenta_pendientes_y_total(monkeypatch):
@@ -322,6 +376,7 @@ def test_ingesta_envia_seleccion_de_precio_al_procesador(monkeypatch):
             {0: 7},
             {
                 **METADATOS,
+                "proveedor": "catalogo",
                 "telefono_vendedor": None,
                 "correo_vendedor": None,
                 "nota_proveedor": None,

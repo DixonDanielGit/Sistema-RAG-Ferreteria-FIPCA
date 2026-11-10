@@ -23,6 +23,8 @@ def metadatos(**cambios):
         "Ferre-Inversiones Pérez C.A.",
         "3M",
         "3JGT CONEXIONES DE RIEGO 2026",
+        "Distribuidora_Gomez",
+        "GLOBAL COMPANY DOLARES $",
         "Casa & Hogar (Centro)",
         "Acme/Sur #2",
     ],
@@ -37,6 +39,21 @@ def test_rechaza_nombre_de_proveedor_con_formato_invalido(proveedor):
         metadatos(proveedor=proveedor)
 
 
+def test_acepta_metadatos_sin_datos_de_contacto():
+    datos = MetadatosCatalogo.model_validate(
+        {
+            "proveedor": "Ferre-Inversiones Pérez C.A.",
+            "vendedor": "",
+            "telefono_vendedor": "",
+            "correo_vendedor": "",
+        }
+    )
+
+    assert datos.vendedor is None
+    assert datos.telefono_vendedor is None
+    assert datos.correo_vendedor is None
+
+
 @pytest.mark.parametrize("vendedor", ["María José Pérez", "Jean-Luc O'Neil", "J. Pérez"])
 def test_acepta_nombre_de_vendedor_segun_regla_del_sistema(vendedor):
     assert metadatos(vendedor=vendedor).vendedor == vendedor
@@ -46,6 +63,11 @@ def test_acepta_nombre_de_vendedor_segun_regla_del_sistema(vendedor):
 def test_rechaza_nombre_de_vendedor_con_formato_invalido(vendedor):
     with pytest.raises(ValidationError):
         metadatos(vendedor=vendedor)
+
+
+def test_rechaza_vendedor_invalido_solo_cuando_se_indica():
+    with pytest.raises(ValidationError):
+        metadatos(vendedor="Vendedor2")
 
 
 @pytest.mark.parametrize(

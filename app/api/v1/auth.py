@@ -586,6 +586,7 @@ def configuracion_admin(
             "max_archivos": etl_service.MAX_ARCHIVOS_INGESTA,
             "max_filas_archivo": etl_service.MAX_FILAS_ARCHIVO,
             "max_paginas_pdf": etl_service.MAX_PAGINAS_PDF,
+            "max_paginas_docx": etl_service.MAX_PAGINAS_DOCX,
         },
         "imagen_perfil_max_mb": perfil_service.MAX_IMAGEN_PERFIL_BYTES // (1024 * 1024),
     }

@@ -16,6 +16,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# LibreOffice renders DOCX files for an accurate page-count check.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libreoffice-writer fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
+
 # Las dependencias se copian solas para aprovechar la cache de capas: cambiar
 # el codigo no obliga a reinstalar paquetes.
 COPY requirements.txt requirements-embeddings.txt ./

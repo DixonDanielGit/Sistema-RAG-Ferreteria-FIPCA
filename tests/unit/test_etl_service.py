@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import io
+import subprocess
 import zipfile
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from docx import Document
@@ -15,6 +17,33 @@ from pypdf import PdfWriter
 from app.config import get_settings
 from app.models import inventario as inventario_model
 from app.services import etl_service
+
+
+def test_limite_de_paginas_pdf_es_de_500():
+    assert etl_service.MAX_PAGINAS_PDF == 500
+
+
+def test_limite_de_paginas_docx_acepta_500():
+    assert etl_service.MAX_PAGINAS_DOCX == 500
+    etl_service._validar_paginas_docx(500)
+
+
+@pytest.mark.parametrize(
+    ("cantidad_paginas", "mensaje"),
+    [
+        (500, "no contiene texto legible"),
+        (501, "maximo de 500 paginas"),
+    ],
+)
+def test_pdf_aplica_limite_de_500_paginas(cantidad_paginas, mensaje):
+    escritor = PdfWriter()
+    for _ in range(cantidad_paginas):
+        escritor.add_blank_page(width=100, height=100)
+    contenido = io.BytesIO()
+    escritor.write(contenido)
+
+    with pytest.raises(etl_service.ErrorIngesta, match=mensaje):
+        etl_service._extraer_pdf(contenido.getvalue())
 
 
 def _bytes_excel(filas):
@@ -359,16 +388,49 @@ def test_excel_infiere_codigo_producto_y_precio_de_hoja_posicional():
     ]
 
 
-def test_docx_extrae_tabla_con_cabecera():
+def test_docx_extrae_tabla_con_cabecera(monkeypatch):
     contenido = _bytes_word(
         [["Referencia", "Artículo", "Precio"], ["SKU-04", "Destornillador", "7,25"]]
     )
-
+    monkeypatch.setattr(etl_service, "_contar_paginas_docx", lambda _: 1)
     productos, errores, _ = etl_service._extraer_docx(contenido)
 
     assert errores == 0
     assert productos[0]["codigo"] == "SKU-04"
     assert productos[0]["precio"] == Decimal("7.25")
+
+
+def test_docx_cuenta_paginas_renderizadas_con_libreoffice(monkeypatch):
+    escritor = PdfWriter()
+    escritor.add_blank_page(width=100, height=100)
+    escritor.add_blank_page(width=100, height=100)
+    pdf = io.BytesIO()
+    escritor.write(pdf)
+    monkeypatch.setattr(etl_service.shutil, "which", lambda _: "libreoffice")
+
+    def convertir(comando, **opciones):
+        directorio = Path(comando[comando.index("--outdir") + 1])
+        (directorio / "documento.pdf").write_bytes(pdf.getvalue())
+        assert "--headless" in comando
+        assert opciones["timeout"] == (
+            etl_service.TIEMPO_MAXIMO_PAGINACION_DOCX_SEGUNDOS
+        )
+        return subprocess.CompletedProcess(comando, 0, "", "")
+
+    monkeypatch.setattr(etl_service.subprocess, "run", convertir)
+
+    assert etl_service._contar_paginas_docx(b"documento word") == 2
+
+
+def test_docx_rechaza_mas_de_500_paginas(monkeypatch):
+    monkeypatch.setattr(etl_service, "_contar_paginas_docx", lambda _: 501)
+    filas = [
+        ["Referencia", "Artículo", "Precio"],
+        ["SKU-04", "Destornillador", "7,25"],
+    ]
+
+    with pytest.raises(etl_service.ErrorIngesta, match="maximo de 500 paginas"):
+        etl_service._extraer_docx(_bytes_word(filas))
 
 
 def test_word_extrae_fichas_con_campos_etiquetados():

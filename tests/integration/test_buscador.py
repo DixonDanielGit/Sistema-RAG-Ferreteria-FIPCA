@@ -107,6 +107,9 @@ class TestVistaDelBuscador:
         assert 'id="resumen-buscador"' in respuesta.text
         assert 'id="boton-ver-catalogo"' in respuesta.text
         assert 'id="paginacion-catalogo"' in respuesta.text
+        assert respuesta.text.index('id="limite-resultados-buscador"') < respuesta.text.index(
+            'class="buscador__tabla-contenedor"'
+        )
 
     def test_carga_el_javascript_de_la_vista(self, navegador, sesion):
         html = navegador.get("/search").text
@@ -345,6 +348,18 @@ class TestEndpointDeCatalogo:
 
         assert pagina.status_code == 422
         assert limite.status_code == 422
+
+    def test_pagina_del_buscador_ofrece_tamanos_de_25_a_100_registros(
+        self, navegador, sesion
+    ):
+        respuesta = navegador.get("/search")
+
+        assert respuesta.status_code == 200
+        assert 'id="limite-resultados-buscador"' in respuesta.text
+        assert '<option value="25" selected>25</option>' in respuesta.text
+        assert '<option value="50">50</option>' in respuesta.text
+        assert '<option value="75">75</option>' in respuesta.text
+        assert '<option value="100">100</option>' in respuesta.text
 
     def test_devuelve_paginas_estables_y_total_de_productos_activos(
         self, navegador, sesion, producto_de_prueba, conexion_rag_limpieza

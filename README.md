@@ -285,9 +285,10 @@ curl -X POST http://localhost:8000/api/v1/inventario/ingesta \
 ```
 
 Los `.xlsx` y `.docx` se revisan además contra paquetes ZIP dañados o con
-relaciones de compresión anómalas. Cada archivo se limita a 20 000 filas y los
-PDF a 300 páginas. Los productos se actualizan por código; el proceso conserva
-el stock existente y fija el IVA en 16 %.
+relaciones de compresión anómalas. Cada archivo se limita a 20 000 filas; los
+PDF y documentos Word se limitan a 500 páginas. Word se renderiza con LibreOffice
+en la API para validar el número de páginas. Los productos se actualizan por
+código; el proceso conserva el stock existente y fija el IVA en 16 %.
 
 ### Conectar pgAdmin a PostgreSQL
 
