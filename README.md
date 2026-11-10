@@ -187,17 +187,28 @@ se guardan bajo un nombre UUID en `UPLOADS_DIR` (un volumen persistente
 `/app/uploads` en Docker), nunca en los estáticos. TXT también admite el orden
 posicional documentado `codigo;nombre;precio;descripcion;marca`. Los archivos
 se convierten a Markdown y OpenRouter puede estructurar los registros antes de
-guardarlos; configure `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` y
-`OPENROUTER_MODEL` con un modelo que termine en `:free`. Si OpenRouter no está
-disponible o devuelve datos que no pasan la validación, los lectores locales
-siguen siendo el respaldo para PDF, XLSX, DOCX y TXT; la selección manual de
-precio en Excel siempre tiene prioridad. La vista previa muestra el JSON
-validado cuando OpenRouter responde y reutiliza brevemente el resultado durante
-la carga. El Markdown debe contener datos explícitos de catálogo y no superar
-60 000 caracteres para la transformación: el JSON requiere código, nombre,
-precio y evidencia textual literal de la fuente; todos los valores se validan
-antes de guardarse en el esquema relacional del catálogo. El ETL no admite CSV
-ni XLS.
+guardarlos. Configure `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` y
+`OPENROUTER_MODEL` con el identificador exacto del modelo; se admiten modelos
+gratuitos y de pago, y el proveedor cobra según los tokens de entrada y salida.
+Para controlar el gasto, el servicio procesa el Markdown en lotes secuenciales
+de hasta 24 000 caracteres, reutiliza por cinco minutos los resultados de la
+vista previa y registra los tokens y el costo que reporte OpenRouter por lote.
+La división en lotes evita enviar el documento entero en una solicitud, pero no
+garantiza un costo máximo: el costo final depende del modelo, del contenido y
+del tamaño de las respuestas. Revise las tarifas vigentes y configure límites
+de gasto para la clave en OpenRouter antes de procesar catálogos grandes. Para
+la primera prueba real, use un archivo pequeño, revise en el log de Uvicorn la
+línea `Consumo OpenRouter` y confirme el costo en OpenRouter antes de probar
+catálogos mayores. Si el proveedor indica que alcanzó el límite de salida, se
+rechaza ese lote en vez de aceptar una respuesta potencialmente incompleta.
+Si OpenRouter no está disponible o devuelve datos que no pasan la validación,
+los lectores locales siguen siendo el respaldo para PDF, XLSX, DOCX y TXT; la
+selección manual de precio en Excel siempre tiene prioridad. La vista previa
+muestra el JSON validado cuando OpenRouter responde y reutiliza brevemente el
+resultado durante la carga. El Markdown no debe superar 10 000 000 caracteres
+para la transformación: el JSON requiere código, nombre, precio y evidencia
+textual literal de la fuente; todos los valores se validan antes de guardarse
+en el esquema relacional del catálogo. El ETL no admite CSV ni XLS.
 
 **Recuperación sin SMTP.** Mientras `SMTP_HOST` no esté configurado, el enlace
 de recuperación se escribe en el registro de Uvicorn:

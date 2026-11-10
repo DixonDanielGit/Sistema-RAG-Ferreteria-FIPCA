@@ -41,8 +41,9 @@ documentado más abajo como bloque **en pausa**; no se inicia hasta que el
 cliente dé la orden explícita.
 
 **MVP al cierre de la semana 4:** un usuario autenticado sube un catálogo de
-proveedores, el ETL lo convierte con MarkItDown y lo estructura con Gemini
-Flash en tablas relacionales de PostgreSQL, y desde la interfaz web puede
+proveedores, el ETL lo convierte con MarkItDown y lo estructura con el modelo
+configurado en OpenRouter (gratuito o de pago) en tablas relacionales de PostgreSQL,
+y desde la interfaz web puede
 buscar productos con AJAX obteniendo resultados **instantáneos (milisegundos)**
 por Full-Text Search. El buscador devuelve únicamente productos reales de la
 base de datos; si no hay coincidencias lo indica sin inventar productos. El
@@ -118,28 +119,35 @@ tareas pendientes.
 
 **Estado actual.** La conversión a Markdown con MarkItDown, la búsqueda
 Full-Text de PostgreSQL, el endpoint y la interfaz del buscador ya están
-implementados. El chat RAG queda fuera del alcance activo. Por decisión del
-cliente, el uso de OpenRouter para estructurar catálogos queda pausado hasta
-nuevo aviso; aunque hay integración y pruebas simuladas en el código, esta
-revisión no efectuó llamadas reales al proveedor ni valida el flujo remoto.
-La búsqueda trabaja directamente sobre los productos guardados en PostgreSQL,
-sin exigir archivos cargados. En la validación focalizada actual pasaron 69
-pruebas unitarias/API y se omitieron 29 pruebas de integración: no se pudo
-preparar la base de pruebas (`relation "productos" does not exist`). Siguen
-pendientes la validación con catálogo representativo, el recorrido de extremo
-a extremo y la demostración del MVP.
+implementados. El chat RAG queda fuera del alcance activo. Se habilita el uso
+de modelos de pago de OpenRouter; USD 10 están reservados para pruebas
+controladas, no como presupuesto operativo. La integración se valida con
+respuestas simuladas y queda pendiente el smoke test real con un archivo
+pequeño, usando el saldo de pruebas y revisando el costo reportado antes de
+escalar. En esta revisión pasaron 94 pruebas unitarias focalizadas de ETL,
+OpenRouter e ingesta. No se realizó una llamada real al proveedor. La búsqueda
+trabaja directamente sobre los productos guardados en PostgreSQL, sin exigir
+archivos cargados. En una validación de integración anterior se omitieron 29
+pruebas porque no se pudo preparar la base de pruebas
+(`relation "productos" does not exist`). Siguen pendientes la validación con
+catálogo representativo, el recorrido de extremo a extremo y la demostración
+del MVP.
 
 - [x] Integrar **Microsoft MarkItDown** en el pipeline ETL para convertir los
   archivos PDF, Excel y Word a formato Markdown. (Unificar la lectura de los
   documentos en un solo paso de conversión.)
-- [ ] Conectar **OpenRouter** para que tome el Markdown, estructure los
-  registros y genere un **nombre comercial sugerido** cuando el producto no
-  tenga uno. (Pausado por solicitud del cliente; no realizar llamadas al
-  proveedor de IA hasta nueva indicación.)
+- [x] Conectar **OpenRouter** para que tome el Markdown y estructure los
+  registros por lotes; se admiten modelos configurados gratuitos o de pago y
+  se valida la evidencia literal antes de insertar.
+- [ ] Habilitar la sugerencia de un nombre comercial cuando falte en el
+  catálogo, sin completar hechos ausentes ni permitir que el nombre sugerido
+  altere la evidencia literal del origen. (Pendiente de ajustar el contrato de
+  extracción y sus validaciones; actualmente el nombre también debe aparecer
+  literalmente en la fuente.)
 - [ ] Validar la respuesta del modelo y guardar los datos limpios en las tablas
   relacionales de PostgreSQL, sin alterar stock ni inventar proveedores.
-  (Pendiente junto con la conexión a OpenRouter; persistir solo información
-  válida y trazable al archivo de origen.)
+  (Falta el smoke test real controlado con un catálogo representativo; persistir
+  solo información válida y trazable al archivo de origen.)
 - [x] Preparar la indexación **Full-Text Search** de PostgreSQL (columna
   `tsvector` + índice) sobre productos y consultar con `tsquery`, con respaldo
   `ILIKE`. (Habilitar búsquedas instantáneas y a costo cero en los ~8.000

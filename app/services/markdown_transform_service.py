@@ -77,10 +77,6 @@ def _configuracion(settings: Settings) -> tuple[str, str, str, int]:
         raise ErrorTransformacionMarkdown(
             "Falta configurar OPENROUTER_API_KEY, OPENROUTER_BASE_URL y OPENROUTER_MODEL"
         )
-    if not settings.openrouter_model.endswith(":free"):
-        raise ErrorTransformacionMarkdown(
-            "OPENROUTER_MODEL debe identificar exclusivamente un modelo gratuito con sufijo :free"
-        )
     if settings.openrouter_timeout_segundos <= 0:
         raise ErrorTransformacionMarkdown(
             "OPENROUTER_TIMEOUT_SEGUNDOS debe ser mayor que cero"
@@ -168,6 +164,34 @@ def _espera_reintento(respuesta: httpx.Response | None, intento: int) -> float |
                     return None
                 return demora
     return min(2 ** (intento - 1), MAX_ESPERA_REINTENTO_SEGUNDOS)
+
+
+def _registrar_uso(cuerpo: dict[str, Any], modelo: str) -> None:
+    uso = cuerpo.get("usage")
+    if not isinstance(uso, dict):
+        return
+
+    def numero(campo: str) -> int | float | None:
+        valor = uso.get(campo)
+        if isinstance(valor, int) and not isinstance(valor, bool):
+            return valor
+        if isinstance(valor, float) and math.isfinite(valor):
+            return valor
+        return None
+
+    entrada = numero("prompt_tokens")
+    salida = numero("completion_tokens")
+    total = numero("total_tokens")
+    costo = numero("cost")
+    logger.info(
+        "Consumo OpenRouter: modelo=%s prompt_tokens=%s completion_tokens=%s "
+        "total_tokens=%s costo_reportado=%s",
+        modelo,
+        entrada,
+        salida,
+        total,
+        costo,
+    )
 
 
 def _leer_productos(cuerpo: Any) -> list[dict[str, Any]]:
@@ -368,11 +392,21 @@ def _solicitar_lote(
                         "OpenRouter devolvio una respuesta JSON con estructura invalida"
                     )
                 modelo_respuesta = cuerpo.get("model", modelo)
-                if not isinstance(modelo_respuesta, str) or not (
-                    modelo_respuesta.endswith(":free")
+                if not isinstance(modelo_respuesta, str) or not modelo_respuesta.strip():
+                    raise ErrorTransformacionMarkdown(
+                        "OpenRouter no confirmo el modelo utilizado"
+                    )
+                _registrar_uso(cuerpo, modelo_respuesta)
+                elecciones = cuerpo.get("choices")
+                if (
+                    isinstance(elecciones, list)
+                    and elecciones
+                    and isinstance(elecciones[0], dict)
+                    and elecciones[0].get("finish_reason") in {"length", "max_tokens"}
                 ):
                     raise ErrorTransformacionMarkdown(
-                        "OpenRouter no confirmo un modelo gratuito; se rechazo la respuesta"
+                        "OpenRouter corto la respuesta por el limite de salida; "
+                        "se rechazo el lote para evitar omitir productos"
                     )
                 productos = _leer_productos(cuerpo)
                 _validar_evidencia(lote, productos)
@@ -429,15 +463,19 @@ def transformar_markdown(
     try:
         productos_totales: list[dict[str, Any]] = []
         for indice, lote in enumerate(lotes, start=1):
-            productos_lote = _solicitar_lote(
-                lote,
-                endpoint=endpoint,
-                api_key=api_key,
-                modelo=modelo,
-                timeout=timeout,
-                cliente_http=cliente_http,
-                dormir=dormir,
-            )
+            clave_lote = _cache_key(modelo, endpoint, lote)
+            productos_lote = _buscar_cache(clave_lote)
+            if productos_lote is None:
+                productos_lote = _solicitar_lote(
+                    lote,
+                    endpoint=endpoint,
+                    api_key=api_key,
+                    modelo=modelo,
+                    timeout=timeout,
+                    cliente_http=cliente_http,
+                    dormir=dormir,
+                )
+                _guardar_cache(clave_lote, productos_lote)
             productos_totales.extend(productos_lote)
             logger.info(
                 "Lote Markdown %s/%s procesado: %s producto(s)",

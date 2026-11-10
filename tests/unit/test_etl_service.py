@@ -1163,7 +1163,7 @@ def test_previsualizacion_conserva_lector_local_si_openrouter_falla(monkeypatch)
 
     def openrouter_no_disponible(_markdown):
         raise etl_service.markdown_transform_service.ErrorTransformacionMarkdown(
-            "El modelo configurado no es gratuito"
+            "El modelo configurado no esta disponible"
         )
 
     monkeypatch.setattr(
@@ -1176,7 +1176,7 @@ def test_previsualizacion_conserva_lector_local_si_openrouter_falla(monkeypatch)
 
     assert vista["productos_detectados"] == 1
     assert vista["muestra"][0]["codigo"] == "SKU-LOCAL"
-    assert "OpenRouter: El modelo configurado no es gratuito" in vista["detalle"]
+    assert "OpenRouter: El modelo configurado no esta disponible" in vista["detalle"]
 
 
 def test_procesar_archivo_persiste_productos_de_openrouter_si_falla_el_lector(

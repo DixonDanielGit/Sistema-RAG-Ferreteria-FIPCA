@@ -154,8 +154,8 @@ class Settings:
     )
     llm_max_tokens: int = field(default_factory=lambda: _entero("LLM_MAX_TOKENS", 500))
 
-    # Transformacion de catalogos Markdown. Se mantiene separada del proveedor
-    # configurable del chat: esta etapa solo admite modelos gratuitos de OpenRouter.
+    # Transformacion de catalogos Markdown, separada del proveedor configurable
+    # del chat. OpenRouter factura segun el modelo y los tokens procesados.
     openrouter_api_key: str = field(
         default_factory=lambda: os.getenv("OPENROUTER_API_KEY", "").strip()
     )

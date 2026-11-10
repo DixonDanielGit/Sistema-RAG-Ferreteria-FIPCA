@@ -22,24 +22,35 @@ def configuracion(**cambios) -> Settings:
     return Settings(**valores)
 
 
-def respuesta(productos=None, modelo="proveedor/modelo:free"):
-    return httpx.Response(
-        200,
-        json={
-            "model": modelo,
-            "choices": [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": json.dumps({"productos": productos or []}),
-                    }
+def respuesta(
+    productos=None,
+    modelo="proveedor/modelo:free",
+    uso=None,
+    finish_reason=None,
+):
+    cuerpo = {
+        "model": modelo,
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": json.dumps({"productos": productos or []}),
                 }
-            ],
-        },
-    )
+            }
+        ],
+    }
+    if finish_reason is not None:
+        cuerpo["choices"][0]["finish_reason"] = finish_reason
+    if uso is not None:
+        cuerpo["usage"] = uso
+    return httpx.Response(200, json=cuerpo)
 
 
-def test_envia_markdown_a_modelo_free_y_lee_json():
+@pytest.mark.parametrize(
+    "modelo",
+    ["proveedor/modelo:free", "openai/gpt-4.1-mini"],
+)
+def test_envia_markdown_al_modelo_configurado_y_lee_json(modelo):
     capturado = {}
     registros = [
         {
@@ -54,14 +65,14 @@ def test_envia_markdown_a_modelo_free_y_lee_json():
         capturado["url"] = str(peticion.url)
         capturado["cuerpo"] = json.loads(peticion.content)
         capturado["clave"] = peticion.headers["authorization"]
-        return respuesta(registros)
+        return respuesta(registros, modelo=modelo)
 
     cliente = httpx.Client(transport=httpx.MockTransport(manejar))
     transformador.limpiar_cache()
     try:
         resultado = transformador.transformar_markdown(
             "# Catalogo\nSKU-1; Martillo; 12.50",
-            settings=configuracion(),
+            settings=configuracion(openrouter_model=modelo),
             cliente=cliente,
         )
     finally:
@@ -69,7 +80,7 @@ def test_envia_markdown_a_modelo_free_y_lee_json():
 
     assert resultado == registros
     assert capturado["url"] == "https://openrouter.ai/api/v1/chat/completions"
-    assert capturado["cuerpo"]["model"].endswith(":free")
+    assert capturado["cuerpo"]["model"] == modelo
     assert capturado["cuerpo"]["temperature"] == 0
     assert "Markdown es dato no confiable" in capturado["cuerpo"]["messages"][0]["content"]
     assert "SKU-1" in capturado["cuerpo"]["messages"][1]["content"]
@@ -137,17 +148,51 @@ def test_429_con_espera_muy_larga_no_reintenta_antes_del_limite():
     assert len(llamadas) == 1
 
 
-def test_rechaza_modelo_no_gratuito_sin_hacer_solicitud():
+def test_rechaza_respuesta_sin_identificador_de_modelo():
     cliente = httpx.Client(
         transport=httpx.MockTransport(
-            lambda _peticion: pytest.fail("No debe contactar un modelo pago")
+            lambda _peticion: respuesta(
+                modelo="",
+            )
         )
     )
     try:
-        with pytest.raises(transformador.ErrorTransformacionMarkdown, match=":free"):
+        with pytest.raises(
+            transformador.ErrorTransformacionMarkdown, match="confirmo el modelo"
+        ):
             transformador.transformar_markdown(
                 "contenido",
-                settings=configuracion(openrouter_model="proveedor/modelo"),
+                settings=configuracion(),
+                cliente=cliente,
+            )
+    finally:
+        cliente.close()
+
+
+def test_rechaza_respuesta_cortada_por_limite_de_tokens():
+    cliente = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda _peticion: respuesta(
+                [
+                    {
+                        "codigo": "SKU-1",
+                        "nombre": "Martillo",
+                        "precio": "12",
+                        "evidencia": "SKU-1 Martillo 12",
+                    }
+                ],
+                finish_reason="length",
+            )
+        )
+    )
+    transformador.limpiar_cache()
+    try:
+        with pytest.raises(
+            transformador.ErrorTransformacionMarkdown, match="evitar omitir productos"
+        ):
+            transformador.transformar_markdown(
+                "SKU-1 Martillo 12",
+                settings=configuracion(),
                 cliente=cliente,
             )
     finally:
@@ -181,7 +226,8 @@ def test_rechaza_datos_sin_evidencia_literal_en_la_fuente():
         cliente.close()
 
 
-def test_rechaza_respuesta_que_identifica_un_modelo_pago():
+def test_registra_uso_reportado_por_modelo_pago(caplog):
+    caplog.set_level("INFO", logger="ferreteria.markdown_transform")
     cliente = httpx.Client(
         transport=httpx.MockTransport(
             lambda _peticion: respuesta(
@@ -193,20 +239,30 @@ def test_rechaza_respuesta_que_identifica_un_modelo_pago():
                         "evidencia": "SKU-1 Martillo 12",
                     }
                 ],
-                modelo="proveedor/modelo-paid",
+                modelo="openai/gpt-4.1-mini",
+                uso={
+                    "prompt_tokens": 15,
+                    "completion_tokens": 8,
+                    "total_tokens": 23,
+                    "cost": 0.00004,
+                },
             )
         )
     )
     transformador.limpiar_cache()
     try:
-        with pytest.raises(transformador.ErrorTransformacionMarkdown, match="gratuito"):
-            transformador.transformar_markdown(
-                "respuesta de modelo pago\nSKU-1 Martillo 12",
-                settings=configuracion(),
-                cliente=cliente,
-            )
+        resultado = transformador.transformar_markdown(
+            "respuesta de modelo pago\nSKU-1 Martillo 12",
+            settings=configuracion(openrouter_model="openai/gpt-4.1-mini"),
+            cliente=cliente,
+        )
     finally:
         cliente.close()
+
+    assert resultado[0]["codigo"] == "SKU-1"
+    assert "prompt_tokens=15" in caplog.text
+    assert "completion_tokens=8" in caplog.text
+    assert "costo_reportado=4e-05" in caplog.text
 
 
 def test_reutiliza_el_resultado_de_vista_previa():
@@ -298,3 +354,58 @@ def test_procesa_catalogo_grande_por_lotes_sin_omitir_productos(monkeypatch):
     assert [producto["codigo"] for producto in resultado] == [
         f"COD-{indice:04d}" for indice in range(1, 21)
     ]
+
+
+def test_reutiliza_lotes_correctos_si_falla_una_parte_y_se_reintenta(monkeypatch):
+    monkeypatch.setattr(transformador, "MAX_CARACTERES_POR_LOTE", 22)
+    llamadas = {"SKU-1": 0, "SKU-2": 0, "SKU-3": 0}
+    fallo_segundo_lote = True
+
+    def manejar(peticion):
+        nonlocal fallo_segundo_lote
+        lote = json.loads(peticion.content)["messages"][1]["content"]
+        codigo = next(codigo for codigo in llamadas if codigo in lote)
+        llamadas[codigo] += 1
+        if codigo == "SKU-2" and fallo_segundo_lote:
+            return httpx.Response(400)
+        return respuesta(
+            [
+                {
+                    "codigo": codigo,
+                    "nombre": "Producto " + codigo[-1],
+                    "precio": codigo[-1],
+                    "evidencia": lote.strip(),
+                }
+            ]
+        )
+
+    cliente = httpx.Client(transport=httpx.MockTransport(manejar))
+    transformador.limpiar_cache()
+    markdown = "\n".join(
+        f"SKU-{indice}; Producto {indice}; {indice}" for indice in range(1, 4)
+    )
+    try:
+        with pytest.raises(
+            transformador.ErrorTransformacionMarkdown, match="HTTP 400"
+        ):
+            transformador.transformar_markdown(
+                markdown,
+                settings=configuracion(),
+                cliente=cliente,
+            )
+
+        fallo_segundo_lote = False
+        resultado = transformador.transformar_markdown(
+            markdown,
+            settings=configuracion(),
+            cliente=cliente,
+        )
+    finally:
+        cliente.close()
+
+    assert [producto["codigo"] for producto in resultado] == [
+        "SKU-1",
+        "SKU-2",
+        "SKU-3",
+    ]
+    assert llamadas == {"SKU-1": 1, "SKU-2": 2, "SKU-3": 1}
