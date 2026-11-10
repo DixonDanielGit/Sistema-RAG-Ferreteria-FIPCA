@@ -1319,11 +1319,17 @@ def _nombre_seguro(nombre: str) -> str:
     return nombre
 
 
-def _ruta_original(nombre: str) -> tuple[Path, str]:
+def _directorio_cargas_seguro() -> Path:
+    """Devuelve ``UPLOADS_DIR`` resuelto y fuera del directorio de estaticos."""
     directorio = get_settings().uploads_dir.resolve()
     estaticos = (Path(__file__).resolve().parents[1] / "static").resolve()
     if directorio == estaticos or estaticos in directorio.parents:
         raise RuntimeError("UPLOADS_DIR no puede estar dentro del directorio de estaticos")
+    return directorio
+
+
+def _ruta_original(nombre: str) -> tuple[Path, str]:
+    directorio = _directorio_cargas_seguro()
     directorio.mkdir(parents=True, exist_ok=True)
     extension = Path(nombre).suffix.lower()
     nombre_archivo = f"{uuid.uuid4().hex}{extension}"
@@ -1332,6 +1338,49 @@ def _ruta_original(nombre: str) -> tuple[Path, str]:
     if ruta_resuelta.parent != directorio:
         raise RuntimeError("La ruta configurada para cargas no es segura")
     return ruta, nombre_archivo
+
+
+def _ruta_markdown(id_archivo: int) -> Path:
+    """Ruta determinista del Markdown de un catalogo, sin crear directorios.
+
+    El nombre no proviene del usuario: se deriva del ``id_archivo`` serial, por
+    lo que no puede escapar de ``UPLOADS_DIR/markdown``.
+    """
+    directorio = _directorio_cargas_seguro()
+    destino = (directorio / "markdown").resolve()
+    if destino.parent != directorio:
+        raise RuntimeError("La ruta configurada para el Markdown no es segura")
+    ruta = (destino / f"{int(id_archivo)}.md").resolve()
+    if ruta.parent != destino:
+        raise RuntimeError("La ruta del Markdown no es segura")
+    return ruta
+
+
+def _guardar_markdown(id_archivo: int, markdown: str | None) -> bool:
+    """Guarda el Markdown del catalogo junto a los archivos cargados.
+
+    Un fallo de disco no detiene la carga: el original y los productos siguen
+    siendo validos y el aviso se reporta en el detalle del archivo.
+    """
+    if not markdown:
+        return False
+    ruta: Path | None = None
+    try:
+        ruta = _ruta_markdown(id_archivo)
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+        descriptor = os.open(
+            ruta, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600
+        )
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as archivo:
+            archivo.write(markdown)
+    except (OSError, RuntimeError) as exc:
+        logger.warning(
+            "No se pudo guardar el Markdown del archivo %s: %s", id_archivo, exc
+        )
+        if ruta is not None:
+            ruta.unlink(missing_ok=True)
+        return False
+    return True
 
 
 def _escribir_original(ruta: Path, contenido: bytes) -> None:
@@ -1446,9 +1495,9 @@ def _extraer(
 
 # --- Conversion a Markdown con Microsoft MarkItDown (RF-02.4) ----------------
 # MarkItDown convierte PDF, Excel, Word y TXT a Markdown; los archivos .md se
-# leen directamente. El texto se guarda en archivos_subidos.contenido_markdown
-# y es el insumo documentado del ETL. La conversion no reemplaza la validacion
-# ni la extraccion estructurada que carga los productos relacionales.
+# leen directamente. El texto se guarda en UPLOADS_DIR/markdown/<id>.md y es el
+# insumo documentado del ETL. La conversion no reemplaza la validacion ni la
+# extraccion estructurada que carga los productos relacionales.
 AVISO_SIN_MARKDOWN = (
     "No se pudo convertir el archivo a Markdown con MarkItDown; el catalogo "
     "se proceso con los lectores de filas"
@@ -1772,13 +1821,18 @@ def procesar_archivo(
             tamano_bytes=len(contenido),
             id_usuario=id_usuario,
             metadatos=metadatos,
-            contenido_markdown=markdown,
         )
     except (ErrorPostgres, BaseDeDatosNoDisponible, OSError, ValueError):
         ruta.unlink(missing_ok=True)
         raise
 
     id_archivo = archivo["id_archivo"]
+    aviso_guardado_markdown: str | None = None
+    if markdown and not _guardar_markdown(id_archivo, markdown):
+        aviso_guardado_markdown = (
+            "No se pudo guardar el Markdown del catalogo; "
+            "el original y los productos siguen disponibles"
+        )
     inventario_model.actualizar_estado_archivo(id_archivo, estado="procesando")
 
     if not contenido:
@@ -1816,6 +1870,8 @@ def procesar_archivo(
         detalle = str(exc)
         if aviso_markdown:
             detalle = f"{detalle}; {aviso_markdown}"
+        if aviso_guardado_markdown:
+            detalle = f"{detalle}; {aviso_guardado_markdown}"
         resultado = inventario_model.actualizar_estado_archivo(
             id_archivo,
             estado="error",
@@ -1910,6 +1966,8 @@ def procesar_archivo(
     estado = "parcial" if filas_error else "ok"
     if aviso_markdown:
         errores.append(aviso_markdown)
+    if aviso_guardado_markdown:
+        errores.append(aviso_guardado_markdown)
     resultado = inventario_model.actualizar_estado_archivo(
         id_archivo,
         estado=estado,
@@ -1930,10 +1988,11 @@ def _eliminar_archivo_original(ruta_relativa: str | None) -> bool:
     if not ruta_relativa or not ruta_relativa.strip():
         return False
 
-    directorio = get_settings().uploads_dir.resolve()
-    estaticos = (Path(__file__).resolve().parents[1] / "static").resolve()
-    if directorio == estaticos or estaticos in directorio.parents:
-        raise RuntimeError("UPLOADS_DIR no puede estar dentro del directorio de estaticos")
+    try:
+        directorio = _directorio_cargas_seguro()
+    except RuntimeError as exc:
+        logger.warning("No se elimina el original: %s", exc)
+        return False
 
     try:
         ruta = (directorio / ruta_relativa).resolve()
@@ -1956,23 +2015,45 @@ def _eliminar_archivo_original(ruta_relativa: str | None) -> bool:
     return True
 
 
+def _eliminar_markdown(id_archivo: int) -> bool:
+    """Quita el Markdown derivado del catalogo; su ruta la define el servidor."""
+    try:
+        ruta = _ruta_markdown(id_archivo)
+    except (RuntimeError, TypeError, ValueError):
+        logger.warning(
+            "No se elimina el Markdown del archivo %s: ruta no segura", id_archivo
+        )
+        return False
+    try:
+        existia = ruta.is_file()
+        ruta.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning(
+            "No se pudo eliminar el Markdown del archivo %s: %s", id_archivo, exc
+        )
+        return False
+    return existia
+
+
 def eliminar_catalogo_completo(id_archivo: int) -> dict[str, Any] | None:
     """Retira un catalogo del sistema, haya sido procesado o no.
 
     Elimina en una transaccion los productos cargados por ese archivo y su
-    registro en ``archivos_subidos``; despues borra el original del disco.
-    Devuelve ``None`` cuando el catalogo no existe.
+    registro en ``archivos_subidos``; despues borra el original y su Markdown
+    del disco. Devuelve ``None`` cuando el catalogo no existe.
     """
     resultado_base = inventario_model.eliminar_catalogo(id_archivo)
     if resultado_base is None:
         return None
 
     ruta_original = resultado_base.pop("ruta_original")
+    archivo_original_eliminado = _eliminar_archivo_original(ruta_original)
+    _eliminar_markdown(id_archivo)
     return {
         "id_archivo": resultado_base["id_archivo"],
         "nombre": resultado_base["nombre"],
         "productos_eliminados": resultado_base["productos_eliminados"],
-        "archivo_original_eliminado": _eliminar_archivo_original(ruta_original),
+        "archivo_original_eliminado": archivo_original_eliminado,
     }
 
 
@@ -1982,12 +2063,12 @@ def eliminar_catalogos_completos(ids_archivos: list[int]) -> dict[str, Any]:
     eliminados = []
     for catalogo in resultado_base["catalogos"]:
         ruta_original = catalogo.pop("ruta_original")
+        archivo_original_eliminado = _eliminar_archivo_original(ruta_original)
+        _eliminar_markdown(catalogo["id_archivo"])
         eliminados.append(
             {
                 **catalogo,
-                "archivo_original_eliminado": _eliminar_archivo_original(
-                    ruta_original
-                ),
+                "archivo_original_eliminado": archivo_original_eliminado,
             }
         )
     return {

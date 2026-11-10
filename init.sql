@@ -93,10 +93,7 @@ CREATE TABLE archivos_subidos (
     vendedor_correo VARCHAR(255),
     moneda CHAR(3) NOT NULL DEFAULT 'USD',
     nota_proveedor TEXT,
-    terminado_en TIMESTAMPTZ,
-    -- Markdown del catalogo: original .md o conversion de MarkItDown
-    -- (RF-02.4, migracion 10_0); puede ser NULL si no se pudo leer.
-    contenido_markdown TEXT
+    terminado_en TIMESTAMPTZ
 );
 
 CREATE INDEX idx_archivos_hash ON archivos_subidos (hash_sha256);

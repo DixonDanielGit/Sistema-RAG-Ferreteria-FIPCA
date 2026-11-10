@@ -29,13 +29,13 @@ def crear_archivo(
     tamano_bytes: int,
     id_usuario: int,
     metadatos: dict[str, Any] | None = None,
-    contenido_markdown: str | None = None,
 ) -> dict[str, Any]:
     """Registra el archivo y asocia atómicamente su proveedor y vendedor.
 
-    ``contenido_markdown`` guarda el catalogo convertido por MarkItDown junto
-    al registro (RF-02.4); si es ``None`` la conversion no estuvo disponible y
-    el archivo se procesa igual (tolerancia RF-02.3).
+    El Markdown derivado se guarda en disco (``UPLOADS_DIR/markdown``) y no en
+    la base: es informacion derivada del original y sigue su misma vida util.
+    Si la conversion no estuvo disponible, el archivo se procesa igual
+    (tolerancia RF-02.3).
     """
     metadatos = metadatos or {}
     proveedor = metadatos.get("proveedor")
@@ -110,8 +110,8 @@ def crear_archivo(
             INSERT INTO archivos_subidos
                 (nombre, tipo, ruta, hash_sha256, tamano_bytes, estado, id_usuario,
                  id_proveedor, vendedor_nombre, vendedor_telefono, vendedor_correo,
-                 moneda, nota_proveedor, contenido_markdown)
-            VALUES (%s, %s, %s, %s, %s, 'pendiente', %s, %s, %s, %s, %s, %s, %s, %s)
+                 moneda, nota_proveedor)
+            VALUES (%s, %s, %s, %s, %s, 'pendiente', %s, %s, %s, %s, %s, %s, %s)
             RETURNING id_archivo, nombre, tipo, fecha_de_subida, tamano_bytes,
                       estado, filas_ok, filas_error, detalle, moneda,
                       vendedor_nombre AS vendedor,
@@ -131,7 +131,6 @@ def crear_archivo(
                 correo_vendedor,
                 moneda,
                 metadatos.get("nota_proveedor"),
-                contenido_markdown,
             ),
         )
         return dict(cursor.fetchone())

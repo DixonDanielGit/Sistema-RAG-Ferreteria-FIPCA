@@ -243,3 +243,58 @@ def test_reutiliza_el_resultado_de_vista_previa():
 
     assert len(llamadas) == 1
     assert primero == segundo
+
+
+def test_dividir_markdown_respeta_limite_y_conserva_lineas():
+    markdown = "\n".join(f"linea {indice:03d}" for indice in range(50))
+
+    lotes = transformador.dividir_markdown(markdown, maximo=100)
+
+    assert len(lotes) > 1
+    assert all(len(lote) <= 100 for lote in lotes)
+    assert "".join(lotes) == markdown
+
+
+def test_procesa_catalogo_grande_por_lotes_sin_omitir_productos(monkeypatch):
+    monkeypatch.setattr(transformador, "MAX_CARACTERES_POR_LOTE", 220)
+    lineas = [
+        f"COD-{indice:04d}; Producto {indice:04d}; {indice}.00"
+        for indice in range(1, 21)
+    ]
+    markdown = "# Catalogo\n\n" + "\n".join(lineas)
+    lotes_vistos = []
+
+    def manejar(peticion):
+        cuerpo = json.loads(peticion.content)
+        lote = cuerpo["messages"][1]["content"]
+        lotes_vistos.append(lote)
+        productos_lote = []
+        for linea in lote.splitlines():
+            partes = [parte.strip() for parte in linea.split(";")]
+            if len(partes) == 3 and partes[0].startswith("COD-"):
+                productos_lote.append(
+                    {
+                        "codigo": partes[0],
+                        "nombre": partes[1],
+                        "precio": partes[2],
+                        "evidencia": linea,
+                    }
+                )
+        return respuesta(productos_lote)
+
+    cliente = httpx.Client(transport=httpx.MockTransport(manejar))
+    transformador.limpiar_cache()
+    try:
+        resultado = transformador.transformar_markdown(
+            markdown,
+            settings=configuracion(),
+            cliente=cliente,
+        )
+    finally:
+        cliente.close()
+
+    assert len(lotes_vistos) > 1
+    assert all(len(lote) <= 220 for lote in lotes_vistos)
+    assert [producto["codigo"] for producto in resultado] == [
+        f"COD-{indice:04d}" for indice in range(1, 21)
+    ]

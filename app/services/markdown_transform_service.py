@@ -21,7 +21,11 @@ from app.config import Settings, get_settings
 
 logger = logging.getLogger("ferreteria.markdown_transform")
 
-MAX_MARKDOWN_CARACTERES = 60_000
+# El Markdown completo puede ser muy extenso (un PDF de varios MB). Enviarlo
+# entero en una sola solicitud hace que el modelo resuma u omita filas, asi que
+# se procesa por lotes de tamano acotado y los resultados se concatenan.
+MAX_MARKDOWN_CARACTERES = 10_000_000
+MAX_CARACTERES_POR_LOTE = 24_000
 MAX_INTENTOS = 4
 MAX_ESPERA_REINTENTO_SEGUNDOS = 60
 MAX_RESPUESTA_TOKENS = 8_192
@@ -259,6 +263,141 @@ def _validar_evidencia(
                 )
 
 
+def dividir_markdown(
+    markdown: str, maximo: int = MAX_CARACTERES_POR_LOTE
+) -> list[str]:
+    """Parte el Markdown en lotes acotados respetando el final de cada linea.
+
+    Cada fila de catalogo suele ocupar una linea completa, por lo que cortar
+    entre lineas evita enviar registros partidos al modelo. Solo se corta una
+    linea cuando ella sola supera ``maximo``.
+    """
+    if maximo <= 0:
+        raise ValueError("El tamano de lote debe ser mayor que cero")
+    if len(markdown) <= maximo:
+        return [markdown] if markdown.strip() else []
+
+    lotes: list[str] = []
+    actual: list[str] = []
+    tamano_actual = 0
+
+    for linea in markdown.splitlines(keepends=True):
+        # Una sola linea gigante se divide en fragmentos duros para no exceder
+        # el limite de la solicitud.
+        while len(linea) > maximo:
+            if actual:
+                lotes.append("".join(actual))
+                actual = []
+                tamano_actual = 0
+            lotes.append(linea[:maximo])
+            linea = linea[maximo:]
+
+        if actual and tamano_actual + len(linea) > maximo:
+            lotes.append("".join(actual))
+            actual = []
+            tamano_actual = 0
+
+        actual.append(linea)
+        tamano_actual += len(linea)
+
+    if actual:
+        lotes.append("".join(actual))
+
+    return [lote for lote in lotes if lote.strip()]
+
+
+def _solicitar_lote(
+    lote: str,
+    *,
+    endpoint: str,
+    api_key: str,
+    modelo: str,
+    timeout: int,
+    cliente_http: httpx.Client,
+    dormir: Callable[[float], None],
+) -> list[dict[str, Any]]:
+    """Extrae y valida los productos de un unico lote de Markdown."""
+    cuerpo_solicitud = {
+        "model": modelo,
+        "temperature": 0,
+        "max_tokens": MAX_RESPUESTA_TOKENS,
+        "messages": [
+            {"role": "system", "content": INSTRUCCIONES},
+            {"role": "user", "content": lote},
+        ],
+    }
+    cabeceras = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://openrouter.ai/",
+        "X-Title": "Sistema RAG Ferreteria FIPCA",
+    }
+
+    for intento in range(1, MAX_INTENTOS + 1):
+        respuesta: httpx.Response | None = None
+        try:
+            respuesta = cliente_http.post(
+                endpoint,
+                headers=cabeceras,
+                json=cuerpo_solicitud,
+                timeout=timeout,
+            )
+        except httpx.TimeoutException:
+            error = "OpenRouter no respondio dentro del tiempo limite"
+        except httpx.TransportError:
+            error = "No se pudo conectar con OpenRouter"
+        else:
+            if (
+                respuesta.status_code in {408, 429}
+                or respuesta.status_code >= 500
+            ):
+                error = f"OpenRouter respondio HTTP {respuesta.status_code}"
+            elif respuesta.is_error:
+                raise ErrorTransformacionMarkdown(
+                    f"OpenRouter respondio HTTP {respuesta.status_code}; revise la configuracion"
+                )
+            else:
+                try:
+                    cuerpo = respuesta.json()
+                except ValueError as exc:
+                    raise ErrorTransformacionMarkdown(
+                        "OpenRouter devolvio una respuesta que no es JSON"
+                    ) from exc
+                if not isinstance(cuerpo, dict):
+                    raise ErrorTransformacionMarkdown(
+                        "OpenRouter devolvio una respuesta JSON con estructura invalida"
+                    )
+                modelo_respuesta = cuerpo.get("model", modelo)
+                if not isinstance(modelo_respuesta, str) or not (
+                    modelo_respuesta.endswith(":free")
+                ):
+                    raise ErrorTransformacionMarkdown(
+                        "OpenRouter no confirmo un modelo gratuito; se rechazo la respuesta"
+                    )
+                productos = _leer_productos(cuerpo)
+                _validar_evidencia(lote, productos)
+                return productos
+
+        if intento == MAX_INTENTOS:
+            raise ErrorTransformacionMarkdown(
+                f"{error} despues de {intento} intento(s); intente mas tarde"
+            )
+        espera = _espera_reintento(respuesta, intento)
+        if espera is None:
+            raise ErrorTransformacionMarkdown(
+                "OpenRouter solicito esperar mas de 60 segundos por limite de uso; "
+                "intente mas tarde"
+            )
+        logger.warning(
+            "Reintentando transformacion OpenRouter tras intento %s; espera %.1f s",
+            intento,
+            espera,
+        )
+        dormir(espera)
+
+    raise ErrorTransformacionMarkdown("No se pudo transformar el Markdown")
+
+
 def transformar_markdown(
     markdown: str,
     *,
@@ -266,7 +405,7 @@ def transformar_markdown(
     cliente: httpx.Client | None = None,
     dormir: Callable[[float], None] = time.sleep,
 ) -> list[dict[str, Any]]:
-    """Extrae productos sin inventar datos y devuelve registros JSON validados."""
+    """Extrae productos por lotes sin inventar datos y devuelve JSON validado."""
     settings = settings or get_settings()
     if not isinstance(markdown, str) or not markdown.strip():
         raise ErrorTransformacionMarkdown("El Markdown esta vacio")
@@ -281,88 +420,34 @@ def transformar_markdown(
     if cacheado is not None:
         return cacheado
 
-    cuerpo_solicitud = {
-        "model": modelo,
-        "temperature": 0,
-        "max_tokens": MAX_RESPUESTA_TOKENS,
-        "messages": [
-            {"role": "system", "content": INSTRUCCIONES},
-            {"role": "user", "content": markdown},
-        ],
-    }
-    cabeceras = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://openrouter.ai/",
-        "X-Title": "Sistema RAG Ferreteria FIPCA",
-    }
+    lotes = dividir_markdown(markdown, MAX_CARACTERES_POR_LOTE)
+    if not lotes:
+        raise ErrorTransformacionMarkdown("El Markdown esta vacio")
+
     cliente_propio = cliente is None
     cliente_http = cliente if cliente is not None else httpx.Client(timeout=timeout)
     try:
-        for intento in range(1, MAX_INTENTOS + 1):
-            respuesta: httpx.Response | None = None
-            try:
-                respuesta = cliente_http.post(
-                    endpoint,
-                    headers=cabeceras,
-                    json=cuerpo_solicitud,
-                    timeout=timeout,
-                )
-            except httpx.TimeoutException:
-                error = "OpenRouter no respondio dentro del tiempo limite"
-            except httpx.TransportError:
-                error = "No se pudo conectar con OpenRouter"
-            else:
-                if (
-                    respuesta.status_code in {408, 429}
-                    or respuesta.status_code >= 500
-                ):
-                    error = f"OpenRouter respondio HTTP {respuesta.status_code}"
-                elif respuesta.is_error:
-                    raise ErrorTransformacionMarkdown(
-                        f"OpenRouter respondio HTTP {respuesta.status_code}; revise la configuracion"
-                    )
-                else:
-                    try:
-                        cuerpo = respuesta.json()
-                    except ValueError as exc:
-                        raise ErrorTransformacionMarkdown(
-                            "OpenRouter devolvio una respuesta que no es JSON"
-                        ) from exc
-                    if not isinstance(cuerpo, dict):
-                        raise ErrorTransformacionMarkdown(
-                            "OpenRouter devolvio una respuesta JSON con estructura invalida"
-                        )
-                    modelo_respuesta = cuerpo.get("model", modelo)
-                    if not isinstance(modelo_respuesta, str) or not (
-                        modelo_respuesta.endswith(":free")
-                    ):
-                        raise ErrorTransformacionMarkdown(
-                            "OpenRouter no confirmo un modelo gratuito; se rechazo la respuesta"
-                        )
-                    productos = _leer_productos(cuerpo)
-                    _validar_evidencia(markdown, productos)
-                    _guardar_cache(clave_cache, productos)
-                    return productos
-
-            if intento == MAX_INTENTOS:
-                raise ErrorTransformacionMarkdown(
-                    f"{error} despues de {intento} intento(s); intente mas tarde"
-                )
-            espera = _espera_reintento(respuesta, intento)
-            if espera is None:
-                raise ErrorTransformacionMarkdown(
-                    "OpenRouter solicito esperar mas de 60 segundos por limite de uso; "
-                    "intente mas tarde"
-                )
-            logger.warning(
-                "Reintentando transformacion OpenRouter tras intento %s; espera %.1f s",
-                intento,
-                espera,
+        productos_totales: list[dict[str, Any]] = []
+        for indice, lote in enumerate(lotes, start=1):
+            productos_lote = _solicitar_lote(
+                lote,
+                endpoint=endpoint,
+                api_key=api_key,
+                modelo=modelo,
+                timeout=timeout,
+                cliente_http=cliente_http,
+                dormir=dormir,
             )
-            dormir(espera)
+            productos_totales.extend(productos_lote)
+            logger.info(
+                "Lote Markdown %s/%s procesado: %s producto(s)",
+                indice,
+                len(lotes),
+                len(productos_lote),
+            )
     finally:
         if cliente_propio:
             cliente_http.close()
 
-    raise ErrorTransformacionMarkdown("No se pudo transformar el Markdown")
+    _guardar_cache(clave_cache, productos_totales)
+    return productos_totales

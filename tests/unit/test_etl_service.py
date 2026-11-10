@@ -953,7 +953,10 @@ def test_procesar_archivo_guarda_el_markdown_junto_al_archivo(
 
     assert resultado["estado"] == "ok"
     assert resultado["filas_ok"] == 1
-    assert "SKU-41" in datos_archivo["contenido_markdown"]
+    assert "contenido_markdown" not in datos_archivo
+    ruta_markdown = tmp_path / "cargas" / "markdown" / "41.md"
+    assert ruta_markdown.is_file()
+    assert "SKU-41" in ruta_markdown.read_text(encoding="utf-8")
 
 
 def test_si_markitdown_falla_la_carga_sigue_y_el_detalle_lo_avisa(
@@ -976,8 +979,32 @@ def test_si_markitdown_falla_la_carga_sigue_y_el_detalle_lo_avisa(
 
     assert resultado["estado"] == "ok"
     assert resultado["filas_ok"] == 1
-    assert datos_archivo["contenido_markdown"] is None
+    assert "contenido_markdown" not in datos_archivo
+    assert not (tmp_path / "cargas" / "markdown" / "41.md").exists()
     assert etl_service.AVISO_SIN_MARKDOWN in resultado["detalle"]
+
+
+def test_fallo_al_guardar_markdown_no_detiene_la_carga(monkeypatch, tmp_path):
+    _persistencia_simulada(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        etl_service,
+        "convertir_a_markdown",
+        lambda _ruta: ("# Catalogo\nSKU-43; Llave; 3,00", None),
+    )
+    monkeypatch.setattr(etl_service, "_guardar_markdown", lambda *_args: False)
+    contenido = b"codigo;nombre;precio\nSKU-43;Llave;3,00\n"
+
+    try:
+        resultado = etl_service.procesar_archivo(
+            r"C:\proveedores\catalogo.txt", contenido, 7
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert resultado["estado"] == "ok"
+    assert resultado["filas_ok"] == 1
+    assert "No se pudo guardar el Markdown" in resultado["detalle"]
+    assert not (tmp_path / "cargas" / "markdown" / "41.md").exists()
 
 
 def test_procesar_markdown_persiste_productos_transformados(
@@ -1009,7 +1036,10 @@ def test_procesar_markdown_persiste_productos_transformados(
 
     assert resultado["estado"] == "ok"
     assert resultado["filas_ok"] == 1
-    assert datos_archivo["contenido_markdown"] == contenido.decode("utf-8")
+    assert "contenido_markdown" not in datos_archivo
+    assert (
+        tmp_path / "cargas" / "markdown" / "41.md"
+    ).read_text(encoding="utf-8") == contenido.decode("utf-8")
     assert productos_guardados[0]["codigo"] == "SKU-MD"
     assert productos_guardados[0]["precio"] == Decimal("3.25")
     assert resultado["respuesta_ia"]["productos"][0]["codigo"] == "SKU-MD"
@@ -1139,4 +1169,6 @@ def test_procesar_archivo_persiste_productos_de_openrouter_si_falla_el_lector(
     assert resultado["filas_ok"] == 1
     assert resultado["respuesta_ia"] == respuesta
     assert productos_guardados[0]["codigo"] == "SKU-IA"
-    assert datos_archivo["contenido_markdown"].startswith("# Catalogo")
+    assert (tmp_path / "cargas" / "markdown" / "41.md").read_text(
+        encoding="utf-8"
+    ).startswith("# Catalogo")
