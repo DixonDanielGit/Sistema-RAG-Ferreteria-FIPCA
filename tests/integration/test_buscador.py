@@ -110,6 +110,15 @@ class TestVistaDelBuscador:
         assert respuesta.text.index('id="limite-resultados-buscador"') < respuesta.text.index(
             'class="buscador__tabla-contenedor"'
         )
+        cabecera = respuesta.text.split(
+            '<table class="buscador__tabla">', 1
+        )[1].split("</thead>", 1)[0]
+        assert cabecera.count("<th ") == 4
+        assert "Existencias" not in cabecera
+        etiquetas = ("Código", "Producto", "Proveedor", "Precio")
+        assert [etiqueta for etiqueta in etiquetas if etiqueta in cabecera] == list(
+            etiquetas
+        )
 
     def test_carga_el_javascript_de_la_vista(self, navegador, sesion):
         html = navegador.get("/search").text

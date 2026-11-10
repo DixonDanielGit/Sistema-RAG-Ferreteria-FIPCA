@@ -1935,15 +1935,6 @@ body.cuerpo-buscador main {
   color: var(--exito-texto);
 }
 
-.buscador__stock {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.buscador__stock[data-agotado="1"] {
-  color: var(--texto-suave);
-}
-
 @media (max-width: 767.98px) {
   .buscador__tabla-contenedor {
     display: none;

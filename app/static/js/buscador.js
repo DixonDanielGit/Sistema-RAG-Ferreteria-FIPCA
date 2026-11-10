@@ -360,15 +360,6 @@
     }
     fila.appendChild(precio);
 
-    var stock = crearCelda("buscador__stock");
-    var existencias = Number(producto.stock);
-    stock.textContent = String(isNaN(existencias) ? 0 : existencias);
-    stock.setAttribute(
-      "data-agotado",
-      isNaN(existencias) || existencias <= 0 ? "1" : ""
-    );
-    fila.appendChild(stock);
-
     return fila;
   }
 
@@ -843,6 +834,16 @@
   if (cerrarDetalle && dialogoDetalle) {
     cerrarDetalle.addEventListener("click", function () {
       dialogoDetalle.close();
+    });
+    dialogoDetalle.addEventListener("click", function (evento) {
+      if (evento.target !== dialogoDetalle) return;
+      var limites = dialogoDetalle.getBoundingClientRect();
+      var fuera =
+        evento.clientX < limites.left ||
+        evento.clientX > limites.right ||
+        evento.clientY < limites.top ||
+        evento.clientY > limites.bottom;
+      if (fuera) dialogoDetalle.close();
     });
     dialogoDetalle.addEventListener("close", function () {
       solicitudDetalle += 1;
