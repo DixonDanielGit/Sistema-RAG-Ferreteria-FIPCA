@@ -24,6 +24,17 @@ load_dotenv(RAIZ / ".env")
 # habilita a mano en la prueba.
 os.environ["VECTORIZACION_AUTOMATICA"] = "0"
 
+# Los limites del ETL y de la transformacion se pueden ajustar por entorno para
+# aceptar catalogos grandes. Las pruebas unitarias deben ver siempre los valores
+# documentados, asi que se fijan aqui antes de importar la aplicacion:
+# load_dotenv no sobrescribe variables que ya existen en el entorno.
+os.environ["ETL_MAX_FILAS_ARCHIVO"] = "20000"
+os.environ["ETL_MAX_LINEAS_TEXTO"] = "1000000"
+os.environ["ETL_MAX_PAGINAS_PDF"] = "500"
+os.environ["ETL_MAX_PAGINAS_DOCX"] = "500"
+os.environ["OPENROUTER_MAX_TOKENS"] = "32768"
+os.environ["OPENROUTER_MAX_CARACTERES_POR_LOTE"] = "24000"
+
 RAG_PLANTILLA = "ferreteria_rag"
 USUARIOS_PLANTILLA = "ferreteria_usuarios"
 RAG_PRUEBA = "ferreteria_rag_test"
@@ -93,7 +104,9 @@ def bases_de_prueba():
         conexion_rag = conexion_admin(RAG_PRUEBA)
         try:
             with conexion_rag.cursor() as cur:
-                for version in ("3_0", "4_0", "7_0", "8_0", "9_0", "10_0", "11_0"):
+                for version in (
+                    "3_0", "4_0", "7_0", "8_0", "9_0", "10_0", "11_0", "12_0"
+                ):
                     migracion = RAIZ / "scripts" / f"migracion_{version}.sql"
                     cur.execute(migracion.read_text(encoding="utf-8"))
         finally:

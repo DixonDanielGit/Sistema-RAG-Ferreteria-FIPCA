@@ -93,6 +93,7 @@ CREATE TABLE archivos_subidos (
     vendedor_correo VARCHAR(255),
     moneda CHAR(3) NOT NULL DEFAULT 'USD',
     nota_proveedor TEXT,
+    observacion_comercial TEXT,
     terminado_en TIMESTAMPTZ
 );
 
@@ -171,6 +172,7 @@ CREATE TABLE productos (
     punto_reorden INT
         CONSTRAINT chk_productos_punto_reorden
         CHECK (punto_reorden IS NULL OR punto_reorden >= 0),
+    observacion_comercial TEXT,
     ubicacion VARCHAR(80),
     activo BOOLEAN NOT NULL DEFAULT TRUE,
     actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -522,6 +524,10 @@ COMMENT ON TABLE stock_movimientos IS
     'Entradas, salidas y ajustes: base del consumo y de las alertas de stock';
 COMMENT ON COLUMN productos.punto_reorden IS
     'Umbral propio del producto; si es NULL se usa configuracion_stock';
+COMMENT ON COLUMN archivos_subidos.observacion_comercial IS
+    'Nota comercial compartida por los productos asociados al catalogo.';
+COMMENT ON COLUMN productos.observacion_comercial IS
+    'Nota comercial particular del producto.';
 COMMENT ON COLUMN productos.descripcion_vectorial IS
     'Embedding de 384 dimensiones de intfloat/multilingual-e5-small';
 

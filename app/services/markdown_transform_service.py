@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import math
+import os
 import threading
 import time
 from collections import OrderedDict
@@ -21,14 +22,32 @@ from app.config import Settings, get_settings
 
 logger = logging.getLogger("ferreteria.markdown_transform")
 
+
+def _entero_positivo(nombre: str, defecto: int) -> int:
+    """Lee un limite entero del entorno; ignora valores invalidos o no positivos."""
+    valor = os.getenv(nombre, "").strip()
+    if not valor:
+        return defecto
+    try:
+        numero = int(valor)
+    except ValueError:
+        return defecto
+    return numero if numero > 0 else defecto
+
+
 # El Markdown completo puede ser muy extenso (un PDF de varios MB). Enviarlo
 # entero en una sola solicitud hace que el modelo resuma u omita filas, asi que
 # se procesa por lotes de tamano acotado y los resultados se concatenan.
 MAX_MARKDOWN_CARACTERES = 10_000_000
-MAX_CARACTERES_POR_LOTE = 24_000
+# Tamano de lote: lotes grandes significan menos llamadas y una ingesta mas
+# rapida, pero exigen un modelo con salida amplia. Ajustable por entorno.
+MAX_CARACTERES_POR_LOTE = _entero_positivo("OPENROUTER_MAX_CARACTERES_POR_LOTE", 24_000)
+# Cuando OpenRouter corta un lote por el limite de salida, el lote se divide por
+# la mitad y se reintenta. No se baja de este tamano: por debajo, los fragmentos
+# ya no contienen filas completas y el modelo no puede devolver evidencia valida.
+MIN_CARACTERES_PARTE_DIVIDIDA = 1_000
 MAX_INTENTOS = 4
 MAX_ESPERA_REINTENTO_SEGUNDOS = 60
-MAX_RESPUESTA_TOKENS = 8_192
 TTL_CACHE_SEGUNDOS = 300
 MAX_ENTRADAS_CACHE = 32
 
@@ -72,7 +91,15 @@ class ErrorTransformacionMarkdown(ValueError):
     """Error controlado de configuracion, proveedor o estructura JSON."""
 
 
-def _configuracion(settings: Settings) -> tuple[str, str, str, int]:
+class _LoteCortadoPorSalida(Exception):
+    """Señal interna: el modelo agoto los tokens de salida en este lote.
+
+    No es un error del usuario: el lote se divide por la mitad y se vuelve a
+    procesar, de modo que ningun producto se pierde por el corte.
+    """
+
+
+def _configuracion(settings: Settings) -> tuple[str, str, str, int, int]:
     if not settings.openrouter_configurado:
         raise ErrorTransformacionMarkdown(
             "Falta configurar OPENROUTER_API_KEY, OPENROUTER_BASE_URL y OPENROUTER_MODEL"
@@ -80,6 +107,10 @@ def _configuracion(settings: Settings) -> tuple[str, str, str, int]:
     if settings.openrouter_timeout_segundos <= 0:
         raise ErrorTransformacionMarkdown(
             "OPENROUTER_TIMEOUT_SEGUNDOS debe ser mayor que cero"
+        )
+    if settings.openrouter_max_tokens <= 0:
+        raise ErrorTransformacionMarkdown(
+            "OPENROUTER_MAX_TOKENS debe ser mayor que cero"
         )
 
     try:
@@ -107,6 +138,7 @@ def _configuracion(settings: Settings) -> tuple[str, str, str, int]:
         settings.openrouter_api_key,
         settings.openrouter_model,
         settings.openrouter_timeout_segundos,
+        settings.openrouter_max_tokens,
     )
 
 
@@ -337,6 +369,7 @@ def _solicitar_lote(
     api_key: str,
     modelo: str,
     timeout: int,
+    max_tokens: int,
     cliente_http: httpx.Client,
     dormir: Callable[[float], None],
 ) -> list[dict[str, Any]]:
@@ -344,7 +377,7 @@ def _solicitar_lote(
     cuerpo_solicitud = {
         "model": modelo,
         "temperature": 0,
-        "max_tokens": MAX_RESPUESTA_TOKENS,
+        "max_tokens": max_tokens,
         "messages": [
             {"role": "system", "content": INSTRUCCIONES},
             {"role": "user", "content": lote},
@@ -404,10 +437,7 @@ def _solicitar_lote(
                     and isinstance(elecciones[0], dict)
                     and elecciones[0].get("finish_reason") in {"length", "max_tokens"}
                 ):
-                    raise ErrorTransformacionMarkdown(
-                        "OpenRouter corto la respuesta por el limite de salida; "
-                        "se rechazo el lote para evitar omitir productos"
-                    )
+                    raise _LoteCortadoPorSalida()
                 productos = _leer_productos(cuerpo)
                 _validar_evidencia(lote, productos)
                 return productos
@@ -432,6 +462,86 @@ def _solicitar_lote(
     raise ErrorTransformacionMarkdown("No se pudo transformar el Markdown")
 
 
+def _dividir_por_la_mitad(lote: str) -> list[str]:
+    """Parte un lote en dos, cortando siempre entre lineas.
+
+    Devuelve una lista vacia cuando no hay un salto de linea util: sin el no se
+    puede dividir sin romper la fila de catalogo que se le envia al modelo.
+    """
+    corte = lote.find("\n", len(lote) // 2)
+    if corte < 0:
+        return []
+    partes = [lote[: corte + 1], lote[corte + 1 :]]
+    if not all(parte.strip() for parte in partes):
+        return []
+    return partes
+
+
+def _procesar_lote(
+    lote: str,
+    *,
+    endpoint: str,
+    api_key: str,
+    modelo: str,
+    timeout: int,
+    max_tokens: int,
+    cliente_http: httpx.Client,
+    dormir: Callable[[float], None],
+) -> list[dict[str, Any]]:
+    """Extrae un lote y, si OpenRouter lo corta, lo divide hasta completarlo.
+
+    Un corte por limite de salida significa que faltan filas, no que el dato
+    sea invalido. Dividir por la mitad conserva el producto sin inventar nada y
+    evita rechazar catalogos grandes; solo se rinde cuando el fragmento ya es
+    demasiado pequeno para contener filas completas.
+    """
+    clave_lote = _cache_key(modelo, endpoint, lote)
+    cacheado = _buscar_cache(clave_lote)
+    if cacheado is not None:
+        return cacheado
+
+    try:
+        productos = _solicitar_lote(
+            lote,
+            endpoint=endpoint,
+            api_key=api_key,
+            modelo=modelo,
+            timeout=timeout,
+            max_tokens=max_tokens,
+            cliente_http=cliente_http,
+            dormir=dormir,
+        )
+    except _LoteCortadoPorSalida:
+        partes = _dividir_por_la_mitad(lote)
+        if not partes or min(len(parte) for parte in partes) < MIN_CARACTERES_PARTE_DIVIDIDA:
+            raise ErrorTransformacionMarkdown(
+                "OpenRouter no alcanzo a devolver el lote completo; aumente "
+                "OPENROUTER_MAX_TOKENS o cargue el catalogo en archivos menores"
+            ) from None
+        logger.warning(
+            "OpenRouter corto el lote de %s caracteres; se divide en %s partes",
+            len(lote),
+            len(partes),
+        )
+        productos = []
+        for parte in partes:
+            productos.extend(
+                _procesar_lote(
+                    parte,
+                    endpoint=endpoint,
+                    api_key=api_key,
+                    modelo=modelo,
+                    timeout=timeout,
+                    max_tokens=max_tokens,
+                    cliente_http=cliente_http,
+                    dormir=dormir,
+                )
+            )
+
+    _guardar_cache(clave_lote, productos)
+    return productos
+
+
 def transformar_markdown(
     markdown: str,
     *,
@@ -448,7 +558,7 @@ def transformar_markdown(
             f"El Markdown supera el limite de {MAX_MARKDOWN_CARACTERES} caracteres"
         )
 
-    endpoint, api_key, modelo, timeout = _configuracion(settings)
+    endpoint, api_key, modelo, timeout, max_tokens = _configuracion(settings)
     clave_cache = _cache_key(modelo, endpoint, markdown)
     cacheado = _buscar_cache(clave_cache)
     if cacheado is not None:
@@ -463,19 +573,16 @@ def transformar_markdown(
     try:
         productos_totales: list[dict[str, Any]] = []
         for indice, lote in enumerate(lotes, start=1):
-            clave_lote = _cache_key(modelo, endpoint, lote)
-            productos_lote = _buscar_cache(clave_lote)
-            if productos_lote is None:
-                productos_lote = _solicitar_lote(
-                    lote,
-                    endpoint=endpoint,
-                    api_key=api_key,
-                    modelo=modelo,
-                    timeout=timeout,
-                    cliente_http=cliente_http,
-                    dormir=dormir,
-                )
-                _guardar_cache(clave_lote, productos_lote)
+            productos_lote = _procesar_lote(
+                lote,
+                endpoint=endpoint,
+                api_key=api_key,
+                modelo=modelo,
+                timeout=timeout,
+                max_tokens=max_tokens,
+                cliente_http=cliente_http,
+                dormir=dormir,
+            )
             productos_totales.extend(productos_lote)
             logger.info(
                 "Lote Markdown %s/%s procesado: %s producto(s)",

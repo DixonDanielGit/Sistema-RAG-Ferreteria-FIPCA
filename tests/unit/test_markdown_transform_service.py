@@ -169,7 +169,7 @@ def test_rechaza_respuesta_sin_identificador_de_modelo():
         cliente.close()
 
 
-def test_rechaza_respuesta_cortada_por_limite_de_tokens():
+def test_rechaza_respuesta_cortada_cuando_el_lote_no_se_puede_dividir():
     cliente = httpx.Client(
         transport=httpx.MockTransport(
             lambda _peticion: respuesta(
@@ -188,7 +188,8 @@ def test_rechaza_respuesta_cortada_por_limite_de_tokens():
     transformador.limpiar_cache()
     try:
         with pytest.raises(
-            transformador.ErrorTransformacionMarkdown, match="evitar omitir productos"
+            transformador.ErrorTransformacionMarkdown,
+            match="OPENROUTER_MAX_TOKENS",
         ):
             transformador.transformar_markdown(
                 "SKU-1 Martillo 12",
@@ -197,6 +198,54 @@ def test_rechaza_respuesta_cortada_por_limite_de_tokens():
             )
     finally:
         cliente.close()
+
+
+def test_divide_el_lote_cortado_y_conserva_todos_los_productos(monkeypatch):
+    """Un corte por limite de salida divide el lote en vez de rechazarlo."""
+    monkeypatch.setattr(transformador, "MIN_CARACTERES_PARTE_DIVIDIDA", 10)
+    lineas = [
+        f"COD-{indice:04d}; Producto {indice:04d}; {indice}.00"
+        for indice in range(1, 9)
+    ]
+    markdown = "\n".join(lineas)
+    tamanos_enviados = []
+
+    def manejar(peticion):
+        lote = json.loads(peticion.content)["messages"][1]["content"]
+        tamanos_enviados.append(len(lote))
+        productos_lote = []
+        for linea in lote.splitlines():
+            partes = [parte.strip() for parte in linea.split(";")]
+            if len(partes) == 3 and partes[0].startswith("COD-"):
+                productos_lote.append(
+                    {
+                        "codigo": partes[0],
+                        "nombre": partes[1],
+                        "precio": partes[2],
+                        "evidencia": linea,
+                    }
+                )
+        # El lote completo se corta; cada mitad ya cabe en la respuesta.
+        if len(productos_lote) > 4:
+            return respuesta(productos_lote[:4], finish_reason="length")
+        return respuesta(productos_lote)
+
+    cliente = httpx.Client(transport=httpx.MockTransport(manejar))
+    transformador.limpiar_cache()
+    try:
+        resultado = transformador.transformar_markdown(
+            markdown,
+            settings=configuracion(),
+            cliente=cliente,
+        )
+    finally:
+        cliente.close()
+
+    assert [producto["codigo"] for producto in resultado] == [
+        f"COD-{indice:04d}" for indice in range(1, 9)
+    ]
+    assert len(tamanos_enviados) == 3
+    assert max(tamanos_enviados) == len(markdown)
 
 
 def test_rechaza_datos_sin_evidencia_literal_en_la_fuente():

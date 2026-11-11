@@ -33,12 +33,15 @@ from app.schemas.inventario_schema import (
     LONGITUD_MINIMA_BUSQUEDA,
     MetadatosCatalogo,
     DetalleProducto,
+    RespuestaObservacion,
     RespuestaEliminacionArchivo,
     RespuestaEliminacionCatalogos,
     RespuestaIngesta,
     ResultadoCatalogo,
     ResultadoBusqueda,
     SolicitudEliminacionCatalogos,
+    SolicitudObservacionCatalogo,
+    SolicitudObservacionProducto,
 )
 from app.services import etl_service, vector_search
 
@@ -198,6 +201,79 @@ def detalle_producto(
         id_usuario=usuario["id"],
     )
     return DetalleProducto(**detalle)
+
+
+@router.patch(
+    "/productos/{id_producto}/observacion",
+    response_model=RespuestaObservacion,
+    summary="Actualizar la observacion comercial de un producto",
+    responses={404: {"description": "Producto no encontrado"}},
+)
+def actualizar_observacion_producto(
+    request: Request,
+    solicitud: SolicitudObservacionProducto,
+    id_producto: int = Path(ge=1),
+    usuario: dict[str, Any] = Depends(usuario_actual),
+) -> dict[str, Any]:
+    resultado = inventario_model.actualizar_observacion_producto(
+        id_producto, solicitud.observacion
+    )
+    if resultado is None:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    registrar_evento(
+        request,
+        f"actualizacion de observacion comercial de producto: {id_producto}",
+        id_usuario=usuario["id"],
+    )
+    return resultado
+
+
+@router.delete(
+    "/productos/{id_producto}/observacion",
+    status_code=204,
+    summary="Eliminar la observacion comercial de un producto",
+    responses={404: {"description": "Producto u observacion no encontrados"}},
+)
+def eliminar_observacion_producto(
+    request: Request,
+    id_producto: int = Path(ge=1),
+    usuario: dict[str, Any] = Depends(usuario_actual),
+) -> None:
+    resultado = inventario_model.eliminar_observacion_producto(id_producto)
+    if resultado is None:
+        raise HTTPException(
+            status_code=404, detail="Producto u observacion no encontrados"
+        )
+    registrar_evento(
+        request,
+        f"eliminacion de observacion comercial de producto: {id_producto}",
+        id_usuario=usuario["id"],
+    )
+
+
+@router.patch(
+    "/catalogos/{id_archivo}/observacion",
+    response_model=RespuestaObservacion,
+    summary="Actualizar la observacion comercial compartida de un catalogo",
+    responses={404: {"description": "Catalogo no encontrado"}},
+)
+def actualizar_observacion_catalogo(
+    request: Request,
+    solicitud: SolicitudObservacionCatalogo,
+    id_archivo: int = Path(ge=1),
+    usuario: dict[str, Any] = Depends(usuario_actual),
+) -> dict[str, Any]:
+    resultado = inventario_model.actualizar_observacion_catalogo(
+        id_archivo, solicitud.observacion
+    )
+    if resultado is None:
+        raise HTTPException(status_code=404, detail="Catalogo no encontrado")
+    registrar_evento(
+        request,
+        f"actualizacion de observacion comercial de catalogo: {id_archivo}",
+        id_usuario=usuario["id"],
+    )
+    return resultado
 
 
 @router.get(

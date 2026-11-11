@@ -351,6 +351,11 @@ Search; aqui solo se pinta lo que el servidor devuelve. -#}
     <section class="buscador__detalle-seccion" aria-labelledby="titulo-seccion-producto">
       <h3 id="titulo-seccion-producto">Producto</h3>
       <dl class="buscador__detalle-lista" id="datos-detalle-producto"></dl>
+      <div
+        class="buscador__observacion"
+        id="observacion-producto"
+        aria-live="polite"
+      ></div>
     </section>
     <section class="buscador__detalle-seccion" aria-labelledby="titulo-seccion-proveedor">
       <h3 id="titulo-seccion-proveedor">Proveedor</h3>
@@ -359,6 +364,14 @@ Search; aqui solo se pinta lo que el servidor devuelve. -#}
     <section class="buscador__detalle-seccion" aria-labelledby="titulo-seccion-catalogo">
       <h3 id="titulo-seccion-catalogo">Catálogo de origen</h3>
       <dl class="buscador__detalle-lista" id="datos-detalle-catalogo"></dl>
+      <p class="buscador__observacion-ayuda" id="ayuda-observacion-catalogo" hidden>
+        Se mostrará en todos los productos asociados a este catálogo.
+      </p>
+      <div
+        class="buscador__observacion"
+        id="observacion-catalogo"
+        aria-live="polite"
+      ></div>
     </section>
     <section class="buscador__detalle-seccion" aria-labelledby="titulo-seccion-ofertas">
       <h3 id="titulo-seccion-ofertas"></h3>

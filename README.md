@@ -296,8 +296,11 @@ curl -X POST http://localhost:8000/api/v1/inventario/ingesta \
 ```
 
 Los `.xlsx` y `.docx` se revisan además contra paquetes ZIP dañados o con
-relaciones de compresión anómalas. Cada archivo se limita a 20 000 filas; los
-PDF y documentos Word se limitan a 500 páginas. Word se renderiza con LibreOffice
+relaciones de compresión anómalas. Cada archivo se limita a 20 000 filas de
+catálogo; los PDF y documentos Word se limitan a 500 páginas. Esos límites, junto
+con el techo de líneas de texto que se recorre al parsear un PDF o un TXT, se
+pueden ampliar por entorno sin tocar el código: `ETL_MAX_FILAS_ARCHIVO`,
+`ETL_MAX_LINEAS_TEXTO`, `ETL_MAX_PAGINAS_PDF` y `ETL_MAX_PAGINAS_DOCX`. Word se renderiza con LibreOffice
 en la API para validar el número de páginas. Los productos se actualizan por
 código; el proceso conserva el stock existente y fija el IVA en 16 %.
 
@@ -364,6 +367,7 @@ venv\Scripts\python.exe scripts\aplicar_migracion.py 6_0
 venv\Scripts\python.exe scripts\aplicar_migracion.py 7_0
 venv\Scripts\python.exe scripts\aplicar_migracion.py 8_0
 venv\Scripts\python.exe scripts\aplicar_migracion.py 9_0
+venv\Scripts\python.exe scripts\aplicar_migracion.py 12_0
 ```
 
 La migración `5_0` agrega la imagen de perfil y protege la unicidad sin
@@ -387,6 +391,32 @@ La migración `9_0` agrega la capacidad `bitacora:consultar` y la asigna al rol
 `admin`. Se ejecuta en `ferreteria_usuarios`, es idempotente y no altera los
 eventos ya registrados; después de aplicarla, la capacidad aparece en la
 pantalla de Roles para asignarla a otros perfiles.
+
+La migración `12_0` agrega observaciones comerciales compartidas por catálogo
+y notas particulares por producto. Se ejecuta en `ferreteria_rag` sin alterar
+los datos existentes. Los cambios se registran en la bitácora y están
+disponibles para cualquier usuario autenticado.
+
+Para transformar catálogos Markdown dentro del contenedor, configure en `.env`
+la clave de OpenRouter y el modelo elegido. Por ejemplo, Qwen3.8 Flash usa:
+
+```dotenv
+OPENROUTER_API_KEY=reemplace_con_una_clave_nueva_de_openrouter
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_MODEL=qwen/qwen3.8-flash
+OPENROUTER_TIMEOUT_SEGUNDOS=60
+```
+
+`docker-compose.yml` entrega estas variables al servicio `api`; después de
+cambiar `.env`, vuelva a crear solo ese contenedor para que reciba los valores:
+
+```powershell
+docker compose up -d --force-recreate api
+```
+
+La clave es confidencial: no la escriba en `docker-compose.yml`, no la suba al
+repositorio y establezca un límite de gasto en OpenRouter antes de procesar
+catálogos.
 
 ### Piloto local de embeddings (Semana 4)
 

@@ -14,6 +14,7 @@ Uso:
     ./venv/Scripts/python.exe scripts/aplicar_migracion.py 9_0
     ./venv/Scripts/python.exe scripts/aplicar_migracion.py 10_0
     ./venv/Scripts/python.exe scripts/aplicar_migracion.py 11_0
+    ./venv/Scripts/python.exe scripts/aplicar_migracion.py 12_0
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ MIGRACIONES = {
     "9_0": ("database_url_rag", "ferreteria_rag"),
     "10_0": ("database_url_rag", "ferreteria_rag"),
     "11_0": ("database_url_rag", "ferreteria_rag"),
+    "12_0": ("database_url_rag", "ferreteria_rag"),
 }
 
 

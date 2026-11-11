@@ -174,6 +174,7 @@ class ProductoDetalle(BaseModel):
     descuentos: float
     stock: int
     punto_reorden: int | None = None
+    observacion_comercial: str | None = None
     ubicacion: str | None = None
     actualizado_en: datetime | None = None
 
@@ -205,6 +206,7 @@ class CatalogoProductoDetalle(BaseModel):
     filas_error: int = Field(ge=0)
     moneda: str
     nota_proveedor: str | None = None
+    observacion: str | None = None
     vendedor: str | None = None
     telefono_vendedor: str | None = None
     correo_vendedor: str | None = None
@@ -237,6 +239,33 @@ class DetalleProducto(BaseModel):
     proveedor: ProveedorProductoDetalle | None = None
     catalogo: CatalogoProductoDetalle | None = None
     ofertas: list[OfertaProductoDetalle] = Field(default_factory=list)
+
+
+class SolicitudObservacionProducto(BaseModel):
+    """Texto de la observacion comercial propia de un producto."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    observacion: str = Field(min_length=1, max_length=4000)
+
+
+class SolicitudObservacionCatalogo(BaseModel):
+    """Observacion comercial compartida por los productos de un catalogo."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    observacion: str | None = Field(max_length=4000)
+
+    @field_validator("observacion")
+    @classmethod
+    def vacio_a_nulo(cls, valor: str | None) -> str | None:
+        return valor or None
+
+
+class RespuestaObservacion(BaseModel):
+    """Observacion guardada o limpiada."""
+
+    observacion: str | None
 
 
 class EstadoVectorizacion(BaseModel):

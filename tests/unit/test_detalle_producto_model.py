@@ -2,7 +2,28 @@
 
 from datetime import date, datetime
 
+import pytest
+from pydantic import ValidationError
+
 from app.models import inventario
+from app.schemas.inventario_schema import (
+    SolicitudObservacionCatalogo,
+    SolicitudObservacionProducto,
+)
+
+
+def test_observacion_de_producto_exige_texto_y_normaliza_espacios():
+    solicitud = SolicitudObservacionProducto(
+        observacion="  Descuento frecuente  "
+    )
+
+    assert solicitud.observacion == "Descuento frecuente"
+    with pytest.raises(ValidationError):
+        SolicitudObservacionProducto(observacion="   ")
+
+
+def test_observacion_de_catalogo_permite_limpiar_el_valor():
+    assert SolicitudObservacionCatalogo(observacion="  ").observacion is None
 
 
 def test_obtener_detalle_producto_compone_origen_proveedor_y_ofertas(monkeypatch):
@@ -24,6 +45,7 @@ def test_obtener_detalle_producto_compone_origen_proveedor_y_ofertas(monkeypatch
         "punto_reorden": 1,
         "ubicacion": "Pasillo 1",
         "actualizado_en": datetime(2026, 3, 1, 10),
+        "observacion_comercial": "Precio especial para cliente frecuente",
         "proveedor_id": 3,
         "proveedor_nombre": "Proveedor Uno",
         "proveedor_rif": "J-123",
@@ -43,6 +65,7 @@ def test_obtener_detalle_producto_compone_origen_proveedor_y_ofertas(monkeypatch
         "catalogo_filas_error": 0,
         "catalogo_moneda": "USD",
         "catalogo_nota_proveedor": None,
+        "catalogo_observacion": "Descuento vigente para todo el catalogo",
         "catalogo_vendedor": "Vendedor",
         "catalogo_telefono_vendedor": None,
         "catalogo_correo_vendedor": None,
@@ -80,8 +103,14 @@ def test_obtener_detalle_producto_compone_origen_proveedor_y_ofertas(monkeypatch
     detalle = inventario.obtener_detalle_producto(7)
 
     assert detalle["producto"]["codigo"] == "COD-7"
+    assert detalle["producto"]["observacion_comercial"] == (
+        "Precio especial para cliente frecuente"
+    )
     assert detalle["proveedor"]["nombre"] == "Proveedor Uno"
     assert detalle["catalogo"]["nombre"] == "catalogo.xlsx"
+    assert detalle["catalogo"]["observacion"] == (
+        "Descuento vigente para todo el catalogo"
+    )
     assert detalle["ofertas"] == [oferta]
     assert [consulta[1] for consulta in consultas] == [(7,), (7,)]
     assert all(consulta[2] is True for consulta in consultas)

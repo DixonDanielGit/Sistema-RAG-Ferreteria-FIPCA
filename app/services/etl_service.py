@@ -39,9 +39,29 @@ EXTENSIONES_PERMITIDAS = frozenset({".pdf", ".xlsx", ".docx", ".txt", ".md"})
 MAX_ARCHIVO_MB = 100
 MAX_ARCHIVO_BYTES = MAX_ARCHIVO_MB * 1024 * 1024
 MAX_ARCHIVOS_INGESTA = 20
-MAX_FILAS_ARCHIVO = 20_000
-MAX_PAGINAS_PDF = 500
-MAX_PAGINAS_DOCX = 500
+
+
+def _limite_positivo(nombre: str, defecto: int) -> int:
+    """Lee un limite entero del entorno, ignorando valores invalidos."""
+    valor = os.getenv(nombre, "").strip()
+    if not valor:
+        return defecto
+    try:
+        numero = int(valor)
+    except ValueError:
+        return defecto
+    return numero if numero > 0 else defecto
+
+
+# Filas de catalogo (productos u ofertas) por archivo. Se puede ampliar por
+# entorno para proveedores con listados muy extensos.
+MAX_FILAS_ARCHIVO = _limite_positivo("ETL_MAX_FILAS_ARCHIVO", 20_000)
+# Techo de lineas de texto que se recorren al parsear un PDF o un TXT. Un PDF
+# grande produce muchas mas lineas que productos, asi que este guardavias es
+# mucho mas alto que MAX_FILAS_ARCHIVO y evita rechazar catalogos validos.
+MAX_LINEAS_TEXTO_ARCHIVO = _limite_positivo("ETL_MAX_LINEAS_TEXTO", 1_000_000)
+MAX_PAGINAS_PDF = _limite_positivo("ETL_MAX_PAGINAS_PDF", 500)
+MAX_PAGINAS_DOCX = _limite_positivo("ETL_MAX_PAGINAS_DOCX", 500)
 TIEMPO_MAXIMO_PAGINACION_DOCX_SEGUNDOS = 120
 MAX_ENTRADAS_ZIP = 500
 MAX_DESCOMPRIMIDO_ZIP = 100 * 1024 * 1024
@@ -183,8 +203,10 @@ def _separador(texto: str) -> str | None:
 def _filas_delimitadas(texto: str) -> list[list[str]]:
     lineas: list[str] = []
     for numero, linea in enumerate(io.StringIO(texto), start=1):
-        if numero > MAX_FILAS_ARCHIVO + 101:
-            raise ErrorIngesta(f"El archivo supera el maximo de {MAX_FILAS_ARCHIVO} filas")
+        if numero > MAX_LINEAS_TEXTO_ARCHIVO:
+            raise ErrorIngesta(
+                f"El archivo supera el maximo de {MAX_LINEAS_TEXTO_ARCHIVO} lineas de texto"
+            )
         if linea.strip():
             lineas.append(linea.rstrip("\r\n"))
     if not lineas:
@@ -385,8 +407,10 @@ def _extraer_filas(
     cantidad_filas_leidas = 0
     for indice, fila in enumerate(filas_datos, start=numero_inicio):
         cantidad_filas_leidas += 1
-        if cantidad_filas_leidas > MAX_FILAS_ARCHIVO + 101:
-            raise ErrorIngesta(f"El archivo supera el maximo de {MAX_FILAS_ARCHIVO} filas")
+        if cantidad_filas_leidas > MAX_LINEAS_TEXTO_ARCHIVO:
+            raise ErrorIngesta(
+                f"El archivo supera el maximo de {MAX_LINEAS_TEXTO_ARCHIVO} lineas de texto"
+            )
         fila = list(fila)
         if not any(_texto(valor) for valor in fila):
             continue
@@ -805,8 +829,10 @@ def _contar_paginas_docx(contenido: bytes) -> int:
 def _filas_pdf(texto: str) -> list[list[str]]:
     resultado: list[list[str]] = []
     for numero, linea in enumerate(io.StringIO(texto), start=1):
-        if numero > MAX_FILAS_ARCHIVO + 101:
-            raise ErrorIngesta(f"El archivo supera el maximo de {MAX_FILAS_ARCHIVO} filas")
+        if numero > MAX_LINEAS_TEXTO_ARCHIVO:
+            raise ErrorIngesta(
+                f"El archivo supera el maximo de {MAX_LINEAS_TEXTO_ARCHIVO} lineas de texto"
+            )
         if not linea.strip():
             continue
         separador = _separador(linea)

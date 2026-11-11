@@ -39,6 +39,11 @@
   var datosProveedor = document.getElementById("datos-detalle-proveedor");
   var datosCatalogo = document.getElementById("datos-detalle-catalogo");
   var ofertasProducto = document.getElementById("ofertas-detalle-producto");
+  var observacionProducto = document.getElementById("observacion-producto");
+  var observacionCatalogo = document.getElementById("observacion-catalogo");
+  var ayudaObservacionCatalogo = document.getElementById(
+    "ayuda-observacion-catalogo"
+  );
 
   var tituloInicial = tituloVacio ? tituloVacio.textContent.trim() : "";
   var textoInicial = textoVacio ? textoVacio.textContent.trim() : "";
@@ -50,6 +55,7 @@
   var ordenarPor = null;
   var direccionOrden = "asc";
   var solicitudDetalle = 0;
+  var detalleActual = null;
   /* Numero de peticion: si llega una respuesta de una consulta que ya no es
      la vigente, se descarta y no pisa los resultados actuales. */
   var peticion = 0;
@@ -170,14 +176,23 @@
   }
 
   function limpiarDetalle() {
-    [datosProducto, datosProveedor, datosCatalogo, ofertasProducto].forEach(
+    [
+      datosProducto,
+      datosProveedor,
+      datosCatalogo,
+      ofertasProducto,
+      observacionProducto,
+      observacionCatalogo,
+    ].forEach(
       function (nodo) {
         if (nodo) nodo.replaceChildren();
       }
     );
+    detalleActual = null;
   }
 
   function renderizarDetalle(datos) {
+    detalleActual = datos;
     var producto = datos.producto || {};
     if (tituloDetalle) tituloDetalle.textContent = producto.nombre || "Detalle del producto";
     agregarCampo(datosProducto, "Código", producto.codigo);
@@ -236,6 +251,17 @@
     } else {
       agregarCampo(datosCatalogo, "Estado", "No hay archivo de origen asociado");
     }
+    renderizarObservacion(observacionProducto, {
+      tipo: "producto",
+      id: producto.id,
+    });
+    if (ayudaObservacionCatalogo) {
+      ayudaObservacionCatalogo.hidden = !catalogo;
+    }
+    renderizarObservacion(observacionCatalogo, {
+      tipo: "catalogo",
+      id: catalogo && catalogo.id,
+    });
 
     var ofertas = datos.ofertas || [];
     if (ofertas.length === 0) {
@@ -268,6 +294,295 @@
         articulo.appendChild(lista);
         // ofertasProducto.appendChild(articulo);
       });
+    }
+  }
+
+  function rutaObservacion(config) {
+    var segmento =
+      config.tipo === "producto" ? "productos/" : "catalogos/";
+    return (
+      "/api/v1/inventario/" +
+      segmento +
+      encodeURIComponent(config.id) +
+      "/observacion"
+    );
+  }
+
+  function valorObservacion(config) {
+    if (!detalleActual) return null;
+    return config.tipo === "producto"
+      ? detalleActual.producto.observacion_comercial
+      : detalleActual.catalogo && detalleActual.catalogo.observacion;
+  }
+
+  function detalleCorresponde(config) {
+    if (!detalleActual) return false;
+    return config.tipo === "producto"
+      ? detalleActual.producto.id === config.id
+      : Boolean(
+          detalleActual.catalogo &&
+            detalleActual.catalogo.id === config.id
+        );
+  }
+
+  function fijarObservacion(config, valor) {
+    if (!detalleCorresponde(config)) return;
+    if (config.tipo === "producto") {
+      detalleActual.producto.observacion_comercial = valor;
+    } else if (detalleActual.catalogo) {
+      detalleActual.catalogo.observacion = valor;
+    }
+  }
+
+  function iconoObservacion(tipo) {
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "1.8");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    svg.setAttribute("aria-hidden", "true");
+    var trazo = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    trazo.setAttribute(
+      "d",
+      tipo === "eliminar"
+        ? "M4 7h16M10 11v6m4-6v6M5 7l1 13h12l1-13M9 7V4h6v3"
+        : "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"
+    );
+    svg.appendChild(trazo);
+    return svg;
+  }
+
+  function crearAccionObservacion(texto, tipo, clase) {
+    var boton = document.createElement("button");
+    boton.type = "button";
+    boton.className = "btn-fipca btn-fipca--fantasma buscador__observacion-accion";
+    if (clase) boton.classList.add(clase);
+    boton.appendChild(iconoObservacion(tipo));
+    var etiqueta = document.createElement("span");
+    etiqueta.textContent = texto;
+    boton.appendChild(etiqueta);
+    return boton;
+  }
+
+  function renderizarObservacion(raiz, config, mensajeEstado, tipoEstado) {
+    if (!raiz) return;
+    raiz.replaceChildren();
+
+    if (
+      config.tipo === "catalogo" &&
+      (!detalleActual || !detalleActual.catalogo)
+    ) {
+      var sinCatalogo = document.createElement("p");
+      sinCatalogo.className = "buscador__observacion-vacia";
+      sinCatalogo.textContent =
+        "No hay un catálogo de origen asociado a este producto.";
+      raiz.appendChild(sinCatalogo);
+      return;
+    }
+
+    var observacion = valorObservacion(config);
+    var fila = document.createElement("div");
+    fila.className = "buscador__observacion-fila";
+    var texto = document.createElement("p");
+    texto.className = observacion
+      ? "buscador__observacion-texto"
+      : "buscador__observacion-vacia";
+    texto.textContent =
+      observacion ||
+      (config.tipo === "catalogo"
+        ? "No hay una observación para este catálogo."
+        : "No hay una observación para este producto.");
+    fila.appendChild(texto);
+
+    var acciones = document.createElement("div");
+    acciones.className = "buscador__observacion-acciones";
+    var editar = crearAccionObservacion(
+      observacion ? "Editar" : "Agregar observación",
+      "editar"
+    );
+    editar.setAttribute(
+      "aria-label",
+      (observacion ? "Editar" : "Agregar") +
+        " observación " +
+        (config.tipo === "catalogo" ? "del catálogo" : "del producto")
+    );
+    editar.addEventListener("click", function () {
+      editarObservacion(raiz, config);
+    });
+    acciones.appendChild(editar);
+
+    if (config.tipo === "producto" && observacion) {
+      var eliminar = crearAccionObservacion(
+        "Eliminar",
+        "eliminar",
+        "buscador__observacion-eliminar"
+      );
+      eliminar.setAttribute("aria-label", "Eliminar observación del producto");
+      eliminar.addEventListener("click", function () {
+        eliminarObservacionProducto(raiz, config, eliminar);
+      });
+      acciones.appendChild(eliminar);
+    }
+    fila.appendChild(acciones);
+    raiz.appendChild(fila);
+
+    if (mensajeEstado) {
+      var estado = document.createElement("p");
+      estado.className =
+        tipoEstado === "error"
+          ? "buscador__observacion-estado buscador__observacion-estado--error"
+          : "buscador__observacion-estado";
+      estado.setAttribute("role", tipoEstado === "error" ? "alert" : "status");
+      estado.textContent = mensajeEstado;
+      raiz.appendChild(estado);
+    }
+  }
+
+  function editarObservacion(raiz, config) {
+    var form = document.createElement("form");
+    form.className = "buscador__observacion-formulario";
+
+    var etiqueta = document.createElement("label");
+    etiqueta.className = "fipca-campo__etiqueta";
+    etiqueta.htmlFor = "editor-observacion-" + config.tipo;
+    etiqueta.textContent =
+      config.tipo === "catalogo"
+        ? "Observación compartida del catálogo"
+        : "Observación del producto";
+
+    var area = document.createElement("textarea");
+    area.className = "fipca-campo__control buscador__observacion-editor";
+    area.id = etiqueta.htmlFor;
+    area.maxLength = 4000;
+    area.rows = 3;
+    area.value = valorObservacion(config) || "";
+    area.placeholder =
+      "Ej.: descuento acordado para cliente frecuente";
+    area.setAttribute(
+      "aria-describedby",
+      "ayuda-observacion-" + config.tipo
+    );
+    var ayuda = document.createElement("p");
+    ayuda.className = "fipca-campo__ayuda";
+    ayuda.id = "ayuda-observacion-" + config.tipo;
+    ayuda.textContent =
+      config.tipo === "catalogo"
+        ? "Esta nota se verá en todos los productos de este catálogo. Déjela vacía para quitarla."
+        : "La nota solo se mostrará en la ficha de este producto.";
+
+    var error = document.createElement("p");
+    error.className = "buscador__observacion-estado buscador__observacion-estado--error";
+    error.setAttribute("role", "alert");
+    error.hidden = true;
+    area.addEventListener("input", function () {
+      area.removeAttribute("aria-invalid");
+      error.hidden = true;
+    });
+
+    var acciones = document.createElement("div");
+    acciones.className = "buscador__observacion-acciones";
+    var guardar = document.createElement("button");
+    guardar.className = "btn-fipca";
+    guardar.type = "submit";
+    guardar.textContent = "Guardar observación";
+    var cancelar = document.createElement("button");
+    cancelar.className = "btn-fipca btn-fipca--fantasma";
+    cancelar.type = "button";
+    cancelar.textContent = "Cancelar";
+    cancelar.addEventListener("click", function () {
+      renderizarObservacion(raiz, config);
+    });
+    acciones.appendChild(guardar);
+    acciones.appendChild(cancelar);
+
+    form.appendChild(etiqueta);
+    form.appendChild(area);
+    form.appendChild(ayuda);
+    form.appendChild(error);
+    form.appendChild(acciones);
+    form.addEventListener("submit", function (evento) {
+      evento.preventDefault();
+      var valor = area.value.trim();
+      if (config.tipo === "producto" && !valor) {
+        area.setAttribute("aria-invalid", "true");
+        error.textContent =
+          "Escriba una observación o use Eliminar para quitar la existente.";
+        error.hidden = false;
+        area.focus();
+        return;
+      }
+
+      guardar.disabled = true;
+      cancelar.disabled = true;
+      guardar.textContent = "Guardando…";
+      error.hidden = true;
+      Fipca.pedir(rutaObservacion(config), {
+        metodo: "PATCH",
+        cuerpo: { observacion: valor || null },
+      })
+        .then(function (respuesta) {
+          if (!detalleCorresponde(config)) return;
+          fijarObservacion(config, respuesta.observacion);
+          renderizarObservacion(raiz, config, "Observación guardada.");
+        })
+        .catch(function (falla) {
+          if (!detalleCorresponde(config)) return;
+          guardar.disabled = false;
+          cancelar.disabled = false;
+          guardar.textContent = "Guardar observación";
+          error.textContent = motivoDeFallo(falla);
+          error.hidden = false;
+        });
+    });
+
+    raiz.replaceChildren(form);
+    area.focus();
+  }
+
+  async function eliminarObservacionProducto(raiz, config, boton) {
+    var confirmar = false;
+    if (window.Swal && window.Swal.fire) {
+      var respuesta = await window.Swal.fire({
+        icon: "warning",
+        title: "¿Eliminar la observación?",
+        text: "Esta acción quitará la nota particular de este producto.",
+        showCancelButton: true,
+        confirmButtonText: "Eliminar observación",
+        cancelButtonText: "Conservar",
+        reverseButtons: true,
+        focusCancel: true,
+        buttonsStyling: false,
+        customClass: {
+          popup: "fipca-alerta",
+          confirmButton: "btn-fipca",
+          cancelButton: "btn-fipca btn-fipca--fantasma",
+          actions: "fipca-alerta__acciones",
+        },
+      });
+      confirmar = respuesta.isConfirmed;
+    } else if (window.confirm) {
+      confirmar = window.confirm("¿Eliminar la observación de este producto?");
+    }
+    if (!confirmar) return;
+
+    boton.disabled = true;
+    var etiqueta = boton.querySelector("span");
+    if (etiqueta) etiqueta.textContent = "Eliminando…";
+    try {
+      await Fipca.pedir(rutaObservacion(config), { metodo: "DELETE" });
+      if (!detalleCorresponde(config)) return;
+      fijarObservacion(config, null);
+      renderizarObservacion(raiz, config, "Observación eliminada.");
+    } catch (falla) {
+      if (!detalleCorresponde(config)) return;
+      renderizarObservacion(
+        raiz,
+        config,
+        motivoDeFallo(falla),
+        "error"
+      );
     }
   }
 

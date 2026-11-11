@@ -170,6 +170,12 @@ class Settings:
     openrouter_timeout_segundos: int = field(
         default_factory=lambda: _entero("OPENROUTER_TIMEOUT_SEGUNDOS", 60)
     )
+    # Techo de tokens de salida por lote. Los modelos gratuitos suelen cortarse
+    # en 8 192; los de pago admiten bastante mas. Si OpenRouter corta un lote,
+    # aumentar este valor evita rechazar productos.
+    openrouter_max_tokens: int = field(
+        default_factory=lambda: _entero("OPENROUTER_MAX_TOKENS", 32_768)
+    )
 
     @property
     def es_produccion(self) -> bool:

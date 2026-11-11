@@ -97,6 +97,21 @@ services:
       LLM_MODELO: ${LLM_MODELO:-}
       LLM_TIMEOUT_SEGUNDOS: ${LLM_TIMEOUT_SEGUNDOS:-30}
       LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-500}
+      # Transformacion ETL de Markdown; separado del proveedor del asistente.
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
+      OPENROUTER_TIMEOUT_SEGUNDOS: ${OPENROUTER_TIMEOUT_SEGUNDOS:-60}
+      # Techo de tokens de salida por lote: evita que OpenRouter corte lotes.
+      OPENROUTER_MAX_TOKENS: ${OPENROUTER_MAX_TOKENS:-32768}
+      # Caracteres de Markdown por solicitud: menos lotes, ingesta mas rapida.
+      OPENROUTER_MAX_CARACTERES_POR_LOTE: ${OPENROUTER_MAX_CARACTERES_POR_LOTE:-24000}
+      # Guardavia del ETL sobre filas de catalogo y lineas de texto por archivo.
+      ETL_MAX_FILAS_ARCHIVO: ${ETL_MAX_FILAS_ARCHIVO:-20000}
+      ETL_MAX_LINEAS_TEXTO: ${ETL_MAX_LINEAS_TEXTO:-1000000}
+      # Paginas maximas de PDF y Word: los catalogos largos superan las 500.
+      ETL_MAX_PAGINAS_PDF: ${ETL_MAX_PAGINAS_PDF:-500}
+      ETL_MAX_PAGINAS_DOCX: ${ETL_MAX_PAGINAS_DOCX:-500}
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${API_HOST_PORT:-8000}:8000"
     depends_on:

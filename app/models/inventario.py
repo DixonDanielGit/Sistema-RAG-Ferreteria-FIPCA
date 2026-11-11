@@ -849,6 +849,7 @@ def obtener_detalle_producto(id_producto: int) -> dict[str, Any] | None:
                c.nombre AS categoria, p.descripcion, p.unidad_medida,
                p.presentacion, p.precio, p.moneda, p.iva, p.descuentos,
                p.stock, p.punto_reorden, p.ubicacion, p.actualizado_en,
+               p.observacion_comercial,
                pr.id_proveedores AS proveedor_id,
                pr.nombre AS proveedor_nombre, pr.rif AS proveedor_rif,
                pr.direccion AS proveedor_direccion,
@@ -865,6 +866,7 @@ def obtener_detalle_producto(id_producto: int) -> dict[str, Any] | None:
                a.filas_error AS catalogo_filas_error,
                a.moneda AS catalogo_moneda,
                a.nota_proveedor AS catalogo_nota_proveedor,
+               a.observacion_comercial AS catalogo_observacion,
                a.vendedor_nombre AS catalogo_vendedor,
                a.vendedor_telefono AS catalogo_telefono_vendedor,
                a.vendedor_correo AS catalogo_correo_vendedor
@@ -887,7 +889,7 @@ def obtener_detalle_producto(id_producto: int) -> dict[str, Any] | None:
             "id", "codigo", "codigo_interno", "nombre", "marca", "categoria",
             "descripcion", "unidad_medida", "presentacion", "precio", "moneda",
             "iva", "descuentos", "stock", "punto_reorden", "ubicacion",
-            "actualizado_en",
+            "actualizado_en", "observacion_comercial",
         )
     }
     proveedor = None
@@ -916,6 +918,7 @@ def obtener_detalle_producto(id_producto: int) -> dict[str, Any] | None:
             "filas_error": fila["catalogo_filas_error"],
             "moneda": fila["catalogo_moneda"],
             "nota_proveedor": fila["catalogo_nota_proveedor"],
+            "observacion": fila["catalogo_observacion"],
             "vendedor": fila["catalogo_vendedor"],
             "telefono_vendedor": fila["catalogo_telefono_vendedor"],
             "correo_vendedor": fila["catalogo_correo_vendedor"],
@@ -942,6 +945,52 @@ def obtener_detalle_producto(id_producto: int) -> dict[str, Any] | None:
         "catalogo": catalogo,
         "ofertas": ofertas,
     }
+
+
+def actualizar_observacion_producto(
+    id_producto: int, observacion: str
+) -> dict[str, Any] | None:
+    """Guarda la observacion propia de un producto activo."""
+    return ejecutar(
+        """
+        UPDATE productos
+           SET observacion_comercial = %s
+         WHERE id = %s AND activo
+        RETURNING observacion_comercial AS observacion
+        """,
+        (observacion, id_producto),
+        rag=True,
+    )
+
+
+def eliminar_observacion_producto(id_producto: int) -> dict[str, Any] | None:
+    """Elimina la observacion propia de un producto activo."""
+    return ejecutar(
+        """
+        UPDATE productos
+           SET observacion_comercial = NULL
+         WHERE id = %s AND activo AND observacion_comercial IS NOT NULL
+        RETURNING id
+        """,
+        (id_producto,),
+        rag=True,
+    )
+
+
+def actualizar_observacion_catalogo(
+    id_archivo: int, observacion: str | None
+) -> dict[str, Any] | None:
+    """Guarda o limpia la observacion compartida de un catalogo."""
+    return ejecutar(
+        """
+        UPDATE archivos_subidos
+           SET observacion_comercial = %s
+         WHERE id_archivo = %s
+        RETURNING observacion_comercial AS observacion
+        """,
+        (observacion, id_archivo),
+        rag=True,
+    )
 
 
 def listar_archivos(limite: int = 100) -> list[dict[str, Any]]:

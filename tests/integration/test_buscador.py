@@ -85,6 +85,25 @@ def producto_de_prueba(conexion_rag_limpieza):
             cursor.execute("DELETE FROM productos WHERE id = ANY(%s)", (ids,))
 
 
+@pytest.fixture
+def catalogo_de_prueba(conexion_rag_limpieza):
+    with conexion_rag_limpieza.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO archivos_subidos (nombre, tipo, estado)
+            VALUES (%s, 'xlsx', 'ok')
+            RETURNING id_archivo
+            """,
+            ("observaciones-" + uuid.uuid4().hex + ".xlsx",),
+        )
+        id_archivo = cursor.fetchone()[0]
+    yield id_archivo
+    with conexion_rag_limpieza.cursor() as cursor:
+        cursor.execute(
+            "DELETE FROM archivos_subidos WHERE id_archivo = %s", (id_archivo,)
+        )
+
+
 class TestVistaDelBuscador:
     def test_sin_sesion_redirige_al_login(self, navegador):
         respuesta = navegador.get("/search", follow_redirects=False)
@@ -434,3 +453,106 @@ class TestEndpointDeCatalogo:
         assert respuesta.status_code == 200
         assert respuesta.json()["total"] == total_esperado
         assert respuesta.json()["productos"] == []
+
+
+class TestObservacionesComerciales:
+    def test_la_ficha_muestra_los_controles_para_ambas_observaciones(
+        self, navegador, sesion
+    ):
+        html = navegador.get("/search").text
+
+        assert 'id="observacion-producto"' in html
+        assert 'id="observacion-catalogo"' in html
+        assert "Se mostrará en todos los productos asociados a este catálogo." in html
+
+    def test_usuario_autenticado_agrega_edita_y_elimina_observacion_de_producto(
+        self, navegador, sesion_ventas, producto_de_prueba
+    ):
+        producto = producto_de_prueba("Producto con observación {token}")
+        ruta = f"/api/v1/inventario/productos/{producto['id']}/observacion"
+        encabezados = {"X-CSRF-Token": navegador.cookies.get("csrf_token")}
+
+        assert (
+            navegador.patch(
+                ruta,
+                json={"observacion": "   "},
+                headers=encabezados,
+            ).status_code
+            == 422
+        )
+
+        creada = navegador.patch(
+            ruta,
+            json={"observacion": "Descuento conversado con cliente frecuente"},
+            headers=encabezados,
+        )
+        assert creada.status_code == 200, creada.text
+        assert creada.json()["observacion"] == (
+            "Descuento conversado con cliente frecuente"
+        )
+        detalle = navegador.get(
+            f"/api/v1/inventario/productos/{producto['id']}"
+        ).json()
+        assert detalle["producto"]["observacion_comercial"] == (
+            "Descuento conversado con cliente frecuente"
+        )
+
+        editada = navegador.patch(
+            ruta,
+            json={"observacion": "Descuento autorizado por encargada"},
+            headers=encabezados,
+        )
+        assert editada.status_code == 200
+        assert editada.json()["observacion"] == (
+            "Descuento autorizado por encargada"
+        )
+
+        eliminada = navegador.delete(ruta, headers=encabezados)
+        assert eliminada.status_code == 204
+        detalle = navegador.get(
+            f"/api/v1/inventario/productos/{producto['id']}"
+        ).json()
+        assert detalle["producto"]["observacion_comercial"] is None
+
+    def test_la_observacion_del_catalogo_se_comparte_y_se_puede_limpiar(
+        self,
+        navegador,
+        sesion_ventas,
+        producto_de_prueba,
+        catalogo_de_prueba,
+        conexion_rag_limpieza,
+    ):
+        productos = [
+            producto_de_prueba("Producto del mismo catálogo {token}")
+            for _ in range(2)
+        ]
+        for producto in productos:
+            with conexion_rag_limpieza.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE productos SET id_archivo = %s WHERE id = %s",
+                    (catalogo_de_prueba, producto["id"]),
+                )
+
+        ruta = f"/api/v1/inventario/catalogos/{catalogo_de_prueba}/observacion"
+        encabezados = {"X-CSRF-Token": navegador.cookies.get("csrf_token")}
+        guardada = navegador.patch(
+            ruta,
+            json={"observacion": "Descuento general para cliente frecuente"},
+            headers=encabezados,
+        )
+        assert guardada.status_code == 200, guardada.text
+        for producto in productos:
+            detalle = navegador.get(
+                f"/api/v1/inventario/productos/{producto['id']}"
+            ).json()
+            assert detalle["catalogo"]["observacion"] == (
+                "Descuento general para cliente frecuente"
+            )
+
+        limpiada = navegador.patch(
+            ruta,
+            json={"observacion": None},
+            headers=encabezados,
+        )
+        assert limpiada.status_code == 200
+        assert limpiada.json()["observacion"] is None
