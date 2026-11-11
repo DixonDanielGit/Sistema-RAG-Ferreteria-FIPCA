@@ -2051,12 +2051,23 @@ def procesar_archivo(
         return dict(resultado)
 
     if not productos:
-        detalle = "OpenRouter no encontro productos verificables en el Markdown"
+        # Suele significar que el modelo no respeto el contrato de extraccion
+        # (paso tipico con enrutadores o modelos pequenos). Se nombra el modelo
+        # cargado para que el administrador vea de inmediato si el entorno esta
+        # mal configurado, sin tener que abrir los registros del contenedor.
+        config = get_settings()
+        modelo = config.openrouter_model or "sin configurar"
+        detalle = (
+            "El modelo configurado en OpenRouter ("
+            f"{modelo}) no devolvio productos verificables para este archivo. "
+            "Revise en Configuracion que el modelo sea un identificador exacto "
+            "y no un enrutador, y vuelva a cargar el catalogo"
+        )
         resultado = inventario_model.actualizar_estado_archivo(
             id_archivo,
             estado="error",
             filas_error=1,
-            detalle=detalle,
+            detalle=detalle[:MAX_DETALLE],
         )
         return {**dict(resultado), "respuesta_ia": respuesta_ia}
 

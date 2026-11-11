@@ -154,10 +154,25 @@
     }
 
     var respuesta;
+    /* Las solicitudes largas (analisis de un catalogo con IA) pueden
+       cancelarse desde la interfaz: alIniciar entrega la funcion de cancelar y
+       timeoutMs corta la espera si el servidor no responde. */
     if (typeof opciones.alProgreso === "function" &&
         opciones.cuerpo instanceof FormData) {
       respuesta = await new Promise(function (resolver, rechazar) {
         var solicitud = new XMLHttpRequest();
+        var falloDeCierre = function (mensaje, agotadoTiempo) {
+          var error = new Error(mensaje);
+          error.cancelado = true;
+          error.agotadoTiempo = Boolean(agotadoTiempo);
+          return error;
+        };
+        if (opciones.timeoutMs) solicitud.timeout = opciones.timeoutMs;
+        if (typeof opciones.alIniciar === "function") {
+          opciones.alIniciar(function () {
+            solicitud.abort();
+          });
+        }
         solicitud.open(configuracion.method, ruta, true);
         solicitud.withCredentials = true;
         Object.keys(cabeceras).forEach(function (nombre) {
@@ -192,8 +207,17 @@
             new Error("No se pudo contactar con el servidor. Verifique su conexion.")
           );
         };
+        solicitud.ontimeout = function () {
+          rechazar(
+            falloDeCierre(
+              "El servidor tardo demasiado en responder. Intente de nuevo con " +
+                "un archivo mas pequeno.",
+              true
+            )
+          );
+        };
         solicitud.onabort = function () {
-          rechazar(new Error("La carga del archivo fue interrumpida."));
+          rechazar(falloDeCierre("La carga del archivo fue interrumpida."));
         };
         solicitud.send(configuracion.body);
       });

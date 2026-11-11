@@ -226,6 +226,17 @@ def _registrar_uso(cuerpo: dict[str, Any], modelo: str) -> None:
     )
 
 
+def _prefijo_respuesta(cuerpo: Any, maximo: int = 300) -> str:
+    """Primeros caracteres del texto que devolvio el modelo, para el log."""
+    try:
+        contenido = cuerpo["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        return "<sin contenido>"
+    if not isinstance(contenido, str):
+        return "<contenido no textual>"
+    return contenido[:maximo]
+
+
 def _leer_productos(cuerpo: Any) -> list[dict[str, Any]]:
     if not isinstance(cuerpo, dict):
         raise ErrorTransformacionMarkdown(
@@ -439,6 +450,18 @@ def _solicitar_lote(
                 ):
                     raise _LoteCortadoPorSalida()
                 productos = _leer_productos(cuerpo)
+                if not productos:
+                    # Un lote sin filas suele significar que el modelo no
+                    # respeto el contrato (paso tipico con enrutadores o
+                    # modelos pequenos). Se guarda un fragmento corto para
+                    # poder diagnosticar sin volcar el catalogo completo.
+                    logger.warning(
+                        "OpenRouter devolvio 0 productos para un lote de %s "
+                        "caracteres con el modelo %s; respuesta inicial: %r",
+                        len(lote),
+                        modelo_respuesta,
+                        _prefijo_respuesta(cuerpo),
+                    )
                 _validar_evidencia(lote, productos)
                 return productos
 

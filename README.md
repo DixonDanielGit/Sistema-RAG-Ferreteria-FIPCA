@@ -397,26 +397,54 @@ y notas particulares por producto. Se ejecuta en `ferreteria_rag` sin alterar
 los datos existentes. Los cambios se registran en la bitácora y están
 disponibles para cualquier usuario autenticado.
 
-Para transformar catálogos Markdown dentro del contenedor, configure en `.env`
-la clave de OpenRouter y el modelo elegido. Por ejemplo, Qwen3.8 Flash usa:
+#### Ver qué está cargando realmente la API
 
-```dotenv
-OPENROUTER_API_KEY=reemplace_con_una_clave_nueva_de_openrouter
-OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-OPENROUTER_MODEL=qwen/qwen3.8-flash
-OPENROUTER_TIMEOUT_SEGUNDOS=60
-```
-
-`docker-compose.yml` entrega estas variables al servicio `api`; después de
-cambiar `.env`, vuelva a crear solo ese contenedor para que reciba los valores:
+El contenedor no lee `.env` al arrancar uvicorn: Compose inyecta esas variables
+al crear el contenedor. Si cambia `.env` y solo reinicia (`restart`), el proceso
+conserva el entorno viejo. Por eso, tras editar `.env`:
 
 ```powershell
 docker compose up -d --force-recreate api
 ```
 
+Y para comprobarlo sin subir archivos, abra **Configuración** (requiere la
+capacidad `configuracion:diagnostico`): muestra el modelo de OpenRouter
+realmente cargado, los tokens y caracteres por lote, y los límites del ETL. La
+clave nunca se muestra. En el arranque también se registra una línea con ese
+modelo y esos límites:
+
+```powershell
+docker compose logs api | Select-String 'Transformacion ETL','Limites ETL'
+```
+
+`OPENROUTER_MODEL=openrouter/free` (o `openrouter/auto`) ya no arranca: es un
+enrutador que reparte cada solicitud entre modelos gratuitos al azar, ninguno
+respeta el contrato de extracción y la ingesta terminaría en 0 productos tras
+varios minutos. La API rechaza ese valor con un mensaje que pide el
+identificador exacto del modelo.
+
+Para transformar catálogos Markdown dentro del contenedor, configure en `.env`
+la clave de OpenRouter y el modelo elegido. `docker-compose.yml` entrega estas
+variables al servicio `api`. Por ejemplo, Qwen3.8 Flash:
+
+```dotenv
+OPENROUTER_API_KEY=reemplace_con_una_clave_nueva_de_openrouter
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_MODEL=qwen/qwen3.8-flash
+OPENROUTER_TIMEOUT_SEGUNDOS=180
+OPENROUTER_MAX_TOKENS=32768
+OPENROUTER_MAX_CARACTERES_POR_LOTE=40000
+```
+
 La clave es confidencial: no la escriba en `docker-compose.yml`, no la suba al
 repositorio y establezca un límite de gasto en OpenRouter antes de procesar
 catálogos.
+
+Si el modelo devuelve 0 productos, el panel de fuentes lo dice en el detalle del
+archivo e indica el modelo cargado; en los registros queda además un fragmento
+de la respuesta del modelo para poder diagnosticarlo. El navegador puede
+cancelar un análisis largo con el botón **Cancelar** del panel, y la espera se
+corta a los 10 minutos por archivo.
 
 ### Piloto local de embeddings (Semana 4)
 

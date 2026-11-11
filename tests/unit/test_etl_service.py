@@ -14,7 +14,7 @@ from docx import Document
 from openpyxl import Workbook
 from pypdf import PdfWriter
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.models import inventario as inventario_model
 from app.services import etl_service
 
@@ -1105,6 +1105,27 @@ def test_procesar_markdown_persiste_productos_transformados(
     assert productos_guardados[0]["codigo"] == "SKU-MD"
     assert productos_guardados[0]["precio"] == Decimal("3.25")
     assert resultado["respuesta_ia"]["productos"][0]["codigo"] == "SKU-MD"
+
+
+def test_modelo_sin_productos_reporta_el_modelo_configurado(monkeypatch, tmp_path):
+    """0 productos debe decir que revisar, no dejar el carga vacio a ciegas."""
+    _persistencia_simulada(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        etl_service.markdown_transform_service,
+        "transformar_markdown",
+        lambda markdown: [],
+    )
+    monkeypatch.setattr(
+        etl_service,
+        "get_settings",
+        lambda: Settings(openrouter_model="openrouter/free"),
+    )
+
+    resultado = etl_service.procesar_archivo("catalogo.md", b"# Catalogo", 7)
+
+    assert resultado["estado"] == "error"
+    assert "openrouter/free" in resultado["detalle"]
+    assert "identificador exacto" in resultado["detalle"]
 
 
 def test_previsualizacion_usa_openrouter_si_falla_el_lector_local(monkeypatch):

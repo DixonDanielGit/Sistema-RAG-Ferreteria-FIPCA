@@ -96,6 +96,31 @@ class TestConfiguracion:
         with pytest.raises(ValueError, match="LLM_MAX_TOKENS"):
             config_llm(llm_max_tokens=0).validar()
 
+    @pytest.mark.parametrize("modelo", ["openrouter/free", "openrouter/auto"])
+    def test_openrouter_no_arranca_con_un_enrutador(self, modelo):
+        """El enrutador reparte entre modelos gratuitos y la ingesta queda vacia."""
+        with pytest.raises(ValueError, match="OPENROUTER_MODEL"):
+            config_llm(
+                openrouter_api_key="sk-or-v1-prueba",
+                openrouter_base_url="https://openrouter.ai/api/v1",
+                openrouter_model=modelo,
+            ).validar()
+
+    def test_openrouter_si_acepta_un_modelo_exacto(self):
+        config_llm(
+            openrouter_api_key="sk-or-v1-prueba",
+            openrouter_base_url="https://openrouter.ai/api/v1",
+            openrouter_model="qwen/qwen3.8-flash",
+        ).validar()
+
+    def test_openrouter_sin_clave_no_bloquea_el_arranque(self):
+        """Sin credenciales el ETL usa los lectores locales; no es un error."""
+        config_llm(
+            openrouter_api_key="",
+            openrouter_base_url="https://openrouter.ai/api/v1",
+            openrouter_model="openrouter/free",
+        ).validar()
+
 
 class TestSinEvidencia:
     def test_sin_productos_se_abstiene_sin_llamar_al_proveedor(self):

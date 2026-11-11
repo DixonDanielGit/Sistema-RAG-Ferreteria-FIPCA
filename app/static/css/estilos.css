@@ -2970,6 +2970,31 @@ body.cuerpo-buscador main {
   animation: girar 0.7s linear infinite;
 }
 
+/* Cancelar la espera de un analisis largo. Es una accion secundaria: borde
+   de control y 44 px minimos para usarlo de pie en el mostrador. */
+.fuentes__cancelar {
+  flex: none;
+  margin-left: auto;
+  min-height: 44px;
+  padding: 0 var(--esp-3);
+  border: 1px solid var(--borde-fuerte);
+  border-radius: var(--radio-sm);
+  background: transparent;
+  color: var(--texto);
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.fuentes__cancelar:hover {
+  background: var(--superficie-alt);
+}
+
+.fuentes__cancelar[hidden] {
+  display: none;
+}
+
 /* El velo solo existe para el panel deslizante del telefono. */
 .fuentes__velo {
   display: none;
@@ -3920,6 +3945,13 @@ body.cuerpo-buscador main {
 
 .configuracion-estado--fallo {
   color: var(--error-texto) !important;
+  font-weight: 700;
+}
+
+/* Aviso: dato que merece atencion sin ser un fallo (por ejemplo, OpenRouter
+   sin configurar, donde el ETL usa solo los lectores locales). */
+.configuracion-estado--aviso {
+  color: var(--violeta-texto) !important;
   font-weight: 700;
 }
 

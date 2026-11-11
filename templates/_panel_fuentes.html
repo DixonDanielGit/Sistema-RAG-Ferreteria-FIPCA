@@ -36,13 +36,17 @@
         <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" />
       </svg>
       <strong>Agregue sus archivos aquí</strong>
-      <span>PDF y DOCX (Word) hasta 500 páginas; también XLSX</span>
+      <span>PDF, XLSX, DOCX, TXT o Markdown</span>
       <span>Hasta 20 archivos de 100 MB cada uno</span>
+      <span>Un catálogo grande puede tardar varios minutos en analizarse</span>
     </button>
 
     <p class="fuentes__estado" id="estado-fuentes" role="status" hidden>
       <span class="fuentes__cargando" aria-hidden="true"></span>
       <span id="texto-estado-fuentes"></span>
+      <button class="fuentes__cancelar" type="button" id="cancelar-fuentes" hidden>
+        Cancelar
+      </button>
     </p>
 
     <p class="fuentes__error" id="error-fuentes" role="alert" aria-live="polite"></p>

@@ -277,6 +277,21 @@ class Settings:
         if self.llm_max_tokens <= 0:
             problemas.append("LLM_MAX_TOKENS debe ser mayor que cero")
 
+        # `openrouter/free` es un enrutador: reparte cada solicitud entre
+        # modelos gratuitos al azar y ninguno cumple el contrato de extraccion
+        # (JSON con evidencia literal), asi que la ingesta termina en 0
+        # productos tras varios minutos. Se exige el identificador exacto.
+        if self.openrouter_api_key and self.openrouter_model.lower() in {
+            "openrouter/free",
+            "openrouter/auto",
+        }:
+            problemas.append(
+                "OPENROUTER_MODEL no puede ser '"
+                f"{self.openrouter_model}': es un enrutador, no un modelo, y la "
+                "transformacion de catalogos quedaria vacia. Use el "
+                "identificador exacto publicado en https://openrouter.ai/models"
+            )
+
         if problemas:
             raise ValueError("Configuracion invalida: " + "; ".join(problemas))
 

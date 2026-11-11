@@ -22,6 +22,7 @@ from psycopg2.errors import UniqueViolation
 from starlette.responses import Response as StarletteResponse
 
 from app.api.deps import puede_registrar, requiere_admin, requiere_permiso, usuario_actual
+from app.config import get_settings
 from app.core import sesion
 from app.core.jwt import crear_token
 from app.core.logging import ip_de_peticion, registrar_evento
@@ -50,7 +51,7 @@ from app.schemas.usuario_schema import (
     UsuarioRegistro,
     UsuarioSalida,
 )
-from app.services import etl_service, perfil_service, recuperacion_service
+from app.services import etl_service, markdown_transform_service, perfil_service, recuperacion_service
 
 logger = logging.getLogger("ferreteria.auth")
 
@@ -569,6 +570,9 @@ def eliminar_imagen_perfil(
 def configuracion_admin(
     usuario: dict[str, Any] = Depends(requiere_permiso("configuracion:diagnostico")),
 ) -> dict[str, Any]:
+    """Reporta servicios, limites y la configuracion de OpenRouter realmente
+    cargada. El modelo se muestra para detectar entornos desactualizados; la
+    clave nunca sale de la API."""
     estados: dict[str, str] = {}
     for nombre, es_rag in (("ferreteria_rag", True), ("ferreteria_usuarios", False)):
         try:
@@ -578,6 +582,7 @@ def configuracion_admin(
             logger.warning("Estado no disponible para %s: %s", nombre, exc)
             estados[nombre] = "no disponible"
 
+    config = get_settings()
     return {
         "bases": estados,
         "ingesta": {
@@ -588,6 +593,15 @@ def configuracion_admin(
             "max_lineas_texto_archivo": etl_service.MAX_LINEAS_TEXTO_ARCHIVO,
             "max_paginas_pdf": etl_service.MAX_PAGINAS_PDF,
             "max_paginas_docx": etl_service.MAX_PAGINAS_DOCX,
+        },
+        # Se reporta el modelo realmente cargado: si el contenedor quedo con un
+        # entorno viejo, aqui se ve sin necesidad de leer los registros.
+        "openrouter": {
+            "configurado": config.openrouter_configurado,
+            "modelo": config.openrouter_model,
+            "max_tokens": config.openrouter_max_tokens,
+            "caracteres_por_lote": markdown_transform_service.MAX_CARACTERES_POR_LOTE,
+            "timeout_segundos": config.openrouter_timeout_segundos,
         },
         "imagen_perfil_max_mb": perfil_service.MAX_IMAGEN_PERFIL_BYTES // (1024 * 1024),
     }

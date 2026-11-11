@@ -25,6 +25,7 @@ from app.api.v1 import web
 from app.config import get_settings
 from app.core.logging import AuditoriaMiddleware, configurar_logging
 from app.db.session import BaseDeDatosNoDisponible, cerrar_pools, consultar_uno
+from app.services import etl_service
 
 logger = logging.getLogger("ferreteria")
 
@@ -49,6 +50,22 @@ ETIQUETAS_VALIDACION = {
 async def ciclo_de_vida(_: FastAPI):
     config = get_settings()
     logger.info("%s v%s iniciando en entorno '%s'", config.nombre, config.version, config.entorno)
+    # Se registran los valores efectivos de la transformacion de catalogos:
+    # si el contenedor quedo con un entorno viejo, aqui se detecta de inmediato
+    # sin subir un archivo y esperar minutos. Nunca se registra la clave.
+    logger.info(
+        "Transformacion ETL: openrouter=%s modelo=%s max_tokens=%s timeout=%ss",
+        "configurado" if config.openrouter_configurado else "sin configurar",
+        config.openrouter_model or "-",
+        config.openrouter_max_tokens,
+        config.openrouter_timeout_segundos,
+    )
+    logger.info(
+        "Limites ETL: filas=%s paginas_pdf=%s paginas_docx=%s",
+        etl_service.MAX_FILAS_ARCHIVO,
+        etl_service.MAX_PAGINAS_PDF,
+        etl_service.MAX_PAGINAS_DOCX,
+    )
     yield
     cerrar_pools()
     logger.info("Conexiones cerradas; aplicacion detenida")

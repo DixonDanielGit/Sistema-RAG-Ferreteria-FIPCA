@@ -5,6 +5,10 @@
   var MAX_ARCHIVOS = 20;
   var MAX_BYTES = 100 * 1024 * 1024;
   var EXTENSIONES = ["pdf", "xlsx", "docx", "txt", "md"];
+  /* El analisis con IA puede tardar minutos por archivo. Se corta la espera a
+     los 10 minutos para no dejar la pantalla colgada sin respuesta. */
+  var ESPERA_MAXIMA_MS = 10 * 60 * 1000;
+  var AVISO_ESPERA_MS = 20 * 1000;
   var REGEX_CONTACTO = {
     vendedor: /^[\p{L}\p{M}](?:[\p{L}\p{M} .'-])*$/u,
     telefono_vendedor:
@@ -85,6 +89,7 @@
     var error = document.getElementById("error-fuentes");
     var estadoSubida = document.getElementById("estado-fuentes");
     var textoEstado = document.getElementById("texto-estado-fuentes");
+    var botonCancelar = document.getElementById("cancelar-fuentes");
     var entradaBusqueda = document.getElementById("buscar-fuentes");
     var busqueda = document.getElementById("busqueda-fuentes");
     var sinCoincidencias = document.getElementById("fuentes-sin-coincidencias");
@@ -191,6 +196,8 @@
     var datosProveedorPrevios = null;
     var subiendo = false;
     var eliminando = false;
+    var cancelarSolicitud = null;
+    var temporizadorEspera = null;
     var seleccionados = Object.create(null);
     var arrastre = 0;
     var consulta = "";
@@ -380,6 +387,42 @@
       }
     }
 
+    /* El analisis de un catalogo con IA tarda minutos sin progreso visible.
+       Se avisa a los 20 s para que nadie cierre la pagina creyendo que se
+       colgo, y el boton permite cancelar la espera. */
+    function registrarCancelacion(cancelar) {
+      cancelarSolicitud = cancelar;
+      if (botonCancelar) botonCancelar.hidden = false;
+    }
+
+    function mostrarEspera(nombre) {
+      if (temporizadorEspera) clearTimeout(temporizadorEspera);
+      temporizadorEspera = setTimeout(function () {
+        temporizadorEspera = null;
+        mensajeEstado(
+          "Analizando " + nombre + " con inteligencia artificial. " +
+            "Un catalogo grande puede tardar varios minutos; no cierre la pagina."
+        );
+      }, AVISO_ESPERA_MS);
+    }
+
+    function ocultarEspera() {
+      if (temporizadorEspera) {
+        clearTimeout(temporizadorEspera);
+        temporizadorEspera = null;
+      }
+      cancelarSolicitud = null;
+      if (botonCancelar) botonCancelar.hidden = true;
+    }
+
+    function cancelarEspera() {
+      if (!cancelarSolicitud) return;
+      var cancelar = cancelarSolicitud;
+      cancelarSolicitud = null;
+      mensajeEstado("Cancelando el analisis del archivo…");
+      cancelar();
+    }
+
     function mostrarRevision(archivo, resultado, seleccionarPrecio) {
       if (!dialogoRevision) return Promise.resolve(null);
       seleccionPrecios.replaceChildren();
@@ -516,6 +559,8 @@
         metodo: "POST",
         cuerpo: formulario,
         alProgreso: archivo.alProgreso,
+        alIniciar: registrarCancelacion,
+        timeoutMs: ESPERA_MAXIMA_MS,
       });
     }
 
@@ -524,8 +569,12 @@
       var selecciones = {};
       var resultado;
       for (var intentos = 0; intentos < 20; intentos++) {
-        resultado = await previsualizar(archivo, selecciones);
-        mensajeEstado("Archivo recibido; analizando " + archivo.nombre + "…");
+        mostrarEspera(archivo.nombre);
+        try {
+          resultado = await previsualizar(archivo, selecciones);
+        } finally {
+          ocultarEspera();
+        }
         if (!resultado.seleccion_pendiente) break;
         var nuevas = await mostrarRevision(archivo, resultado, true);
         if (!nuevas) return null;
@@ -917,6 +966,14 @@
               );
             }
           } catch (fallo) {
+            if (fallo.cancelado && !fallo.agotadoTiempo) {
+              /* Cancelado por el usuario: no es un fallo del catalogo y no se
+                   repite en el resumen de incidencias. */
+              item.estado = "cancelado";
+              item.detalle = "Analisis cancelado; no se guardo ni se modifico el inventario.";
+              cancelados += 1;
+              continue;
+            }
             item.estado = "error";
             item.detalle = fallo.message || "No se pudo subir el archivo.";
             incidencias.push(item.nombre + ": " + item.detalle);
@@ -960,6 +1017,9 @@
 
     if (boton) boton.addEventListener("click", abrirSelector);
     if (zona) zona.addEventListener("click", abrirSelector);
+    if (botonCancelar) {
+      botonCancelar.addEventListener("click", cancelarEspera);
+    }
 
     if (entrada) {
       entrada.addEventListener("change", function () {
