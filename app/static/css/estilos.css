@@ -2004,6 +2004,13 @@ body.cuerpo-buscador main {
   color: var(--texto-suave);
 }
 
+.buscador__contacto {
+  display: block;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--texto-suave);
+}
+
 .buscador__precio {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -3948,8 +3955,8 @@ body.cuerpo-buscador main {
   font-weight: 700;
 }
 
-/* Aviso: dato que merece atencion sin ser un fallo (por ejemplo, OpenRouter
-   sin configurar, donde el ETL usa solo los lectores locales). */
+/* Aviso: dato que merece atencion sin ser un fallo (por ejemplo, una
+   configuracion opcional sin definir). */
 .configuracion-estado--aviso {
   color: var(--violeta-texto) !important;
   font-weight: 700;

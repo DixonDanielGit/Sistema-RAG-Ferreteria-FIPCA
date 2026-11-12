@@ -2,22 +2,12 @@
 
 from __future__ import annotations
 
-import math
 from decimal import Decimal
 from typing import Any, Iterable
 
 from psycopg2.extras import RealDictCursor, execute_values
 
 from app.db.session import consultar_todos, consultar_uno, cursor_rag, ejecutar
-
-
-def _serializar_vector(vector: list[float]) -> str:
-    if len(vector) != 384:
-        raise ValueError("El embedding debe tener 384 dimensiones")
-    valores = [float(valor) for valor in vector]
-    if not all(math.isfinite(valor) for valor in valores):
-        raise ValueError("El embedding contiene valores no finitos")
-    return "[" + ",".join(format(valor, ".9g") for valor in valores) + "]"
 
 
 def crear_archivo(
@@ -32,10 +22,9 @@ def crear_archivo(
 ) -> dict[str, Any]:
     """Registra el archivo y asocia atómicamente su proveedor y vendedor.
 
-    El Markdown derivado se guarda en disco (``UPLOADS_DIR/markdown``) y no en
-    la base: es informacion derivada del original y sigue su misma vida util.
-    Si la conversion no estuvo disponible, el archivo se procesa igual
-    (tolerancia RF-02.3).
+    El catalogo original se conserva en disco; los productos, la cotizacion y
+    los datos de contacto quedan en PostgreSQL. El upsert no modifica el stock
+    existente ni inventa proveedores.
     """
     metadatos = metadatos or {}
     proveedor = metadatos.get("proveedor")
@@ -242,25 +231,7 @@ def _retirar_archivos_y_ofertas(
         )
         UPDATE productos AS producto
            SET id_archivo = fuentes.id_archivo,
-               id_proveedor = archivo_fuente.id_proveedor,
-               descripcion_vectorial = CASE
-                   WHEN producto.id_proveedor
-                        IS DISTINCT FROM archivo_fuente.id_proveedor
-                   THEN NULL
-                   ELSE producto.descripcion_vectorial
-               END,
-               modelo_embedding = CASE
-                   WHEN producto.id_proveedor
-                        IS DISTINCT FROM archivo_fuente.id_proveedor
-                   THEN NULL
-                   ELSE producto.modelo_embedding
-               END,
-               vectorizado_en = CASE
-                   WHEN producto.id_proveedor
-                        IS DISTINCT FROM archivo_fuente.id_proveedor
-                   THEN NULL
-                   ELSE producto.vectorizado_en
-               END
+               id_proveedor = archivo_fuente.id_proveedor
           FROM fuentes
           JOIN archivos_subidos AS archivo_fuente
             ON archivo_fuente.id_archivo = fuentes.id_archivo
@@ -373,7 +344,7 @@ def eliminar_catalogos(ids_archivos: list[int]) -> dict[str, Any]:
 def insertar_o_actualizar_productos(
     id_archivo: int, productos: Iterable[dict[str, Any]]
 ) -> int:
-    """Actualiza el catalogo sin modificar existencias ni conservar vectores obsoletos."""
+    """Actualiza el catalogo sin modificar las existencias registradas."""
     productos = list(productos)
     if not productos:
         return 0
@@ -382,38 +353,115 @@ def insertar_o_actualizar_productos(
         return _insertar_productos_en_cursor(cursor, id_archivo, productos)
 
 
+def _resolver_proveedor_cursor(
+    cursor: RealDictCursor,
+    nombre: str,
+    *,
+    telefono: str | None = None,
+    correo: str | None = None,
+    moneda: str = "USD",
+) -> int:
+    """Obtiene o crea el proveedor de una fila sin duplicar nombres.
+
+    Solo se completa el contacto que el archivo trae; los datos ya guardados
+    se conservan cuando la fila no los repite.
+    """
+    cursor.execute(
+        "SELECT pg_advisory_xact_lock(hashtext(LOWER(%s))::BIGINT)",
+        (nombre,),
+    )
+    cursor.execute(
+        """
+        SELECT id_proveedores
+          FROM proveedores
+         WHERE LOWER(nombre) = LOWER(%s)
+         ORDER BY id_proveedores
+         FOR UPDATE
+        """,
+        (nombre,),
+    )
+    existentes = cursor.fetchall()
+    if len(existentes) > 1:
+        raise ValueError(
+            "Hay proveedores duplicados con ese nombre; un administrador "
+            "debe unificarlos antes de cargar la cotizacion"
+        )
+    if existentes:
+        id_proveedor = existentes[0]["id_proveedores"]
+        cursor.execute(
+            """
+            UPDATE proveedores
+               SET telefono = COALESCE(NULLIF(%s, ''), telefono),
+                   correo = COALESCE(NULLIF(%s, ''), correo),
+                   moneda = %s,
+                   actualizado_en = NOW()
+             WHERE id_proveedores = %s
+            """,
+            (telefono or "", correo or "", moneda, id_proveedor),
+        )
+        return int(id_proveedor)
+
+    cursor.execute(
+        """
+        INSERT INTO proveedores (nombre, telefono, correo, moneda)
+        VALUES (%s, %s, %s, %s)
+        RETURNING id_proveedores
+        """,
+        (nombre, telefono, correo, moneda),
+    )
+    return int(cursor.fetchone()["id_proveedores"])
+
+
 def _insertar_productos_en_cursor(
     cursor: RealDictCursor,
     id_archivo: int,
     productos: list[dict[str, Any]],
 ) -> int:
     cursor.execute(
-        "SELECT id_proveedor FROM archivos_subidos WHERE id_archivo = %s",
+        "SELECT id_proveedor, moneda FROM archivos_subidos WHERE id_archivo = %s",
         (id_archivo,),
     )
     archivo = cursor.fetchone()
     id_proveedor = archivo["id_proveedor"] if archivo else None
-    filas = [
-        (
-            id_archivo,
-            id_proveedor,
-            producto["codigo"],
-            producto["nombre"],
-            producto.get("marca"),
-            producto["precio"],
-            Decimal("16.00"),
-            producto.get("descuentos", 0),
-            producto.get("descripcion"),
+    moneda_archivo = (archivo["moneda"] if archivo else None) or "USD"
+    cache_proveedores: dict[str, int] = {}
+    filas = []
+    for producto in productos:
+        nombre_proveedor = (producto.get("proveedor") or "").strip()
+        moneda = (producto.get("moneda") or moneda_archivo).upper()
+        proveedor_fila = id_proveedor
+        if nombre_proveedor:
+            clave = nombre_proveedor.casefold()
+            if clave not in cache_proveedores:
+                cache_proveedores[clave] = _resolver_proveedor_cursor(
+                    cursor,
+                    nombre_proveedor,
+                    telefono=producto.get("telefono"),
+                    correo=producto.get("correo"),
+                    moneda=moneda,
+                )
+            proveedor_fila = cache_proveedores[clave]
+        filas.append(
+            (
+                id_archivo,
+                proveedor_fila,
+                producto["codigo"],
+                producto["nombre"],
+                producto.get("marca"),
+                producto["precio"],
+                Decimal("16.00"),
+                producto.get("descuentos", 0),
+                producto.get("descripcion"),
+                moneda,
+            )
         )
-        for producto in productos
-    ]
     if not filas:
         return 0
 
     sql = """
         INSERT INTO productos
             (id_archivo, id_proveedor, codigo, nombre, marca, precio, iva,
-             descuentos, descripcion)
+             descuentos, descripcion, moneda)
         VALUES %s
         ON CONFLICT (codigo) DO UPDATE SET
             id_archivo = EXCLUDED.id_archivo,
@@ -424,15 +472,7 @@ def _insertar_productos_en_cursor(
             iva = 16.00,
             descuentos = EXCLUDED.descuentos,
             descripcion = EXCLUDED.descripcion,
-            descripcion_vectorial = CASE
-                WHEN (productos.id_proveedor, productos.nombre, productos.marca,
-                      productos.descripcion)
-                     IS DISTINCT FROM
-                     (COALESCE(EXCLUDED.id_proveedor, productos.id_proveedor),
-                      EXCLUDED.nombre, EXCLUDED.marca, EXCLUDED.descripcion)
-                THEN NULL
-                ELSE productos.descripcion_vectorial
-            END
+            moneda = EXCLUDED.moneda
     """
     execute_values(cursor, sql, filas, page_size=500)
     return len(filas)
@@ -598,18 +638,8 @@ def contar_productos_de_archivo(id_archivo: int) -> int:
     return int(fila["total"]) if fila else 0
 
 
-def contar_productos_sin_embedding() -> int:
-    """Productos del catalogo que aun no tienen vector de busqueda."""
-    fila = consultar_uno(
-        "SELECT COUNT(*) AS total FROM productos "
-        "WHERE descripcion_vectorial IS NULL",
-        rag=True,
-    )
-    return int(fila["total"]) if fila else 0
-
-
 def contar_productos_catalogo() -> int:
-    """Total de productos del catalogo, con o sin vector."""
+    """Total de productos registrados en el catalogo."""
     fila = consultar_uno("SELECT COUNT(*) AS total FROM productos", rag=True)
     return int(fila["total"]) if fila else 0
 
@@ -659,11 +689,21 @@ def listar_productos_catalogo(
             f"""
             SELECT p.id, p.codigo, p.nombre, p.marca,
                    c.nombre AS categoria, pr.nombre AS proveedor,
+                   COALESCE(pr.telefono, a.vendedor_telefono)
+                       AS proveedor_telefono,
+                   pr.correo AS proveedor_correo,
+                   COALESCE(pr.vendedor, a.vendedor_nombre)
+                       AS proveedor_vendedor,
+                   COALESCE(pr.telefono_vendedor, a.vendedor_telefono)
+                       AS proveedor_telefono_vendedor,
+                   COALESCE(pr.correo_vendedor, a.vendedor_correo)
+                       AS proveedor_correo_vendedor,
                    p.descripcion, p.presentacion,
                    p.precio, p.iva, p.descuentos, p.stock, p.moneda
               FROM productos AS p
               LEFT JOIN categoria AS c ON c.id_categoria = p.id_categoria
               LEFT JOIN proveedores AS pr ON pr.id_proveedores = p.id_proveedor
+              LEFT JOIN archivos_subidos AS a ON a.id_archivo = p.id_archivo
              WHERE p.activo
               ORDER BY {orden_sql}
              LIMIT %s OFFSET %s
@@ -671,74 +711,6 @@ def listar_productos_catalogo(
             (limite, desplazamiento),
         )
         return list(cursor.fetchall()), total
-
-
-def productos_sin_embedding(limite: int) -> list[dict[str, Any]]:
-    """Obtiene productos y datos reales del proveedor para construir su embedding."""
-    return consultar_todos(
-        """
-        SELECT p.id, p.codigo, p.nombre, p.marca, p.descripcion,
-               c.nombre AS categoria, p.unidad_medida, p.presentacion,
-               pr.nombre AS proveedor
-          FROM productos AS p
-          LEFT JOIN categoria AS c ON c.id_categoria = p.id_categoria
-          LEFT JOIN proveedores AS pr ON pr.id_proveedores = p.id_proveedor
-         WHERE p.descripcion_vectorial IS NULL
-         ORDER BY p.id
-         LIMIT %s
-        """,
-        (limite,),
-        rag=True,
-    )
-
-
-def guardar_embeddings(filas: Iterable[tuple[int, list[float]]]) -> int:
-    """Guarda vectores solo si el producto sigue pendiente de vectorizacion."""
-    valores = [
-        (id_producto, _serializar_vector(vector))
-        for id_producto, vector in filas
-    ]
-    if not valores:
-        return 0
-
-    with cursor_rag() as cursor:
-        actualizados = execute_values(
-            cursor,
-            """
-            UPDATE productos AS p
-               SET descripcion_vectorial = datos.embedding::vector(384)
-              FROM (VALUES %s) AS datos(id, embedding)
-             WHERE p.id = datos.id
-               AND p.descripcion_vectorial IS NULL
-            RETURNING p.id
-            """,
-            valores,
-            template="(%s, %s)",
-            page_size=100,
-            fetch=True,
-        )
-        return len(actualizados)
-
-
-def buscar_productos_por_vector(
-    vector: list[float], limite: int
-) -> list[dict[str, Any]]:
-    """Busca productos por distancia coseno; nunca incluye filas sin vector."""
-    vector_texto = _serializar_vector(vector)
-    return consultar_todos(
-        """
-        SELECT p.id, p.codigo, p.nombre, p.marca, c.nombre AS categoria,
-               p.descripcion, p.precio, p.iva, p.stock,
-               1 - (p.descripcion_vectorial <=> %s::vector(384)) AS similitud
-          FROM productos AS p
-          LEFT JOIN categoria AS c ON c.id_categoria = p.id_categoria
-         WHERE p.descripcion_vectorial IS NOT NULL
-         ORDER BY p.descripcion_vectorial <=> %s::vector(384), p.id
-         LIMIT %s
-        """,
-        (vector_texto, vector_texto, limite),
-        rag=True,
-    )
 
 
 def _escapar_ilike(texto: str) -> str:
@@ -819,6 +791,15 @@ def buscar_productos_fulltext(
             f"""
             SELECT p.id, p.codigo, p.nombre, p.marca,
                    c.nombre AS categoria, pr.nombre AS proveedor,
+                   COALESCE(pr.telefono, a.vendedor_telefono)
+                       AS proveedor_telefono,
+                   pr.correo AS proveedor_correo,
+                   COALESCE(pr.vendedor, a.vendedor_nombre)
+                       AS proveedor_vendedor,
+                   COALESCE(pr.telefono_vendedor, a.vendedor_telefono)
+                       AS proveedor_telefono_vendedor,
+                   COALESCE(pr.correo_vendedor, a.vendedor_correo)
+                       AS proveedor_correo_vendedor,
                    p.descripcion, p.presentacion,
                    p.precio, p.iva, p.descuentos, p.stock, p.moneda,
                    ts_rank(p.texto_busqueda,
@@ -826,6 +807,7 @@ def buscar_productos_fulltext(
               FROM productos AS p
               LEFT JOIN categoria AS c ON c.id_categoria = p.id_categoria
               LEFT JOIN proveedores AS pr ON pr.id_proveedores = p.id_proveedor
+              LEFT JOIN archivos_subidos AS a ON a.id_archivo = p.id_archivo
              WHERE {condicion}
              ORDER BY {orden_sql}
              LIMIT %s OFFSET %s

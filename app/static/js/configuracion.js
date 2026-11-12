@@ -43,18 +43,6 @@
       estado.appendChild(crearDato("Páginas máximas por PDF", String(ingesta.max_paginas_pdf)));
       estado.appendChild(crearDato("Páginas máximas por Word", String(ingesta.max_paginas_docx)));
 
-      /* El modelo realmente cargado por el contenedor: si el entorno quedó
-         desactualizado, aqui se ve sin subir ningun archivo. La clave nunca se
-         muestra. */
-      var openrouter = datos.openrouter || {};
-      estado.appendChild(crearDato(
-        "Modelo de transformación (OpenRouter)",
-        openrouter.configurado ? openrouter.modelo : "Sin configurar",
-        openrouter.configurado ? "ok" : "aviso"
-      ));
-      estado.appendChild(crearDato("Tokens de salida por lote", String(openrouter.max_tokens)));
-      estado.appendChild(crearDato("Caracteres por lote", String(openrouter.caracteres_por_lote)));
-      estado.appendChild(crearDato("Tiempo máximo por lote", openrouter.timeout_segundos + " s"));
       estado.appendChild(crearDato("Imagen de perfil", "JPEG, PNG o WebP · " + datos.imagen_perfil_max_mb + " MB"));
       fragmento.appendChild(estado);
       contenedor.replaceChildren(fragmento);

@@ -63,6 +63,7 @@ def producto_de_prueba(conexion_rag_limpieza):
             "codigo": codigo or ("ZKB" + token[:8].upper()),
             "nombre": nombre.replace("{token}", token),
             "token": token,
+            "stock": stock,
         }
         with conexion_rag_limpieza.cursor() as cursor:
             cursor.execute(
@@ -154,11 +155,11 @@ class TestVistaDelBuscador:
     def test_ofrece_atajos_de_ejemplo(self, navegador, sesion):
         assert navegador.get("/search").text.count("data-buscar=") >= 3
 
-    def test_explica_que_la_busqueda_no_usa_ia(self, navegador, sesion):
+    def test_explica_que_la_busqueda_usa_postgresql(self, navegador, sesion):
         html = navegador.get("/search").text
 
-        assert "inteligencia artificial" in html
         assert "PostgreSQL" in html
+        assert "Full-Text Search" in html
 
     def test_incluye_el_panel_para_subir_archivos(self, navegador, sesion):
         html = navegador.get("/search").text
@@ -166,7 +167,7 @@ class TestVistaDelBuscador:
         assert 'id="panel-fuentes"' in html
         assert 'id="zona-archivos"' in html
         assert 'id="archivos"' in html
-        assert 'accept=".pdf,.xlsx,.docx,.txt,.md"' in html
+        assert 'accept=".pdf,.xlsx,.docx,.txt"' in html
         assert 'id="dialogo-revision-fuentes"' in html
         assert "Agregue sus archivos aquí" in html
 
@@ -218,7 +219,13 @@ class TestEndpointDeBusqueda:
         respuesta = navegador.get(BUSQUEDA, params={"consulta": "manguera"})
 
         assert respuesta.status_code == 200, respuesta.text
-        assert set(respuesta.json()) == {"consulta", "total", "productos"}
+        assert set(respuesta.json()) == {
+            "consulta",
+            "total",
+            "pagina",
+            "limite",
+            "productos",
+        }
 
     def test_sin_coincidencias_es_un_resultado_valido(self, navegador, sesion):
         consulta = "zzz-" + uuid.uuid4().hex[:12]

@@ -21,25 +21,25 @@
   </header>
 
   <section class="accion" aria-labelledby="accion-titulo">
-    <h2 class="accion__titulo" id="accion-titulo">Pregúntele al inventario.</h2>
+    <h2 class="accion__titulo" id="accion-titulo">Busque en el catálogo.</h2>
     <p class="accion__bajada">
-      Existencias, precios y disponibilidad, respondidos desde el catálogo de la
-      ferretería. Escriba la consulta y el asistente la abre directamente.
+      Consulte productos, precios y proveedores del catálogo de la ferretería.
+      Escriba el nombre, código o marca y el buscador lo abre directamente.
     </p>
 
     <form class="accion__formulario" id="form-consulta" role="search" novalidate>
-      <label class="visually-hidden" for="consulta">Su pregunta sobre el inventario</label>
+      <label class="visually-hidden" for="consulta">Producto, código o marca a buscar</label>
       <input
         class="accion__campo"
         id="consulta"
         name="consulta"
         type="text"
-        maxlength="2000"
+        maxlength="200"
         autocomplete="off"
-        placeholder="¿Cuántos martillos quedan?"
+        placeholder="Martillo, SKU-1042, Truper…"
         aria-describedby="error-consulta"
       />
-      <button class="btn-fipca" type="submit">Preguntar</button>
+      <button class="btn-fipca" type="submit">Buscar</button>
     </form>
     <p class="fipca-campo__error" id="error-consulta" role="alert"
        aria-live="polite" hidden></p>
@@ -47,12 +47,12 @@
     <div class="accion__atajos">
       <span class="accion__etiqueta">Ejemplos:</span>
       <button class="accion__atajo" type="button"
-              data-atajo="¿Qué productos tienen stock disponible?">
-        ¿Qué productos tienen stock disponible?
+              data-atajo="martillo">
+        Martillo
       </button>
       <button class="accion__atajo" type="button"
-              data-atajo="¿Qué productos están por debajo del stock mínimo?">
-        ¿Qué productos están por debajo del stock mínimo?
+              data-atajo="taladro">
+        Taladro
       </button>
     </div>
   </section>
@@ -62,15 +62,15 @@
 
     <dl class="estado__lista">
       <div class="estado__fila">
-        <dt class="estado__nombre">Asistente</dt>
+        <dt class="estado__nombre">Buscador Comercial</dt>
         <dd class="estado__marca">
-          <span class="chip chip--curso">
-            <span class="chip__punto" aria-hidden="true"></span>Experimental
+          <span class="chip chip--listo">
+            <span class="chip__punto" aria-hidden="true"></span>Disponible
           </span>
         </dd>
         <dd class="estado__detalle">
-          Búsqueda y generación integradas en fase de prueba. Verifique las
-          fuentes antes de usar las respuestas para tomar decisiones.
+          Consultas locales con Full-Text Search de PostgreSQL; los resultados
+          salen del catálogo real cargado por los proveedores.
         </dd>
       </div>
 

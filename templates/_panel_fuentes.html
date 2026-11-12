@@ -1,9 +1,9 @@
 {#- Panel de carga y gestion de catalogos (Semana 3).
 
-    Compartido por el asistente y por el Buscador Comercial: ambas vistas
-    cargan los mismos archivos con el mismo JavaScript (`fuentes.js`), que
-    trabaja con los identificadores de aqui. Todo lo que el panel necesita
-    esta declarado dentro de esta plantilla, asi que incluirla basta.
+    Compartido por las vistas que cargan y consultan catalogos: todas usan
+    el mismo JavaScript (`fuentes.js`), que trabaja con los identificadores
+    de aqui. Todo lo que el panel necesita esta declarado dentro de esta
+    plantilla, asi que incluirla basta.
 -#}
 {% set puede_ingestar = usuario and 'catalogos:ingestar' in usuario.permisos %}
 {% set puede_eliminar = usuario and 'catalogos:eliminar' in usuario.permisos %}
@@ -23,11 +23,9 @@
   </div>
 
   <div class="fuentes__cuerpo">
-    <p class="fuentes__pendientes" id="aviso-vectorizacion" role="status" hidden></p>
-
     {% if puede_ingestar %}
     <input class="visually-hidden" type="file" id="archivos" multiple
-           accept=".pdf,.xlsx,.docx" tabindex="-1" />
+           accept=".pdf,.xlsx,.docx,.txt" tabindex="-1" />
 
     <button class="fuentes__zona" type="button" id="zona-archivos">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
@@ -36,7 +34,7 @@
         <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" />
       </svg>
       <strong>Agregue sus archivos aquí</strong>
-      <span>PDF, XLSX, DOCX, TXT o Markdown</span>
+      <span>PDF, XLSX, DOCX o TXT</span>
       <span>Hasta 20 archivos de 100 MB cada uno</span>
       <span>Un catálogo grande puede tardar varios minutos en analizarse</span>
     </button>
@@ -92,7 +90,7 @@
       <li class="fuentes__vacio" id="fuentes-vacio">
         <strong>Sin archivos todavía</strong>
         {% if puede_ingestar %}
-        Agregue el catálogo del proveedor para que el asistente lo consulte.
+        Agregue el catálogo del proveedor para consultarlo en el buscador.
         {% else %}
         Un administrador todavía no ha cargado el catálogo.
         {% endif %}
@@ -178,10 +176,6 @@
           Si no se indica el IVA, la oferta se guarda sin IVA.
         </p>
       </section>
-      <details class="fuentes__json-ia" id="respuesta-json-ia-fuentes" hidden>
-        <summary>Ver JSON validado de OpenRouter</summary>
-        <pre id="contenido-json-ia-fuentes" aria-label="Respuesta JSON de OpenRouter"></pre>
-      </details>
     </div>
     <div class="fuentes__dialogo-acciones">
       <button class="fuentes__dialogo-cancelar" id="cancelar-revision-fuentes"

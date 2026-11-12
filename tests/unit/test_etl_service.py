@@ -14,7 +14,7 @@ from docx import Document
 from openpyxl import Workbook
 from pypdf import PdfWriter
 
-from app.config import Settings, get_settings
+from app.config import get_settings
 from app.models import inventario as inventario_model
 from app.services import etl_service
 
@@ -107,47 +107,59 @@ def test_txt_posicional_con_comas_ambiguas_se_rechaza():
         etl_service._extraer_txt(b"SKU-1,Martillo,1,25\n")
 
 
-def test_markdown_transforma_productos_y_aplica_validaciones_del_etl(monkeypatch):
-    markdown = "# Catalogo\n\nSKU-MD | Martillo | 1.234,50"
-    monkeypatch.setattr(
-        etl_service.markdown_transform_service,
-        "transformar_markdown",
-        lambda recibido: [
-            {
-                "codigo": "SKU-MD",
-                "nombre": "Martillo",
-                "precio": "1.234,50",
-                "marca": "FIPCA",
-                "descripcion": "Acero",
-                "iva": "16",
-                "iva_incluido": True,
-            }
-        ],
-    )
+def test_txt_extrae_proveedor_contacto_y_moneda_de_la_fila():
+    contenido = (
+        "codigo;nombre;precio;proveedor;telefono;correo;moneda\n"
+        "SKU-77;Taladro;99,90;Ferretería Central;0414-1234567;"
+        "ventas@central.com;VES\n"
+    ).encode("utf-8")
 
-    productos, errores, detalles = etl_service._extraer(
-        "catalogo.md", markdown.encode("utf-8")
-    )
+    productos, errores, _ = etl_service._extraer_txt(contenido)
 
     assert errores == 0
-    assert detalles == []
-    assert productos == [
-        {
-            "codigo": "SKU-MD",
-            "nombre": "Martillo",
-            "precio": Decimal("1234.50"),
-            "marca": "FIPCA",
-            "descripcion": "Acero",
-            "descuentos": Decimal("0.00"),
-            "iva_oferta": Decimal("16.00"),
-            "iva_incluido": True,
-        }
-    ]
+    assert productos[0]["proveedor"] == "Ferretería Central"
+    assert productos[0]["telefono"] == "0414-1234567"
+    assert productos[0]["correo"] == "ventas@central.com"
+    assert productos[0]["moneda"] == "VES"
 
 
-def test_markdown_rechaza_archivos_que_no_son_utf8():
-    with pytest.raises(etl_service.ErrorIngesta, match="UTF-8"):
-        etl_service._extraer("catalogo.md", b"\xff\xfe")
+def test_txt_rechaza_moneda_no_soportada():
+    with pytest.raises(etl_service.ErrorIngesta, match="moneda invalida"):
+        etl_service._extraer_txt(
+            b"codigo;nombre;precio;moneda\nSKU-1;Martillo;1,00;EUR\n"
+        )
+
+
+def test_pdf_usa_pdfplumber_para_extraer_texto_local(monkeypatch):
+    class Pagina:
+        def extract_text(self):
+            return "Código Producto Precio\nSKU-8 Martillo 2,50"
+
+    class Documento:
+        pages = [Pagina()]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    monkeypatch.setattr(
+        etl_service.pdfplumber,
+        "open",
+        lambda *_args, **_kwargs: Documento(),
+    )
+
+    productos, errores, _ = etl_service._extraer_pdf(b"%PDF-1.4 local")
+
+    assert errores == 0
+    assert productos[0]["codigo"] == "SKU-8"
+    assert productos[0]["precio"] == Decimal("2.50")
+
+
+def test_pdf_corrupto_se_rechaza_sin_intentar_adivinar():
+    with pytest.raises(etl_service.ErrorIngesta, match="PDF"):
+        etl_service._extraer_pdf(b"no es un pdf")
 
 
 def test_txt_informa_filas_invalidas_sin_perder_las_validas():
@@ -640,6 +652,57 @@ def test_pdf_combina_estrategias_para_no_perder_paginas(monkeypatch):
     assert {producto["codigo"] for producto in productos} == {"SKU-01", "SKU-02"}
 
 
+def test_pdf_estrategia_redundante_no_marca_el_archivo_con_errores():
+    """Una lectura alternativa de las mismas filas no debe sumar errores."""
+    producto = {
+        "codigo": "SKU-01",
+        "nombre": "Martillo",
+        "marca": None,
+        "precio": Decimal("1.00"),
+        "descuentos": Decimal("0.00"),
+        "descripcion": None,
+    }
+
+    productos, errores, detalles = etl_service._unir_estrategias_pdf(
+        [
+            ("espacial", [producto], 0, []),
+            (
+                "generica",
+                [dict(producto)],
+                29,
+                ["Fila 229: Precio invalido"],
+            ),
+        ]
+    )
+
+    assert errores == 0
+    assert detalles == []
+    assert [item["codigo"] for item in productos] == ["SKU-01"]
+
+
+def test_pdf_estrategia_con_codigos_nuevos_conserva_sus_errores():
+    base = {
+        "codigo": "SKU-01",
+        "nombre": "Martillo",
+        "marca": None,
+        "precio": Decimal("1.00"),
+        "descuentos": Decimal("0.00"),
+        "descripcion": None,
+    }
+    nuevo = {**base, "codigo": "SKU-02", "nombre": "Pinza"}
+
+    productos, errores, detalles = etl_service._unir_estrategias_pdf(
+        [
+            ("espacial", [base], 0, []),
+            ("fichas", [nuevo], 1, ["Fila 2: Precio invalido"]),
+        ]
+    )
+
+    assert {item["codigo"] for item in productos} == {"SKU-01", "SKU-02"}
+    assert errores == 1
+    assert detalles == ["Fila 2: Precio invalido"]
+
+
 def test_excel_pregunta_por_todas_las_hojas_con_precios_ambiguos():
     libro = Workbook()
     primera = libro.active
@@ -765,12 +828,6 @@ def test_el_detalle_informa_productos_sin_descripcion_del_proveedor(monkeypatch)
     monkeypatch.setattr(
         etl_service, "_extraer", lambda *_args, **_kwargs: (productos, 0, [])
     )
-    monkeypatch.setattr(
-        etl_service,
-        "_convertir_contenido_a_markdown",
-        lambda *_args: (None, None),
-    )
-
     vista = etl_service.previsualizar_archivo("catalogo.txt", b"contenido")
 
     assert vista["productos_detectados"] == 2
@@ -792,12 +849,6 @@ def test_no_avisa_de_descripcion_cuando_el_catalogo_la_incluye(monkeypatch):
     monkeypatch.setattr(
         etl_service, "_extraer", lambda *_args, **_kwargs: (productos, 0, [])
     )
-    monkeypatch.setattr(
-        etl_service,
-        "_convertir_contenido_a_markdown",
-        lambda *_args: (None, None),
-    )
-
     vista = etl_service.previsualizar_archivo("catalogo.txt", b"contenido")
 
     assert vista["productos_detectados"] == 1
@@ -854,7 +905,7 @@ def test_limite_de_100_mb_se_aplica_antes_de_guardar(monkeypatch):
     assert "100 MB" in resultado["detalle"]
 
 
-def test_upsert_no_actualiza_stock_y_invalida_vector_si_cambia_descripcion(monkeypatch):
+def test_upsert_no_actualiza_stock_y_conserva_proveedor_y_moneda(monkeypatch):
     capturado = {}
 
     class CursorFalso:
@@ -862,7 +913,7 @@ def test_upsert_no_actualiza_stock_y_invalida_vector_si_cambia_descripcion(monke
             pass
 
         def fetchone(self):
-            return {"id_proveedor": 17}
+            return {"id_proveedor": 17, "moneda": "USD"}
 
     class ContextoCursor:
         def __enter__(self):
@@ -892,10 +943,11 @@ def test_upsert_no_actualiza_stock_y_invalida_vector_si_cambia_descripcion(monke
     assert total == 1
     assert "stock" not in capturado["consulta"]
     assert "id_proveedor" in capturado["consulta"]
-    assert "descripcion_vectorial = case" in capturado["consulta"]
+    assert "descripcion_vectorial" not in capturado["consulta"]
     assert capturado["valores"][0][0] == 5
     assert capturado["valores"][0][1] == 17
     assert capturado["valores"][0][6] == Decimal("16.00")
+    assert capturado["valores"][0][9] == "USD"
 
 
 def test_migracion_etl_es_idempotente_y_sin_dependencia_fk_usuario():
@@ -906,352 +958,3 @@ def test_migracion_etl_es_idempotente_y_sin_dependencia_fk_usuario():
     assert "create index if not exists idx_archivos_hash" in sql
     assert "id_usuario int" in sql
     assert "references usuarios" not in sql
-
-
-# --- Conversion a Markdown con Microsoft MarkItDown (RF-02.4) ----------------
-
-
-def test_convertir_a_markdown_convierte_un_catalogo_de_texto(tmp_path):
-    pytest.importorskip("markitdown")
-    ruta = tmp_path / "catalogo.txt"
-    ruta.write_text("codigo;nombre;precio\nSKU-MD;Martillo;3,25\n", encoding="utf-8")
-
-    markdown, aviso = etl_service.convertir_a_markdown(ruta)
-
-    assert aviso is None
-    assert "SKU-MD" in markdown
-    assert "Martillo" in markdown
-
-
-def test_convertir_a_markdown_lee_archivos_md_sin_markitdown(tmp_path):
-    ruta = tmp_path / "catalogo.md"
-    ruta.write_text("# Catalogo\nSKU-MD", encoding="utf-8")
-
-    markdown, aviso = etl_service.convertir_a_markdown(ruta)
-
-    assert markdown == "# Catalogo\nSKU-MD"
-    assert aviso is None
-
-
-def test_convertir_a_markdown_quita_los_caracteres_nulos(tmp_path):
-    pytest.importorskip("markitdown")
-    ruta = tmp_path / "catalogo.txt"
-    ruta.write_bytes(b"codigo;nombre;precio\x00\nSKU-99;Pinza;2,50\n")
-
-    markdown, aviso = etl_service.convertir_a_markdown(ruta)
-
-    assert aviso is None
-    assert "\x00" not in markdown
-    assert "SKU-99" in markdown
-
-
-def test_convertir_a_markdown_no_guarda_un_texto_sobre_el_limite(
-    tmp_path, monkeypatch
-):
-    pytest.importorskip("markitdown")
-    monkeypatch.setattr(etl_service, "MAX_MARKDOWN_CARACTERES", 5)
-    ruta = tmp_path / "catalogo.txt"
-    ruta.write_text("codigo;nombre;precio\nSKU-LIMITE;Pinza;2,50\n", encoding="utf-8")
-
-    markdown, aviso = etl_service.convertir_a_markdown(ruta)
-
-    assert markdown is None
-    assert aviso is not None
-    assert "limite" in aviso
-
-
-def _persistencia_simulada(monkeypatch, tmp_path):
-    """Deja procesar_archivo sin base real y devuelve lo que se guardaria."""
-    monkeypatch.setenv("UPLOADS_DIR", str(tmp_path / "cargas"))
-    get_settings.cache_clear()
-    creado = {
-        "id_archivo": 41,
-        "nombre": "catalogo.txt",
-        "tipo": "txt",
-        "tamano_bytes": 0,
-    }
-    datos_archivo = {}
-
-    def crear(**valores):
-        datos_archivo.update(valores)
-        return creado
-
-    monkeypatch.setattr(inventario_model, "crear_archivo", crear)
-    monkeypatch.setattr(
-        inventario_model,
-        "actualizar_estado_archivo",
-        lambda id_archivo, **campos: {
-            **creado,
-            "estado": campos["estado"],
-            "filas_ok": campos.get("filas_ok", 0),
-            "filas_error": campos.get("filas_error", 0),
-            "detalle": campos.get("detalle"),
-        },
-    )
-    monkeypatch.setattr(
-        inventario_model,
-        "insertar_catalogo_completo",
-        lambda id_archivo, productos, *, guardar_ofertas: (len(productos), 0),
-    )
-    monkeypatch.setattr(
-        inventario_model, "contar_productos_de_archivo", lambda id_archivo: 1
-    )
-    return datos_archivo
-
-
-def test_procesar_archivo_guarda_el_markdown_junto_al_archivo(
-    monkeypatch, tmp_path
-):
-    pytest.importorskip("markitdown")
-    datos_archivo = _persistencia_simulada(monkeypatch, tmp_path)
-    contenido = b"codigo;nombre;precio\nSKU-41;Manguera;5,00\n"
-
-    try:
-        resultado = etl_service.procesar_archivo(
-            r"C:\proveedores\catalogo.txt", contenido, 7
-        )
-    finally:
-        get_settings.cache_clear()
-
-    assert resultado["estado"] == "ok"
-    assert resultado["filas_ok"] == 1
-    assert "contenido_markdown" not in datos_archivo
-    ruta_markdown = tmp_path / "cargas" / "markdown" / "41.md"
-    assert ruta_markdown.is_file()
-    assert "SKU-41" in ruta_markdown.read_text(encoding="utf-8")
-
-
-def test_si_markitdown_falla_la_carga_sigue_y_el_detalle_lo_avisa(
-    monkeypatch, tmp_path
-):
-    datos_archivo = _persistencia_simulada(monkeypatch, tmp_path)
-    monkeypatch.setattr(
-        etl_service,
-        "convertir_a_markdown",
-        lambda ruta: (None, etl_service.AVISO_SIN_MARKDOWN),
-    )
-    contenido = b"codigo;nombre;precio\nSKU-42;Pinza;2,50\n"
-
-    try:
-        resultado = etl_service.procesar_archivo(
-            r"C:\proveedores\catalogo.txt", contenido, 7
-        )
-    finally:
-        get_settings.cache_clear()
-
-    assert resultado["estado"] == "ok"
-    assert resultado["filas_ok"] == 1
-    assert "contenido_markdown" not in datos_archivo
-    assert not (tmp_path / "cargas" / "markdown" / "41.md").exists()
-    assert etl_service.AVISO_SIN_MARKDOWN in resultado["detalle"]
-
-
-def test_fallo_al_guardar_markdown_no_detiene_la_carga(monkeypatch, tmp_path):
-    _persistencia_simulada(monkeypatch, tmp_path)
-    monkeypatch.setattr(
-        etl_service,
-        "convertir_a_markdown",
-        lambda _ruta: ("# Catalogo\nSKU-43; Llave; 3,00", None),
-    )
-    monkeypatch.setattr(etl_service, "_guardar_markdown", lambda *_args: False)
-    contenido = b"codigo;nombre;precio\nSKU-43;Llave;3,00\n"
-
-    try:
-        resultado = etl_service.procesar_archivo(
-            r"C:\proveedores\catalogo.txt", contenido, 7
-        )
-    finally:
-        get_settings.cache_clear()
-
-    assert resultado["estado"] == "ok"
-    assert resultado["filas_ok"] == 1
-    assert "No se pudo guardar el Markdown" in resultado["detalle"]
-    assert not (tmp_path / "cargas" / "markdown" / "41.md").exists()
-
-
-def test_procesar_markdown_persiste_productos_transformados(
-    monkeypatch, tmp_path
-):
-    datos_archivo = _persistencia_simulada(monkeypatch, tmp_path)
-    productos_guardados = []
-    monkeypatch.setattr(
-        etl_service.markdown_transform_service,
-        "transformar_markdown",
-        lambda markdown: [
-            {"codigo": "SKU-MD", "nombre": "Martillo", "precio": "3,25"}
-        ],
-    )
-    monkeypatch.setattr(
-        inventario_model,
-        "insertar_catalogo_completo",
-        lambda _id, productos, *, guardar_ofertas: (
-            productos_guardados.extend(productos) or len(productos),
-            0,
-        ),
-    )
-    contenido = b"# Catalogo\n\nMartillo SKU-MD, precio 3,25"
-
-    try:
-        resultado = etl_service.procesar_archivo("catalogo.md", contenido, 7)
-    finally:
-        get_settings.cache_clear()
-
-    assert resultado["estado"] == "ok"
-    assert resultado["filas_ok"] == 1
-    assert "contenido_markdown" not in datos_archivo
-    assert (
-        tmp_path / "cargas" / "markdown" / "41.md"
-    ).read_text(encoding="utf-8") == contenido.decode("utf-8")
-    assert productos_guardados[0]["codigo"] == "SKU-MD"
-    assert productos_guardados[0]["precio"] == Decimal("3.25")
-    assert resultado["respuesta_ia"]["productos"][0]["codigo"] == "SKU-MD"
-
-
-def test_modelo_sin_productos_reporta_el_modelo_configurado(monkeypatch, tmp_path):
-    """0 productos debe decir que revisar, no dejar el carga vacio a ciegas."""
-    _persistencia_simulada(monkeypatch, tmp_path)
-    monkeypatch.setattr(
-        etl_service.markdown_transform_service,
-        "transformar_markdown",
-        lambda markdown: [],
-    )
-    monkeypatch.setattr(
-        etl_service,
-        "get_settings",
-        lambda: Settings(openrouter_model="openrouter/free"),
-    )
-
-    resultado = etl_service.procesar_archivo("catalogo.md", b"# Catalogo", 7)
-
-    assert resultado["estado"] == "error"
-    assert "openrouter/free" in resultado["detalle"]
-    assert "identificador exacto" in resultado["detalle"]
-
-
-def test_previsualizacion_usa_openrouter_si_falla_el_lector_local(monkeypatch):
-    markdown = "# Catalogo\nSKU-IA; Martillo; 12.50"
-    respuesta = {
-        "productos": [
-            {
-                "codigo": "SKU-IA",
-                "nombre": "Martillo",
-                "precio": "12.50",
-                "evidencia": "SKU-IA; Martillo; 12.50",
-            }
-        ]
-    }
-
-    def lector_local(*_args, **_kwargs):
-        raise etl_service.CabeceraIngestaAusente("Cabecera no reconocida")
-
-    monkeypatch.setattr(etl_service, "_extraer", lector_local)
-    monkeypatch.setattr(
-        etl_service,
-        "_convertir_contenido_a_markdown",
-        lambda *_args: (markdown, None),
-    )
-    monkeypatch.setattr(
-        etl_service.markdown_transform_service,
-        "transformar_markdown",
-        lambda recibido: respuesta["productos"],
-    )
-
-    vista = etl_service.previsualizar_archivo("catalogo.pdf", b"pdf")
-
-    assert vista["productos_detectados"] == 1
-    assert vista["respuesta_ia"] == respuesta
-    assert vista["muestra"][0]["codigo"] == "SKU-IA"
-
-
-def test_previsualizacion_conserva_lector_local_si_openrouter_falla(monkeypatch):
-    producto = {
-        "codigo": "SKU-LOCAL",
-        "nombre": "Pinza",
-        "precio": Decimal("4.50"),
-        "descripcion": "Acero",
-    }
-
-    monkeypatch.setattr(
-        etl_service,
-        "_extraer",
-        lambda *_args, **_kwargs: ([producto], 0, []),
-    )
-    monkeypatch.setattr(
-        etl_service,
-        "_convertir_contenido_a_markdown",
-        lambda *_args: ("# Catalogo local", None),
-    )
-
-    def openrouter_no_disponible(_markdown):
-        raise etl_service.markdown_transform_service.ErrorTransformacionMarkdown(
-            "El modelo configurado no esta disponible"
-        )
-
-    monkeypatch.setattr(
-        etl_service.markdown_transform_service,
-        "transformar_markdown",
-        openrouter_no_disponible,
-    )
-
-    vista = etl_service.previsualizar_archivo("catalogo.pdf", b"pdf")
-
-    assert vista["productos_detectados"] == 1
-    assert vista["muestra"][0]["codigo"] == "SKU-LOCAL"
-    assert "OpenRouter: El modelo configurado no esta disponible" in vista["detalle"]
-
-
-def test_procesar_archivo_persiste_productos_de_openrouter_si_falla_el_lector(
-    monkeypatch, tmp_path
-):
-    datos_archivo = _persistencia_simulada(monkeypatch, tmp_path)
-    productos_guardados = []
-    respuesta = {
-        "productos": [
-            {
-                "codigo": "SKU-IA",
-                "nombre": "Martillo",
-                "precio": "12.50",
-                "evidencia": "SKU-IA; Martillo; 12.50",
-            }
-        ]
-    }
-    monkeypatch.setattr(
-        etl_service,
-        "convertir_a_markdown",
-        lambda _ruta: ("# Catalogo\nSKU-IA; Martillo; 12.50", None),
-    )
-
-    def lector_local(*_args, **_kwargs):
-        raise etl_service.CabeceraIngestaAusente("Cabecera no reconocida")
-
-    monkeypatch.setattr(
-        etl_service,
-        "_extraer",
-        lector_local,
-    )
-    monkeypatch.setattr(
-        etl_service.markdown_transform_service,
-        "transformar_markdown",
-        lambda _markdown: respuesta["productos"],
-    )
-    monkeypatch.setattr(
-        inventario_model,
-        "insertar_catalogo_completo",
-        lambda _id, productos, *, guardar_ofertas: (
-            productos_guardados.extend(productos) or len(productos),
-            0,
-        ),
-    )
-
-    try:
-        resultado = etl_service.procesar_archivo("catalogo.pdf", b"pdf", 7)
-    finally:
-        get_settings.cache_clear()
-
-    assert resultado["estado"] == "ok"
-    assert resultado["filas_ok"] == 1
-    assert resultado["respuesta_ia"] == respuesta
-    assert productos_guardados[0]["codigo"] == "SKU-IA"
-    assert (tmp_path / "cargas" / "markdown" / "41.md").read_text(
-        encoding="utf-8"
-    ).startswith("# Catalogo")

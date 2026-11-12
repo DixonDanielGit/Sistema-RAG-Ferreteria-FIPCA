@@ -1,6 +1,6 @@
-/* Panel principal: la consulta escrita aqui se envia al asistente.
-   El panel no duplica el chat: solo transporta la pregunta hasta /chat, que
-   la toma de la URL y la envia sola (ver chat.js). */
+/* Panel principal: la consulta escrita aqui se envia al Buscador Comercial.
+   El panel no duplica la busqueda: solo transporta el texto hasta /search,
+   que lo toma de la URL y lo consulta contra PostgreSQL. */
 (function () {
   "use strict";
 
@@ -9,18 +9,18 @@
     if (!formulario) return;
 
     var campo = document.getElementById("consulta");
-    var LIMITE = 2000;
+    var LIMITE = 200;
     var error = document.getElementById("error-consulta");
     var interactuada = false;
 
-    function irAlAsistente(pregunta) {
-      var limpia = (pregunta || "").trim();
+    function irAlBuscador(consulta) {
+      var limpia = (consulta || "").trim();
       if (!limpia) {
         campo.focus();
         return;
       }
       window.Fipca.navegar(
-        "/chat?pregunta=" + encodeURIComponent(limpia.slice(0, LIMITE))
+        "/search?consulta=" + encodeURIComponent(limpia.slice(0, LIMITE))
       );
     }
 
@@ -55,12 +55,12 @@
         campo.focus();
         return;
       }
-      irAlAsistente(campo.value);
+      irAlBuscador(campo.value);
     });
 
     document.querySelectorAll("[data-atajo]").forEach(function (boton) {
       boton.addEventListener("click", function () {
-        irAlAsistente(boton.getAttribute("data-atajo") || "");
+        irAlBuscador(boton.getAttribute("data-atajo") || "");
       });
     });
   });

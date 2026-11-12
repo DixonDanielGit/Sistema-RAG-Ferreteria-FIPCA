@@ -1,9 +1,16 @@
-# Auditoría del esquema de datos para el asistente RAG
+# Auditoría del esquema de datos para el buscador comercial
 
-**Sistema:** FERRE-INVERSIONES PEREZ C.A. — inventario + asistente RAG
+> **Documento histórico de auditoría.** Se conserva como registro del análisis
+> del esquema y de las decisiones de datos. La arquitectura vigente ya no usa
+> asistentes RAG, embeddings ni búsqueda vectorial: el buscador se resuelve con
+> Full-Text Search de PostgreSQL. Las referencias a `rag_chat.py`,
+> `vector_search.py` o scripts de vectorización describen el diseño anterior y
+> no forman parte del código actual.
+
+**Sistema:** FERRE-INVERSIONES PEREZ C.A. — inventario + buscador comercial
 **Alcance:** base `ferreteria_rag` (`init.sql`), motor de ingesta
 (`app/services/etl_service.py`), acceso a datos (`app/models/inventario.py`) y
-búsqueda vectorial (`app/services/vector_search.py`).
+búsqueda Full-Text Search nativa.
 **Fecha:** noviembre de 2026.
 **Flujo de negocio:** la ferretería recibe catálogos/cotizaciones que sus
 proveedores le envían; personal de la ferretería registra cada archivo y

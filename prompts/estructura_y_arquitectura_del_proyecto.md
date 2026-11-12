@@ -1,119 +1,147 @@
 # Especificación de Estructura de Carpetas y Arquitectura
 
-**Proyecto:** Sistema Web de Gestión de Inventario e Inteligencia Artificial RAG  
-**Empresa:** FERRE-INVERSIONES PEREZ C.A.  
-**Desarrollador:** Dixon Daniel Bastias Hernandez  
-**Arquitectura:** Web Desacoplada (FastAPI + Jinja2/HTML5/Bootstrap 5/AJAX + PostgreSQL pgvector + Docker)
+**Proyecto:** Sistema Web de Gestión de Inventario y Buscador Comercial
+**Empresa:** FERRE-INVERSIONES PEREZ C.A.
+**Desarrollador:** Dixon Daniel Bastias Hernandez
+**Arquitectura:** Web desacoplada (FastAPI + Jinja2/HTML5/Bootstrap 5/AJAX +
+PostgreSQL Full-Text Search + Docker)
 
 ---
 
 ## 1. Stack Tecnológico Principal
 
 - **Backend:** Python 3.11+ / FastAPI / Uvicorn / Pydantic
-- **Base de Datos:** PostgreSQL 16 + Extensión `pgvector` (Corriendo en Docker)
-- **Frontend:** HTML5 / Bootstrap 5 / JavaScript Vanilla (Fetch API / AJAX) / Jinja2 Templates
-- **Modelos de IA (Pipeline RAG):**
-  - *Modelo 1 (Embedding):* Generación de vectores semánticos (Gemini Embeddings / OpenAI)
-  - *Modelo 2 (LLM Generativo):* Síntesis de respuestas en lenguaje natural (Gemini / GPT)
-- **Control de Versiones & Contenedores:** Git / Docker / Docker Compose
+- **Base de datos:** PostgreSQL 16 con Full-Text Search nativo
+  (`tsvector`/`tsquery`, índices GIN) e `ILIKE` como respaldo para búsquedas
+  parciales de código o proveedor
+- **Frontend:** HTML5 / Bootstrap 5 / JavaScript vanilla (Fetch API / AJAX) /
+  plantillas Jinja2
+- **Ingesta (ETL):** 100 % local y determinista con pandas/openpyxl para
+  `.xlsx`, pdfplumber para `.pdf`, python-docx para `.docx` y lectura nativa
+  para `.txt`; normalización con reglas y expresiones regulares
+- **Sin IA en el producto:** no hay modelos generativos, embeddings, búsqueda
+  vectorial ni servicios externos de IA en la ingesta ni en las consultas
+- **Control de versiones y contenedores:** Git / Docker / Docker Compose
 
 ---
 
 ## 2. Árbol de Directorios del Proyecto
 
 ```text
-FERRE_INVERSIONES_PEREZ/
-├── .gitignore                      # Archivos ignorados por Git (.env, venv/, etc.)
-├── docker-compose.yml              # Contenedor PostgreSQL 16 + pgvector
-├── init.sql                        # Script de inicialización de BD y esquema de tablas
-├── requisitos_sistema.md           # Requisitos funcionales, no funcionales y pruebas
-├── checklist_proyecto.md          # Cronograma y checklist de tareas semanales
-├── ESTRUCTURA_PROYECTO.md          # Estructura del proyecto y arquitectura (este archivo)
-├── PROMPTS_OPENCODE.md             # Guía de prompts para interactuar con OpenCode
-├── README.md                       # Guía general de ejecución y comandos
-├── requirements.txt                # Librerías y dependencias de Python
+Sistema-RAG-Ferreteria-FIPCA/
+├── .env.example                    # Plantilla de configuración (sin secretos)
+├── AGENTS.md                       # Reglas de trabajo para agentes de IA
+├── docker-compose.yml              # PostgreSQL + pgAdmin + API
+├── Dockerfile                      # Imagen de la API con usuario sin privilegios
+├── init.sql                        # Esquema inicial de ferreteria_rag y ferreteria_usuarios
+├── requirements.txt                # Dependencias de Python
+├── README.md                       # Guía de ejecución, endpoints y pruebas
+├── DESIGN.md                       # Sistema de diseño de la interfaz
+├── PRODUCT.md                      # Verdad de producto para el diseño
 │
-├── app/                            # CÓDIGO FUENTE DEL BACKEND (FastAPI)
-│   ├── __init__.py
-│   ├── main.py                     # Punto de entrada FastAPI (rutas, CORS, middlewares)
-│   ├── config.py                   # Carga de variables de entorno (.env)
+├── app/                            # Código fuente del backend (FastAPI)
+│   ├── main.py                     # Punto de entrada, middlewares y montaje de rutas
+│   ├── config.py                   # Configuración leída de variables de entorno
 │   │
-│   ├── core/                       # Seguridad, tokens y utilidades del sistema
-│   │   ├── security.py             # Encriptación/Hashing de contraseñas (scrypt/bcrypt)
-│   │   ├── jwt.py                  # Generación y validación de tokens JWT
-│   │   ├── permisos.py             # Catálogo cerrado de capacidades configurables
-│   │   └── logging.py              # Middleware e inyección para Bitácora de Auditoría
+│   ├── core/                       # Seguridad, sesión, permisos y auditoría
+│   │   ├── security.py             # Hashing scrypt/bcrypt y utilidades criptográficas
+│   │   ├── jwt.py                  # Emisión y validación de tokens JWT
+│   │   ├── sesion.py               # Cookie HttpOnly y CSRF de doble envío
+│   │   ├── permisos.py             # Catálogo cerrado de capacidades
+│   │   └── logging.py              # Registro de eventos de auditoría
 │   │
-│   ├── db/                         # Configuración y conexión a Base de Datos
-│   │   ├── session.py              # Pool de conexiones a PostgreSQL (psycopg2/SQLAlchemy)
-│   │   └── base.py                 # Conexión base y utilidades
+│   ├── db/                         # Conexión a PostgreSQL
+│   │   ├── session.py              # Pools de conexión (rag y usuarios)
+│   │   └── base.py                 # Utilidades de consulta parametrizada
 │   │
-│   ├── models/                     # Modelos de BD / Entidades (SQL)
-│   │   ├── usuario.py              # Entidad de usuarios, roles y asignaciones de permisos
-│   │   ├── inventario.py           # Entidad de Productos e Inventario
-│   │   └── bitacora.py             # Entidad de Registros de Auditoría
+│   ├── models/                     # Acceso a datos con SQL parametrizado
+│   │   ├── usuario.py              # Cuentas, roles y permisos
+│   │   ├── inventario.py           # Productos, ofertas, proveedores y búsqueda FTS
+│   │   ├── recuperacion.py         # Tokens de restablecimiento de contraseña
+│   │   └── bitacora.py             # Bitácora inmutable de auditoría
 │   │
-│   ├── schemas/                    # Modelos de validación Pydantic (Entradas/Salidas API)
-│   │   ├── usuario_schema.py       # DTOs de Login, Registro y Roles
-│   │   ├── inventario_schema.py    # DTOs de Productos, Precios y Stock
-│   │   └── rag_schema.py           # DTOs de Peticiones del Chat e Historial
+│   ├── schemas/                    # DTOs de Pydantic (entrada/salida de la API)
+│   │   ├── usuario_schema.py
+│   │   ├── inventario_schema.py
+│   │   └── bitacora_schema.py
 │   │
-│   ├── api/                        # Endpoints y Rutas API REST
-│   │   ├── v1/
-│   │   │   ├── auth.py             # Rutas /api/v1/auth (Login, Token Refresh)
-│   │   │   ├── inventario.py       # Rutas /api/v1/inventario (CRUD y Búsqueda)
-│   │   │   ├── bitacora.py         # Rutas /api/v1/bitacora (Consulta de Logs)
-│   │   │   └── rag_chat.py         # Rutas /api/v1/chat (Endpoint AJAX para IA)
-│   │   └── api_router.py           # Agrupador de rutas v1
+│   ├── api/                        # Endpoints y páginas
+│   │   ├── deps.py                 # Dependencias de autenticación y capacidades
+│   │   ├── api_router.py           # Agrupador de rutas /api/v1
+│   │   └── v1/
+│   │       ├── auth.py             # Autenticación, usuarios, roles y recuperación
+│   │       ├── inventario.py       # Ingesta, previsualización, búsqueda y borrado
+│   │       ├── bitacora.py         # Consulta del historial de auditoría
+│   │       └── web.py              # Páginas HTML (/login, /dashboard, /search…)
 │   │
-│   ├── services/                   # LÓGICA DE NEGOCIO Y PIPELINE RAG
-│   │   ├── etl_service.py          # Extracción y limpieza de archivos (PDF/Excel/Word)
-│   │   ├── embedding_service.py    # Modelo 1: Vectorización de texto (Embeddings)
-│   │   ├── vector_search.py        # Búsqueda por similitud con pgvector (Coseno `<=>`)
-│   │   └── llm_service.py          # Modelo 2: Generación de respuestas delimitadas
+│   ├── services/                   # Lógica de negocio
+│   │   ├── etl_service.py          # Parsers locales y orquestación de la ingesta
+│   │   ├── email_service.py        # Envío de correo o enlace en consola
+│   │   ├── recuperacion_service.py # Tokens y límites de recuperación
+│   │   └── perfil_service.py       # Normalización de la imagen de perfil
 │   │
-│   └── static/                     # ARCHIVOS ESTÁTICOS FRONTEND
-│       ├── css/
-│       │   └── custom.css          # Estilos personalizados Bootstrap 5
-│       ├── js/
-│       │   ├── main.js             # Lógica global
-│       │   ├── auth.js             # Gestión de JWT en localStorage/cookies
-│       │   └── rag_chat.js         # Peticiones AJAX asíncronas para el Chat RAG
-│       └── img/                    # Asset de imágenes y logotipos
+│   └── static/                     # Recursos del frontend servidos localmente
+│       ├── css/estilos.css         # Estilos y temas claro/oscuro
+│       ├── js/                     # Un script por vista (buscador, fuentes, roles…)
+│       ├── img/                    # Logotipos y avatares
+│       └── vendor/                 # Bootstrap, DataTables, SweetAlert2, jQuery
 │
-├── templates/                      # VISTAS HTML (Jinja2 Templates)
-│   ├── base.html                   # Plantilla base (Navbar, Sidebar y Footer)
-│   ├── login.html                  # Pantalla de Autenticación
-│   ├── dashboard.html              # Panel Principal de Métricas
-│   ├── chat_rag.html               # Interfaz del Chat Inteligente
-│   └── inventario.html             # Gestión e inspección de productos
+├── templates/                      # Vistas Jinja2
+│   ├── base.html                   # Plantilla base con navegación y tema
+│   ├── login.html / recuperar.html / restablecer.html
+│   ├── dashboard.html              # Panel principal con acceso al buscador
+│   ├── buscador.html               # Buscador comercial y panel de fuentes
+│   ├── usuarios.html / roles.html / perfil.html / configuracion.html
+│   ├── bitacora.html               # Visor de auditoría
+│   └── _navbar.html, _marca.html, _panel_fuentes.html
 │
-├── tests/                          # SUITE COMPLETA DE PRUEBAS
-│   ├── unit/                       # Pruebas de Caja Blanca (Funciones aisladas)
-│   ├── integration/                # Pruebas de integración de la API
-│   ├── boundary/                   # Pruebas de Valores Límite (Datos $0, stock negativo)
-│   ├── security/                   # Pruebas de Seguridad y Anti-Prompt Injection
-│   └── stress/                     # Pruebas de Carga/Huracán (Catálogos pesados)
+├── tests/                          # Suite de pruebas
+│   ├── unit/                       # Caja blanca: ETL, esquema, seguridad, utilidades
+│   ├── integration/                # Caja negra contra copias desechables de la BD
+│   ├── boundary/                   # Valores límite
+│   ├── security/                   # CSRF, inyección SQL y endurecimiento
+│   └── stress/                     # Carga opcional de catálogos
 │
 ├── scripts/
-│   └── migracion_6_0.sql           # Roles configurables y permisos por capacidades
-└── uploads/                        # Archivos temporales de catálogos recibidos
+│   ├── aplicar_migracion.py        # Aplicador idempotente de migraciones
+│   └── migracion_*.sql             # Migraciones incrementales sin borrar datos
+│
+├── docs/actas/                     # Actas de cierre semanal
+└── uploads/                        # Originales de catálogos (volumen persistente)
 ```
-
-### Autorización configurable
-
-`ferreteria_usuarios` conserva las cuentas y las relaciona con `rol`; el
-catálogo `permiso` define capacidades fijas y `rol_permiso` las asigna a roles.
-El rol `admin` está protegido y obtiene todas las capacidades vigentes. Solo
-ese rol administra el catálogo de roles desde Configuración. Las dependencias
-de `app/api/deps.py` consultan la cuenta y sus permisos actuales en la base para
-cada solicitud; el JWT no es la fuente de autorización.
 
 ---
 
-## 3. Normas de Desarrollo para el Agente (OpenCode)
+## 3. Flujo de Ingesta y Búsqueda
 
-1. **Respeto Estricto de Rutas:** Ningún archivo Python nuevo debe crearse fuera de la carpeta `app/` o `tests/`.
-2. **Modularidad:** Todo servicio de IA debe colocarse en `app/services/`. Ninguna lógica de vectorización debe ser incrustada directamente en las rutas de la API (`app/api/`).
-3. **Consumo de BD:** Todas las operaciones con la base de datos PostgreSQL deben utilizar el esquema definido en `init.sql` y sus migraciones incrementales.
-4. **Respuesta Frontend:** Las vistas HTML en `templates/` consumirás la API de FastAPI mediante AJAX desde los scripts en `app/static/js/`.
+1. **Carga:** el administrador sube hasta 20 archivos (`.pdf`, `.xlsx`,
+   `.docx` o `.txt`, máximo 100 MB cada uno) desde el panel de fuentes.
+2. **Previsualización:** el ETL local extrae filas, valida códigos, nombres,
+   precios, moneda, proveedor y contacto; muestra cuántas filas se guardarían
+   y cuántas se rechazarían.
+3. **Confirmación:** los metadatos comerciales del catálogo (proveedor,
+   vendedor, teléfono, correo, moneda y observaciones) se registran junto al
+   archivo.
+4. **Persistencia:** productos y ofertas se guardan en una transacción en
+   `ferreteria_rag`. El upsert conserva el stock existente y no inventa
+   proveedores ni precios.
+5. **Búsqueda:** `/api/v1/inventario/busqueda` resuelve la consulta con
+   `plainto_tsquery` sobre el `tsvector` en español, con `ILIKE` para
+   coincidencias parciales. Devuelve producto, precio, proveedor y teléfono de
+   contacto; si no hay coincidencias, lo informa sin inventar resultados.
+
+---
+
+## 4. Normas de Desarrollo para el Agente (OpenCode)
+
+1. **Respeto estricto de rutas:** ningún archivo Python nuevo debe crearse
+   fuera de `app/` o `tests/`.
+2. **Cambios acotados:** modificar solo lo solicitado; no reescribir módulos
+   ajenos a la tarea.
+3. **Sin IA en la ingesta ni en la búsqueda:** no se agregan modelos
+   generativos, embeddings, servicios externos ni claves de API de IA.
+4. **Consumo de base de datos:** toda consulta usa SQL parametrizado y el
+   esquema de `init.sql` con sus migraciones incrementales.
+5. **Frontend:** las vistas de `templates/` consumen la API mediante AJAX desde
+   los scripts de `app/static/js/`.
+6. **Pruebas:** todo cambio de código se acompaña de pruebas en `tests/`.

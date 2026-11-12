@@ -11,17 +11,13 @@ PyJWT
 
 # Pruebas (RNF-04)
 pytest
-# httpx: cliente de las pruebas de la API y del proveedor de lenguaje (Semana 4)
+# httpx: cliente de las pruebas de la API.
 httpx
 
-# Semana 3: ingesta de catalogos
+# Semana 3: ingesta local de catalogos (sin IA ni servicios externos)
 python-multipart
 Pillow
 openpyxl
 python-docx
 pypdf
-
-# Fase 1: conversion de catalogos a Markdown (RF-02.4)
-# markitdown 0.0.2 es la ultima version sin magika/onnxruntime, que no
-# publica ruedas para el Python 3.15 del venv de Windows.
-markitdown==0.0.2
+pdfplumber

@@ -49,8 +49,8 @@ class TestCsrf:
         )
         assert respuesta.status_code == 200
 
-    def test_el_chat_tambien_exige_csrf(self, navegador, sesion):
-        respuesta = navegador.post("/api/v1/rag/chat", json={"pregunta": "hola"})
+    def test_la_ingesta_tambien_exige_csrf(self, navegador, sesion):
+        respuesta = navegador.post("/api/v1/inventario/ingesta", data={})
         assert respuesta.status_code == 403
 
     def test_un_origen_externo_se_rechaza_aunque_traiga_csrf(self, navegador, sesion):

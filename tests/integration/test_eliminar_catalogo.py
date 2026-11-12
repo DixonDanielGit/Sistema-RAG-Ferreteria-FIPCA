@@ -59,11 +59,7 @@ def test_elimina_catalogo_procesado_con_sus_productos_y_archivo(
     almacen = etl_service.get_settings().uploads_dir
     almacen.mkdir(parents=True, exist_ok=True)
     (almacen / ruta).write_bytes(b"contenido original del catalogo")
-    markdown = almacen / "markdown" / f"{id_archivo}.md"
-    markdown.parent.mkdir(parents=True, exist_ok=True)
-    markdown.write_text("# Catalogo\nSKU-DEL; Martillo; 10.50", encoding="utf-8")
     assert (almacen / ruta).exists()
-    assert markdown.exists()
 
     try:
         resultado = etl_service.eliminar_catalogo_completo(id_archivo)
@@ -84,9 +80,7 @@ def test_elimina_catalogo_procesado_con_sus_productos_y_archivo(
             )
             assert cursor.fetchone()[0] == 0
         assert not (almacen / ruta).exists()
-        assert not markdown.exists()
     finally:
-        markdown.unlink(missing_ok=True)
         with conexion_rag_limpieza.cursor() as cursor:
             cursor.execute("DELETE FROM productos WHERE id_archivo = %s", (id_archivo,))
             cursor.execute("DELETE FROM archivos_subidos WHERE id_archivo = %s", (id_archivo,))
@@ -101,11 +95,6 @@ def test_elimina_lote_existente_y_reporta_catalogo_ausente(
     almacen.mkdir(parents=True, exist_ok=True)
     (almacen / ruta_primero).write_bytes(b"primer catalogo")
     (almacen / ruta_segundo).write_bytes(b"segundo catalogo")
-    markdown_primero = almacen / "markdown" / f"{id_primero}.md"
-    markdown_segundo = almacen / "markdown" / f"{id_segundo}.md"
-    markdown_primero.parent.mkdir(parents=True, exist_ok=True)
-    markdown_primero.write_text("# Primero", encoding="utf-8")
-    markdown_segundo.write_text("# Segundo", encoding="utf-8")
     with conexion_rag_limpieza.cursor() as cursor:
         cursor.execute("SELECT COALESCE(MAX(id_archivo), 0) + 5000 FROM archivos_subidos")
         inexistente = cursor.fetchone()[0]
@@ -142,8 +131,6 @@ def test_elimina_lote_existente_y_reporta_catalogo_ausente(
             assert cursor.fetchone()[0] == 0
         assert not (almacen / ruta_primero).exists()
         assert not (almacen / ruta_segundo).exists()
-        assert not markdown_primero.exists()
-        assert not markdown_segundo.exists()
     finally:
         with conexion_rag_limpieza.cursor() as cursor:
             cursor.execute(
@@ -156,8 +143,6 @@ def test_elimina_lote_existente_y_reporta_catalogo_ausente(
             )
         (almacen / ruta_primero).unlink(missing_ok=True)
         (almacen / ruta_segundo).unlink(missing_ok=True)
-        markdown_primero.unlink(missing_ok=True)
-        markdown_segundo.unlink(missing_ok=True)
 
 
 def test_producto_rehomed_a_otro_catalogo_sobrevive(conexion_rag_limpieza):

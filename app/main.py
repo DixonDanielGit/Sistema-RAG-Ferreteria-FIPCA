@@ -50,16 +50,6 @@ ETIQUETAS_VALIDACION = {
 async def ciclo_de_vida(_: FastAPI):
     config = get_settings()
     logger.info("%s v%s iniciando en entorno '%s'", config.nombre, config.version, config.entorno)
-    # Se registran los valores efectivos de la transformacion de catalogos:
-    # si el contenedor quedo con un entorno viejo, aqui se detecta de inmediato
-    # sin subir un archivo y esperar minutos. Nunca se registra la clave.
-    logger.info(
-        "Transformacion ETL: openrouter=%s modelo=%s max_tokens=%s timeout=%ss",
-        "configurado" if config.openrouter_configurado else "sin configurar",
-        config.openrouter_model or "-",
-        config.openrouter_max_tokens,
-        config.openrouter_timeout_segundos,
-    )
     logger.info(
         "Limites ETL: filas=%s paginas_pdf=%s paginas_docx=%s",
         etl_service.MAX_FILAS_ARCHIVO,

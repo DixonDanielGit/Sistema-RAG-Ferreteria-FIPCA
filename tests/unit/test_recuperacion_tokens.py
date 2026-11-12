@@ -20,7 +20,6 @@ from app.core.security import (
     hash_token,
     tokens_coinciden,
 )
-from app.schemas.rag_schema import LONGITUD_MAXIMA_PREGUNTA, PreguntaChat
 from app.schemas.usuario_schema import (
     RecuperarPasswordRequest,
     RestablecerPasswordRequest,
@@ -176,25 +175,3 @@ class TestEsquemasDeRecuperacion:
         assert datos.password == "ClaveSegura123"
 
 
-class TestEsquemaDeChat:
-    def test_normaliza_espacios_en_la_pregunta(self):
-        assert PreguntaChat(pregunta="  cuantos   martillos hay ").pregunta == (
-            "cuantos martillos hay"
-        )
-
-    @pytest.mark.parametrize("pregunta", ["", "   ", "\n\t"])
-    def test_pregunta_vacia_se_rechaza(self, pregunta):
-        with pytest.raises(ValidationError):
-            PreguntaChat(pregunta=pregunta)
-
-    def test_pregunta_en_el_limite_se_acepta(self):
-        datos = PreguntaChat(pregunta="a" * LONGITUD_MAXIMA_PREGUNTA)
-        assert len(datos.pregunta) == LONGITUD_MAXIMA_PREGUNTA
-
-    def test_pregunta_sobre_el_limite_se_rechaza(self):
-        with pytest.raises(ValidationError):
-            PreguntaChat(pregunta="a" * (LONGITUD_MAXIMA_PREGUNTA + 1))
-
-    def test_el_esquema_no_admite_campos_extra(self):
-        with pytest.raises(ValidationError):
-            PreguntaChat(pregunta="hola", modelo="gpt")

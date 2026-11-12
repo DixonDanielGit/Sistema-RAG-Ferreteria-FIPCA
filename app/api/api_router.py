@@ -2,14 +2,13 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, bitacora, inventario, rag_chat
+from app.api.v1 import auth, bitacora, inventario
 
 api_router = APIRouter(prefix="/api/v1")
 
 api_router.include_router(auth.router)
 api_router.include_router(bitacora.router)
 api_router.include_router(inventario.router)
-api_router.include_router(rag_chat.router)
 
 # Se incorporan a medida que se implementan en las semanas siguientes:
 #   CRUD de inventario y busqueda -> Semanas 4-7

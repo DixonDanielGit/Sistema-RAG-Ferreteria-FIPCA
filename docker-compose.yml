@@ -86,26 +86,6 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_REMITENTE: ${SMTP_REMITENTE:-}
       SMTP_TLS: ${SMTP_TLS:-true}
-      EMBEDDING_CACHE_DIR: /app/model-cache
-      HF_HOME: /app/model-cache/huggingface
-      # Vectorizacion del catalogo tras cada ingesta (true por defecto).
-      VECTORIZACION_AUTOMATICA: ${VECTORIZACION_AUTOMATICA:-true}
-      # Proveedor de lenguaje del asistente (Semana 4). Vacias = modo
-      # provisional: ninguna consulta sale del contenedor.
-      LLM_BASE_URL: ${LLM_BASE_URL:-}
-      LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_MODELO: ${LLM_MODELO:-}
-      LLM_TIMEOUT_SEGUNDOS: ${LLM_TIMEOUT_SEGUNDOS:-30}
-      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-500}
-      # Transformacion ETL de Markdown; separado del proveedor del asistente.
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
-      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
-      OPENROUTER_TIMEOUT_SEGUNDOS: ${OPENROUTER_TIMEOUT_SEGUNDOS:-60}
-      # Techo de tokens de salida por lote: evita que OpenRouter corte lotes.
-      OPENROUTER_MAX_TOKENS: ${OPENROUTER_MAX_TOKENS:-32768}
-      # Caracteres de Markdown por solicitud: menos lotes, ingesta mas rapida.
-      OPENROUTER_MAX_CARACTERES_POR_LOTE: ${OPENROUTER_MAX_CARACTERES_POR_LOTE:-24000}
       # Guardavia del ETL sobre filas de catalogo y lineas de texto por archivo.
       ETL_MAX_FILAS_ARCHIVO: ${ETL_MAX_FILAS_ARCHIVO:-20000}
       ETL_MAX_LINEAS_TEXTO: ${ETL_MAX_LINEAS_TEXTO:-1000000}
@@ -124,13 +104,9 @@ services:
       - /tmp
     volumes:
       - uploads:/app/uploads
-      - model_cache:/app/model-cache
       - ./app:/app/app:ro
       - ./templates:/app/templates:ro
-      # El prompt del sistema se puede ajustar sin reconstruir la imagen.
-      - ./instructions:/app/instructions:ro
 
 volumes:
   postgres_data:
   uploads:
-  model_cache:

@@ -149,6 +149,12 @@
     contenedor.appendChild(nodo);
   }
 
+  function contactoProveedor(producto) {
+    var telefono =
+      producto.proveedor_telefono_vendedor || producto.proveedor_telefono;
+    return telefono ? "Tel.: " + telefono : "";
+  }
+
   function agregarCampo(lista, etiqueta, valor) {
     if (valor === null || valor === undefined || valor === "") return;
     var termino = document.createElement("dt");
@@ -656,7 +662,10 @@
     fila.appendChild(celdaProducto);
 
     var proveedor = crearCelda("buscador__proveedor");
-    proveedor.textContent = producto.proveedor || "Sin proveedor registrado";
+    proveedor.appendChild(
+      document.createTextNode(producto.proveedor || "Sin proveedor registrado")
+    );
+    agregarDetalle(proveedor, "buscador__contacto", contactoProveedor(producto));
     fila.appendChild(proveedor);
 
     var precio = crearCelda("buscador__precio");
@@ -739,6 +748,7 @@
       producto.proveedor || "Sin proveedor registrado";
     proveedor.appendChild(etiquetaProveedor);
     proveedor.appendChild(nombreProveedor);
+    agregarDetalle(proveedor, "buscador__contacto", contactoProveedor(producto));
     boton.appendChild(proveedor);
 
     elemento.appendChild(boton);
@@ -1146,6 +1156,14 @@
       }
     });
   }
+  var parametros = new URLSearchParams(window.location.search);
+  var consultaInicial = (parametros.get("consulta") || "").trim();
+  if (consultaInicial) {
+    entrada.value = consultaInicial.slice(0, 200);
+    modoCatalogo = false;
+    buscar(entrada.value);
+  }
+
   if (cerrarDetalle && dialogoDetalle) {
     cerrarDetalle.addEventListener("click", function () {
       dialogoDetalle.close();

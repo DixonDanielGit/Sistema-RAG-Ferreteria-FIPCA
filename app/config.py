@@ -55,9 +55,9 @@ def _directorio_cargas() -> Path:
 class Settings:
     """Valores de configuracion inmutables de la aplicacion."""
 
-    nombre: str = "Sistema de Inventario e IA RAG"
+    nombre: str = "Sistema de Inventario y Buscador Comercial"
     empresa: str = "FERRE-INVERSIONES PEREZ C.A."
-    version: str = "0.4.0 Beta Experimental"
+    version: str = "1.0.0"
     desarrollador: str = "Dixon Bastias"
     desarrollador_github: str = "DixonDanielGit"
     entorno: str = field(default_factory=lambda: os.getenv("ENTORNO", "desarrollo").strip().lower())
@@ -71,19 +71,6 @@ class Settings:
     db_pool_minimo: int = field(default_factory=lambda: _entero("DB_POOL_MINIMO", 1))
     db_pool_maximo: int = field(default_factory=lambda: _entero("DB_POOL_MAXIMO", 5))
     uploads_dir: Path = field(default_factory=_directorio_cargas)
-    embedding_cache_dir: Path = field(
-        default_factory=lambda: Path(
-            os.getenv("EMBEDDING_CACHE_DIR", ".cache/embeddings")
-        ).expanduser()
-    )
-    # Vectorizacion del catalogo (Semana 4). Con la activacion por defecto,
-    # cada ingesta exitosa lanza en segundo plano la indexacion de los
-    # productos nuevos y el panel de fuentes baja solo a 0 pendientes. Con
-    # VECTORIZACION_AUTOMATICA=0 se conserva el flujo manual del script
-    # scripts/vectorizar_catalogo.py.
-    vectorizacion_automatica: bool = field(
-        default_factory=lambda: _booleano("VECTORIZACION_AUTOMATICA", True)
-    )
 
     # JWT
     jwt_secret: str = field(default_factory=lambda: os.getenv("JWT_SECRET", ""))
@@ -140,43 +127,6 @@ class Settings:
     )
     smtp_tls: bool = field(default_factory=lambda: _booleano("SMTP_TLS", True))
 
-    # Proveedor de lenguaje del asistente (Semana 4). Cualquier API compatible
-    # con POST /chat/completions de OpenAI; para un modelo local (Ollama, LM
-    # Studio) basta apuntar LLM_BASE_URL a su endpoint /v1. Sin las tres
-    # variables el asistente no envia solicitudes al proveedor.
-    llm_base_url: str = field(
-        default_factory=lambda: os.getenv("LLM_BASE_URL", "").strip().rstrip("/")
-    )
-    llm_api_key: str = field(default_factory=lambda: os.getenv("LLM_API_KEY", "").strip())
-    llm_modelo: str = field(default_factory=lambda: os.getenv("LLM_MODELO", "").strip())
-    llm_timeout_segundos: int = field(
-        default_factory=lambda: _entero("LLM_TIMEOUT_SEGUNDOS", 30)
-    )
-    llm_max_tokens: int = field(default_factory=lambda: _entero("LLM_MAX_TOKENS", 500))
-
-    # Transformacion de catalogos Markdown, separada del proveedor configurable
-    # del chat. OpenRouter factura segun el modelo y los tokens procesados.
-    openrouter_api_key: str = field(
-        default_factory=lambda: os.getenv("OPENROUTER_API_KEY", "").strip()
-    )
-    openrouter_base_url: str = field(
-        default_factory=lambda: os.getenv(
-            "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
-        ).strip().rstrip("/")
-    )
-    openrouter_model: str = field(
-        default_factory=lambda: os.getenv("OPENROUTER_MODEL", "").strip()
-    )
-    openrouter_timeout_segundos: int = field(
-        default_factory=lambda: _entero("OPENROUTER_TIMEOUT_SEGUNDOS", 60)
-    )
-    # Techo de tokens de salida por lote. Los modelos gratuitos suelen cortarse
-    # en 8 192; los de pago admiten bastante mas. Si OpenRouter corta un lote,
-    # aumentar este valor evita rechazar productos.
-    openrouter_max_tokens: int = field(
-        default_factory=lambda: _entero("OPENROUTER_MAX_TOKENS", 32_768)
-    )
-
     @property
     def es_produccion(self) -> bool:
         return self.entorno == "produccion"
@@ -185,20 +135,6 @@ class Settings:
     def smtp_configurado(self) -> bool:
         """True cuando hay un servidor de correo utilizable."""
         return bool(self.smtp_host and self.smtp_remitente)
-
-    @property
-    def llm_configurado(self) -> bool:
-        """True cuando el proveedor de lenguaje tiene endpoint, clave y modelo."""
-        return bool(self.llm_base_url and self.llm_api_key and self.llm_modelo)
-
-    @property
-    def openrouter_configurado(self) -> bool:
-        """True cuando OpenRouter tiene URL, clave y modelo definidos."""
-        return bool(
-            self.openrouter_base_url
-            and self.openrouter_api_key
-            and self.openrouter_model
-        )
 
     @property
     def cookie_segura(self) -> bool:
@@ -255,42 +191,6 @@ class Settings:
 
         if not self.cookie_nombre.strip():
             problemas.append("COOKIE_NOMBRE no puede estar vacio")
-
-        if self.llm_base_url and not self.llm_base_url.startswith(
-            ("http://", "https://")
-        ):
-            problemas.append("LLM_BASE_URL debe empezar por http:// o https://")
-        if self.es_produccion and self.llm_base_url.startswith("http://"):
-            problemas.append(
-                "LLM_BASE_URL debe usar https en produccion: la clave viaja en "
-                "cada solicitud"
-            )
-        if any((self.llm_base_url, self.llm_api_key, self.llm_modelo)) and not (
-            self.llm_configurado
-        ):
-            problemas.append(
-                "Configuracion LLM incompleta: defina LLM_BASE_URL, LLM_API_KEY "
-                "y LLM_MODELO, o deje las tres vacias"
-            )
-        if self.llm_timeout_segundos <= 0:
-            problemas.append("LLM_TIMEOUT_SEGUNDOS debe ser mayor que cero")
-        if self.llm_max_tokens <= 0:
-            problemas.append("LLM_MAX_TOKENS debe ser mayor que cero")
-
-        # `openrouter/free` es un enrutador: reparte cada solicitud entre
-        # modelos gratuitos al azar y ninguno cumple el contrato de extraccion
-        # (JSON con evidencia literal), asi que la ingesta termina en 0
-        # productos tras varios minutos. Se exige el identificador exacto.
-        if self.openrouter_api_key and self.openrouter_model.lower() in {
-            "openrouter/free",
-            "openrouter/auto",
-        }:
-            problemas.append(
-                "OPENROUTER_MODEL no puede ser '"
-                f"{self.openrouter_model}': es un enrutador, no un modelo, y la "
-                "transformacion de catalogos quedaria vacia. Use el "
-                "identificador exacto publicado en https://openrouter.ai/models"
-            )
 
         if problemas:
             raise ValueError("Configuracion invalida: " + "; ".join(problemas))

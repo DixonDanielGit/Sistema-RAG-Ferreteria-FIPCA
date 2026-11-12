@@ -32,7 +32,6 @@ MODULOS = {
     "auth": "auth",
     "inventario": "inventario",
     "bitacora": "bitacora",
-    "chat": "rag_chat",
 }
 
 # Rutas que no se auditan: ruido sin valor forense.

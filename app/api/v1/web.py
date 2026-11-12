@@ -120,14 +120,6 @@ def dashboard(request: Request) -> HTMLResponse:
     return _html(request, "dashboard.html", _contexto(request, usuario))
 
 
-@router.get("/chat", response_class=HTMLResponse, summary="Asistente de inventario")
-def chat(request: Request) -> HTMLResponse:
-    usuario = _sesion(request)
-    if usuario is None:
-        return _redirigir("/login")
-    return _html(request, "chat_rag.html", _contexto(request, usuario))
-
-
 @router.get("/search", response_class=HTMLResponse, summary="Buscador comercial")
 def buscador(request: Request) -> HTMLResponse:
     """Vista de busqueda de productos (RF-03).

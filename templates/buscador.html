@@ -1,10 +1,10 @@
 {% extends "base.html" %} {% block titulo %}Buscador comercial{% endblock %} {%
 block clase_cuerpo %}cuerpo-buscador{% endblock %} {% block navegacion %} {% set
 activo = 'search' %} {% include "_navbar.html" %} {% endblock %} {% block
-contenido %} {#- La vista reutiliza los mismos componentes que el asistente: el
-panel de fuentes (carga de catalogos), la cabecera, los botones de panel y los
-atajos del dashboard. La busqueda en si la resuelve PostgreSQL con Full-Text
-Search; aqui solo se pinta lo que el servidor devuelve. -#}
+contenido %} {#- La vista reutiliza el panel de fuentes (carga de catalogos), la
+cabecera, los botones de panel y los atajos del dashboard. La busqueda en si
+la resuelve PostgreSQL con Full-Text Search; aqui solo se pinta lo que el
+servidor devuelve. -#}
 <div class="buscador">
   {% include "_panel_fuentes.html" %}
 
@@ -105,11 +105,26 @@ Search; aqui solo se pinta lo que el servidor devuelve. -#}
         </button>
       </form>
 
+      <p class="buscador__ayuda" id="ayuda-buscador">
+        La búsqueda se resuelve con PostgreSQL mediante Full-Text Search sobre
+        el catálogo real; no se usan modelos de inteligencia artificial.
+      </p>
+
       <div
         class="buscador__atajos"
         role="group"
         aria-label="Búsquedas de ejemplo"
       >
+        <span class="accion__etiqueta">Ejemplos:</span>
+        <button class="accion__atajo" type="button" data-buscar="martillo">
+          Martillo
+        </button>
+        <button class="accion__atajo" type="button" data-buscar="taladro">
+          Taladro
+        </button>
+        <button class="accion__atajo" type="button" data-buscar="manguera">
+          Manguera
+        </button>
         <button class="accion__atajo" type="button" id="boton-ver-catalogo">
           Ver todo el catálogo
         </button>

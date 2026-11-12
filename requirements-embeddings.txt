@@ -1,2 +1,0 @@
-# Semana 4: inferencia local de embeddings mediante ONNX Runtime.
-fastembed==0.9.1

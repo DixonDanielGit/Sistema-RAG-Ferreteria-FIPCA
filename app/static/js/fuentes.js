@@ -1,12 +1,12 @@
-/* Carga y estado de los catalogos que alimentan el asistente. */
+/* Carga y estado de los catalogos que alimentan el buscador. */
 (function () {
   "use strict";
 
   var MAX_ARCHIVOS = 20;
   var MAX_BYTES = 100 * 1024 * 1024;
-  var EXTENSIONES = ["pdf", "xlsx", "docx", "txt", "md"];
-  /* El analisis con IA puede tardar minutos por archivo. Se corta la espera a
-     los 10 minutos para no dejar la pantalla colgada sin respuesta. */
+  var EXTENSIONES = ["pdf", "xlsx", "docx", "txt"];
+  /* El analisis local puede tardar en catalogos muy grandes. Se corta la
+     espera a los 10 minutos para no dejar la pantalla colgada sin respuesta. */
   var ESPERA_MAXIMA_MS = 10 * 60 * 1000;
   var AVISO_ESPERA_MS = 20 * 1000;
   var REGEX_CONTACTO = {
@@ -85,7 +85,6 @@
     var vacio = document.getElementById("fuentes-vacio");
     var cuenta = document.getElementById("cuenta-fuentes");
     var cuentaMovil = document.getElementById("cuenta-fuentes-movil");
-    var avisoVectorizacion = document.getElementById("aviso-vectorizacion");
     var error = document.getElementById("error-fuentes");
     var estadoSubida = document.getElementById("estado-fuentes");
     var textoEstado = document.getElementById("texto-estado-fuentes");
@@ -113,8 +112,6 @@
     var dialogoRevision = document.getElementById("dialogo-revision-fuentes");
     var tituloRevision = document.getElementById("titulo-revision-fuentes");
     var seleccionPrecios = document.getElementById("seleccion-precios-fuentes");
-    var respuestaJSONIA = document.getElementById("respuesta-json-ia-fuentes");
-    var contenidoJSONIA = document.getElementById("contenido-json-ia-fuentes");
     var cancelarRevision = document.getElementById("cancelar-revision-fuentes");
     var confirmarRevision = document.getElementById("confirmar-revision-fuentes");
     var datosCotizacion = document.getElementById("datos-cotizacion-fuentes");
@@ -387,7 +384,7 @@
       }
     }
 
-    /* El analisis de un catalogo con IA tarda minutos sin progreso visible.
+    /* El analisis local de un catalogo grande tarda sin progreso visible.
        Se avisa a los 20 s para que nadie cierre la pagina creyendo que se
        colgo, y el boton permite cancelar la espera. */
     function registrarCancelacion(cancelar) {
@@ -400,7 +397,7 @@
       temporizadorEspera = setTimeout(function () {
         temporizadorEspera = null;
         mensajeEstado(
-          "Analizando " + nombre + " con inteligencia artificial. " +
+          "Analizando " + nombre + " de forma local. " +
             "Un catalogo grande puede tardar varios minutos; no cierre la pagina."
         );
       }, AVISO_ESPERA_MS);
@@ -426,14 +423,6 @@
     function mostrarRevision(archivo, resultado, seleccionarPrecio) {
       if (!dialogoRevision) return Promise.resolve(null);
       seleccionPrecios.replaceChildren();
-      if (respuestaJSONIA) {
-        respuestaJSONIA.hidden = !resultado.respuesta_ia;
-        if (contenidoJSONIA) {
-          contenidoJSONIA.textContent = resultado.respuesta_ia
-            ? JSON.stringify(resultado.respuesta_ia, null, 2)
-            : "";
-        }
-      }
       datosCotizacion.hidden = seleccionarPrecio || !resultado.productos_detectados;
       confirmarRevision.hidden = !seleccionarPrecio && !resultado.productos_detectados;
       confirmarRevision.textContent = seleccionarPrecio
@@ -853,7 +842,7 @@
 
       var mensajes = [];
       if (extensionesInvalidas) {
-        mensajes.push("Solo se aceptan archivos PDF, XLSX, DOCX, TXT o Markdown.");
+        mensajes.push("Solo se aceptan archivos PDF, XLSX, DOCX o TXT.");
       }
       if (archivosVacios) {
         mensajes.push("No se pueden agregar archivos vacíos.");
@@ -1029,7 +1018,7 @@
     }
 
     /* Buscador del panel: filtra sin recargar ni volver a pedir el
-       historial, igual que lo hace la lista de chat del asistente. */
+       historial, igual que lo hace la lista de resultados. */
     if (entradaBusqueda) {
       entradaBusqueda.addEventListener("input", function () {
         consulta = normalizar(entradaBusqueda.value).trim();
@@ -1310,57 +1299,6 @@
       );
     }
 
-    /* Un producto sin vector no entra en la busqueda semantica: el asistente
-       no puede responder sobre el. El panel lo avisa y, si la ingesta esta
-       indexando en segundo plano, vuelve a consultar hasta que el contador
-       baje a cero. */
-    var reintentosVectorizacion = 0;
-    var temporizadorVectorizacion = null;
-
-    function programarConsultaVectorizacion() {
-      if (temporizadorVectorizacion) return;
-      temporizadorVectorizacion = setTimeout(function () {
-        temporizadorVectorizacion = null;
-        cargarEstadoVectorizacion();
-      }, 2000);
-    }
-
-    async function cargarEstadoVectorizacion() {
-      if (!avisoVectorizacion) return;
-      try {
-        var estado = await Fipca.pedir("/api/v1/inventario/vectorizacion");
-        var pendientes = Number(estado.pendientes || 0);
-        if (estado.en_curso && pendientes > 0 && reintentosVectorizacion < 150) {
-          /* El lote automatico aun no termino: se vuelve a preguntar en dos
-             segundos. El tope (5 minutos) evita sondear para siempre si el
-             servidor se queda sin responder. */
-          reintentosVectorizacion += 1;
-          avisoVectorizacion.textContent =
-            "Vectorizando el catálogo: " + pendientes +
-            (pendientes === 1
-              ? " producto pendiente…"
-              : " productos pendientes…");
-          avisoVectorizacion.hidden = false;
-          programarConsultaVectorizacion();
-          return;
-        }
-        reintentosVectorizacion = 0;
-        if (pendientes > 0) {
-          avisoVectorizacion.textContent =
-            pendientes === 1
-              ? "1 producto aún sin vectorizar: el asistente no lo encontrará hasta vectorizar el catálogo."
-              : pendientes +
-                " productos aún sin vectorizar: el asistente no los encontrará hasta vectorizar el catálogo.";
-          avisoVectorizacion.hidden = false;
-        } else {
-          avisoVectorizacion.textContent = "";
-          avisoVectorizacion.hidden = true;
-        }
-      } catch (fallo) {
-        avisoVectorizacion.hidden = true;
-      }
-    }
-
     async function cargarHistorial() {
       try {
         var nuevosArchivos = await Fipca.pedir("/api/v1/inventario/archivos");
@@ -1374,7 +1312,6 @@
         historial = nuevosArchivos;
         pintar();
         actualizar();
-        await cargarEstadoVectorizacion();
       } catch (fallo) {
         aviso("No se pudo consultar el historial de catálogos.");
       }

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -106,7 +106,6 @@ class ArchivoIngesta(BaseModel):
     proveedor: str | None = None
     vendedor: str | None = None
     moneda: str | None = None
-    respuesta_ia: dict[str, Any] | None = None
 
 
 class ProductoBusqueda(BaseModel):
@@ -120,6 +119,11 @@ class ProductoBusqueda(BaseModel):
     marca: str | None = None
     categoria: str | None = None
     proveedor: str | None = None
+    proveedor_telefono: str | None = None
+    proveedor_correo: str | None = None
+    proveedor_vendedor: str | None = None
+    proveedor_telefono_vendedor: str | None = None
+    proveedor_correo_vendedor: str | None = None
     descripcion: str | None = None
     presentacion: str | None = None
     precio: float
@@ -266,25 +270,6 @@ class RespuestaObservacion(BaseModel):
     """Observacion guardada o limpiada."""
 
     observacion: str | None
-
-
-class EstadoVectorizacion(BaseModel):
-    """Cobertura del indice de busqueda del catalogo.
-
-    Un producto sin vector no aparece en la recuperacion semantica: para el
-    asistente no existe. El panel muestra este dato para que la vectorizacion
-    no se olvide despues de cada carga; `en_curso` avisa si un lote
-    automatico esta indexando en este momento, para que el panel vuelva a
-    consultar hasta que el contador baje a cero.
-    """
-
-    total: int = Field(ge=0, description="Productos del catalogo")
-    pendientes: int = Field(
-        ge=0, description="Productos aun sin descripcion_vectorial"
-    )
-    en_curso: bool = Field(
-        default=False, description="Hay un lote automatico indexando ahora"
-    )
 
 
 class RespuestaEliminacionArchivo(BaseModel):

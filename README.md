@@ -1,21 +1,21 @@
-# Sistema Web de Gestión de Inventario e IA RAG
+# Sistema Web de Gestión de Inventario y Buscador Comercial
 
-Aplicación web para **FERRE-INVERSIONES PEREZ C.A.** que combina gestión de
-inventario con un asistente basado en RAG (Retrieval-Augmented Generation)
-sobre el catálogo real de productos.
+Aplicación web para **FERRE-INVERSIONES PEREZ C.A.** que combina la gestión del
+inventario con un buscador comercial sobre el catálogo real de productos y sus
+proveedores.
 
 - **Backend:** Python 3.11+ / FastAPI / Uvicorn / Pydantic
-- **Base de datos:** PostgreSQL 16 + `pgvector`
+- **Base de datos:** PostgreSQL 16 con Full-Text Search nativo (`tsvector`/`tsquery`)
 - **Frontend:** Jinja2 + Bootstrap 5 + JavaScript vanilla (fetch/AJAX)
 - **Interfaz:** SweetAlert2 global y DataTables Responsive en tablas; recursos
   locales en `app/static/vendor/` sin dependencia de CDN
-- **IA:** embeddings locales (Semana 4) + modelo generativo (Semana 5)
+- **Ingesta:** ETL 100 % local y determinista (pandas/openpyxl, pdfplumber,
+  python-docx y lectura de texto plano), sin modelos de IA ni servicios externos
 - **Infraestructura:** Docker + Docker Compose
 
-> Estado actual: **Semana 3 completada; implementación técnica de Semana 4 lista
-> para piloto** — incluye embeddings locales y búsqueda vectorial. Falta validar
-> relevancia y latencia con una muestra del catálogo de desarrollo. El chat sigue
-> provisional hasta la integración RAG de Semana 5.
+> Estado actual: **Fase 1 — Buscador Comercial de Proveedores y Productos**. La
+> búsqueda se resuelve en milisegundos con PostgreSQL, sin embeddings, sin
+> llamadas a modelos generativos y sin costo por consulta.
 
 Las versiones fuente de las dependencias JavaScript se fijan en `package.json`.
 Los archivos de distribución y sus licencias están incluidos en
@@ -53,7 +53,7 @@ uvicorn app.main:app --reload
 |---|---|---|
 | Aplicación (acceso) | http://localhost:8000/login | Usuario y contraseña de la base |
 | Panel | http://localhost:8000/dashboard | Requiere sesión |
-| Asistente | http://localhost:8000/chat | Requiere sesión |
+| Buscador | http://localhost:8000/search | Requiere sesión |
 | Roles | http://localhost:8000/roles | Solo administradores |
 | API (Swagger UI) | http://localhost:8000/docs | — |
 | Estado del servicio | http://localhost:8000/salud | — |
@@ -84,7 +84,7 @@ docker compose logs -f api            # registro de la aplicación
 | Puerto | `API_HOST_PORT` de `.env` (8000 por defecto), solo en `BIND_ADDRESS` |
 | Origen público | `URL_BASE` de `.env`, debe coincidir con la barra del navegador |
 | Salud | `healthcheck` sobre `/salud` cada 30 s |
-| Disco | Solo lectura (`read_only`); `/tmp` en memoria, originales en `/app/uploads` y modelo en `/app/model-cache` persistentes |
+| Disco | Solo lectura (`read_only`); `/tmp` en memoria y originales en `/app/uploads` persistentes |
 
 Dos avisos:
 
@@ -153,62 +153,48 @@ una cookie legible; no hay que copiar nada a mano.
 | `/login` | Acceso con usuario o correo |
 | `/recuperar` | Solicitud del enlace de restablecimiento |
 | `/restablecer?token=…` | Nueva contraseña con el enlace recibido |
-| `/dashboard` | Panel: preguntar al inventario y estado del sistema |
-| `/chat` | Asistente de inventario con el panel de fuentes |
+| `/dashboard` | Panel: buscar en el catálogo y consultar el estado del sistema |
+| `/search` | Buscador comercial con el panel de fuentes |
 
-El panel y el asistente se adaptan a escritorio y móvil, y siguen el tema del
+El panel y el buscador se adaptan a escritorio y móvil, y siguen el tema del
 sistema operativo (claro u oscuro) hasta que se cambie con el conmutador.
 
 **Panel de fuentes.** El administrador puede cargar lotes de hasta 20 archivos
-PDF, XLSX, DOCX, TXT o Markdown (máximo 100 MB cada uno). Durante el envío se
-muestra el porcentaje de avance de cada archivo. Antes de guardarlo, el sistema
-previsualiza cada catálogo y solicita confirmación; si un Excel tiene varias
-columnas de precio, usted elige cuál importar y registra proveedor y vendedor
-para cada archivo. El teléfono y correo del vendedor son opcionales; la moneda
-inicia en USD y puede cambiarse a VES. Cada archivo conserva su propia nota
-(por ejemplo, “descuento válido hasta mañana”), aunque se carguen varios. Si el
-lector no encuentra información de IVA, la oferta se guarda como sin IVA (0 %);
-el descuento por producto es opcional y la disponibilidad que informa el
-proveedor no modifica el stock de la ferretería. Se leen tablas PDF con columnas
+PDF, XLSX, DOCX o TXT (máximo 100 MB cada uno). Durante el envío se muestra el
+porcentaje de avance de cada archivo. Antes de guardarlo, el sistema previsualiza
+cada catálogo y solicita confirmación; si un Excel tiene varias columnas de
+precio, usted elige cuál importar y registra proveedor y vendedor para cada
+archivo. El teléfono y correo del vendedor son opcionales; la moneda inicia en
+USD y puede cambiarse a VES. Cada archivo conserva su propia nota (por ejemplo,
+“descuento válido hasta mañana”), aunque se carguen varios. Si el lector no
+encuentra información de IVA, la oferta se guarda como sin IVA (0 %); el
+descuento por producto es opcional y la disponibilidad que informa el proveedor
+no modifica el stock de la ferretería. Se leen tablas PDF con columnas
 separadas, productos alineados por su posición en la página, hojas Excel con
 encabezados en varias filas y fichas de productos en PDF o Word con etiquetas
 como `SKU`, `Descripción` y `Precio`. Los datos que no se puedan reconocer o
 validar se reportan y no se inventan. Los productos, sus ofertas y el historial
 se guardan en una única transacción; si falla una oferta, se revierte el lote
-completo. Los PDF escaneados sin capa de texto no
-se procesan porque todavía no hay OCR. Un archivo con errores no detiene los
-demás. El panel muestra el resultado y el historial de las últimas 100 cargas.
-Los códigos repetidos con datos idénticos se consolidan en una sola ficha;
-si el mismo código aparece con precios o datos distintos, ninguna variante se
-guarda hasta revisar el catálogo. La vista previa muestra el total que se
-guardaría después de esa consolidación.
-Ventas puede consultar el historial, pero no cargar catálogos. Los originales
-se guardan bajo un nombre UUID en `UPLOADS_DIR` (un volumen persistente
+completo. Los PDF escaneados sin capa de texto no se procesan porque todavía no
+hay OCR. Un archivo con errores no detiene los demás. El panel muestra el
+resultado y el historial de las últimas 100 cargas. Los códigos repetidos con
+datos idénticos se consolidan en una sola ficha; si el mismo código aparece con
+precios o datos distintos, ninguna variante se guarda hasta revisar el catálogo.
+La vista previa muestra el total que se guardaría después de esa consolidación.
+Ventas puede consultar el historial, pero no cargar catálogos. Los originales se
+guardan bajo un nombre UUID en `UPLOADS_DIR` (un volumen persistente
 `/app/uploads` en Docker), nunca en los estáticos. TXT también admite el orden
-posicional documentado `codigo;nombre;precio;descripcion;marca`. Los archivos
-se convierten a Markdown y OpenRouter puede estructurar los registros antes de
-guardarlos. Configure `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` y
-`OPENROUTER_MODEL` con el identificador exacto del modelo; se admiten modelos
-gratuitos y de pago, y el proveedor cobra según los tokens de entrada y salida.
-Para controlar el gasto, el servicio procesa el Markdown en lotes secuenciales
-de hasta 24 000 caracteres, reutiliza por cinco minutos los resultados de la
-vista previa y registra los tokens y el costo que reporte OpenRouter por lote.
-La división en lotes evita enviar el documento entero en una solicitud, pero no
-garantiza un costo máximo: el costo final depende del modelo, del contenido y
-del tamaño de las respuestas. Revise las tarifas vigentes y configure límites
-de gasto para la clave en OpenRouter antes de procesar catálogos grandes. Para
-la primera prueba real, use un archivo pequeño, revise en el log de Uvicorn la
-línea `Consumo OpenRouter` y confirme el costo en OpenRouter antes de probar
-catálogos mayores. Si el proveedor indica que alcanzó el límite de salida, se
-rechaza ese lote en vez de aceptar una respuesta potencialmente incompleta.
-Si OpenRouter no está disponible o devuelve datos que no pasan la validación,
-los lectores locales siguen siendo el respaldo para PDF, XLSX, DOCX y TXT; la
-selección manual de precio en Excel siempre tiene prioridad. La vista previa
-muestra el JSON validado cuando OpenRouter responde y reutiliza brevemente el
-resultado durante la carga. El Markdown no debe superar 10 000 000 caracteres
-para la transformación: el JSON requiere código, nombre, precio y evidencia
-textual literal de la fuente; todos los valores se validan antes de guardarse
-en el esquema relacional del catálogo. El ETL no admite CSV ni XLS.
+posicional documentado `codigo;nombre;precio;descripcion;marca`.
+
+La extracción es **100 % local y determinista**: cada formato se interpreta con
+su lector (pandas/openpyxl para Excel, pdfplumber para PDF, python-docx para
+Word y lectura nativa para TXT) y la normalización se hace con reglas y
+expresiones regulares auditables. No se envían archivos ni fragmentos a
+servicios externos, no se usan modelos generativos ni embeddings y el ETL no
+requiere claves de API de IA. Un archivo con formato incompatible o dañado se
+rechaza solo a él con un mensaje claro —por ejemplo, «Formato de catálogo no
+compatible, por favor verifique las columnas o use la plantilla estándar»— y el
+resto del lote continúa. El ETL no admite CSV ni XLS.
 
 **Recuperación sin SMTP.** Mientras `SMTP_HOST` no esté configurado, el enlace
 de recuperación se escribe en el registro de Uvicorn:
@@ -256,8 +242,6 @@ iniciar sesión y `-b cookies.txt` en las llamadas siguientes.
 | GET | `/api/v1/inventario/catalogo` | autenticado | Lista y pagina productos activos con orden por código, producto, proveedor, precio o existencias |
 | GET | `/api/v1/inventario/productos/{id_producto}` | autenticado | Ficha del producto, proveedor, ofertas y archivo de origen |
 | DELETE | `/api/v1/inventario/archivos/{id}` | `catalogos:eliminar` | Elimina un catálogo y sus productos |
-| POST | `/api/v1/rag/chat` | autenticado | Pregunta al asistente (contrato final) |
-| GET | `/api/v1/rag/estado` | autenticado | Disponibilidad del motor RAG |
 | GET | `/api/v1/bitacora` | `bitacora:consultar` | Consulta la bitácora con filtros de fecha, usuario, módulo, IP y límite |
 | GET | `/api/v1/bitacora/modulos` | `bitacora:consultar` | Módulos disponibles para el filtro del visor |
 | GET | `/salud` | público | Estado de las bases de datos |
@@ -283,8 +267,9 @@ Reglas de autenticación:
   último administrador activo no puede desactivarse ni perder su rol.
 - La foto de perfil se almacena como WebP normalizado en `BYTEA`; se reciben
   JPEG, PNG o WebP de hasta 2 MB. Sin foto se muestra el avatar local.
-- El asistente responde hoy con un aviso de motor provisional; el contrato
-  (`respuesta`, `fuentes`, `aviso`, `modelo`) no cambia cuando llegue el RAG.
+- El buscador solo devuelve productos reales de la base de datos, con precio,
+  proveedor y número de contacto; cuando no hay coincidencias lo indica
+  claramente y nunca inventa productos ni precios.
 
 La carga acepta un campo multipart repetido `archivos`. Para probarla desde
 terminal con un token Bearer:
@@ -327,7 +312,7 @@ El esquema se define en `init.sql` y crea dos bases:
 
 | Base | Tablas | Uso |
 |---|---|---|
-| `ferreteria_rag` | `archivos_subidos`, `proveedores`, `categoria`, `productos` | Catálogo e insumos del motor RAG (incluye `descripcion_vectorial vector(384)` e índice HNSW) |
+| `ferreteria_rag` | `archivos_subidos`, `proveedores`, `categoria`, `productos` | Catálogo, ofertas y proveedores; búsqueda con `tsvector` e índices GIN |
 | `ferreteria_usuarios` | `rol`, `permiso`, `rol_permiso`, `usuarios`, `tokens_recuperacion`, `bitacora` | Autenticación, capacidades, perfiles y auditoría inmutable |
 | `ferreteria` | — | Base de mantenimiento (la usa pgAdmin para conectarse) |
 
@@ -353,15 +338,12 @@ docker compose up -d
 ```
 
 Si ya tienes datos, aplica las migraciones idempotentes sin borrar nada. La
-migración `3_0` agrega los metadatos de ingesta y `4_0` prepara los vectores
-para el modelo local. La migración `4_0` conserva el catálogo y solo permite el
-cambio de dimensión si los vectores existentes están vacíos; si encuentra
-embeddings previos, aborta sin convertirlos:
+migración `3_0` agrega los metadatos de ingesta y `9_0` prepara los índices de
+Full-Text Search:
 
 ```bash
 venv\Scripts\python.exe scripts\aplicar_migracion.py 2_5
 venv\Scripts\python.exe scripts\aplicar_migracion.py 3_0
-venv\Scripts\python.exe scripts\aplicar_migracion.py 4_0
 venv\Scripts\python.exe scripts\aplicar_migracion.py 5_0
 venv\Scripts\python.exe scripts\aplicar_migracion.py 6_0
 venv\Scripts\python.exe scripts\aplicar_migracion.py 7_0
@@ -369,6 +351,10 @@ venv\Scripts\python.exe scripts\aplicar_migracion.py 8_0
 venv\Scripts\python.exe scripts\aplicar_migracion.py 9_0
 venv\Scripts\python.exe scripts\aplicar_migracion.py 12_0
 ```
+
+> Las migraciones `4_0` y `7_0` conservan columnas heredadas de un diseño
+> anterior con embeddings. La aplicación actual no las lee ni las escribe: toda
+> la búsqueda usa Full-Text Search nativo.
 
 La migración `5_0` agrega la imagen de perfil y protege la unicidad sin
 distinguir mayúsculas; se ejecuta en `ferreteria_usuarios` y conserva los datos.
@@ -381,11 +367,8 @@ asignaciones si una ejecución anterior dejó la relación vacía. Conserva
 usuarios y roles existentes; aplíquela antes de arrancar la API de esta versión.
 
 La migración `8_0` completa el proveedor de los productos a partir del archivo
-de origen cuando ese archivo ya tiene proveedor registrado y marca sus vectores
-para regenerarlos con los nuevos datos. No adivina la asociación de los
-catálogos históricos que no guardaron ese dato. Si la vectorización automática
-está desactivada, reprocese los pendientes con
-`scripts/vectorizar_catalogo.py --todos`.
+de origen cuando ese archivo ya tiene proveedor registrado. No adivina la
+asociación de los catálogos históricos que no guardaron ese dato.
 
 La migración `9_0` agrega la capacidad `bitacora:consultar` y la asigna al rol
 `admin`. Se ejecuta en `ferreteria_usuarios`, es idempotente y no altera los
@@ -408,89 +391,16 @@ docker compose up -d --force-recreate api
 ```
 
 Y para comprobarlo sin subir archivos, abra **Configuración** (requiere la
-capacidad `configuracion:diagnostico`): muestra el modelo de OpenRouter
-realmente cargado, los tokens y caracteres por lote, y los límites del ETL. La
-clave nunca se muestra. En el arranque también se registra una línea con ese
-modelo y esos límites:
+capacidad `configuracion:diagnostico`): muestra el estado de las bases y los
+límites vigentes de la ingesta local (formatos, tamaño máximo, filas y páginas).
+En el arranque también se registran los límites del ETL:
 
 ```powershell
-docker compose logs api | Select-String 'Transformacion ETL','Limites ETL'
+docker compose logs api | Select-String 'Limites ETL'
 ```
 
-`OPENROUTER_MODEL=openrouter/free` (o `openrouter/auto`) ya no arranca: es un
-enrutador que reparte cada solicitud entre modelos gratuitos al azar, ninguno
-respeta el contrato de extracción y la ingesta terminaría en 0 productos tras
-varios minutos. La API rechaza ese valor con un mensaje que pide el
-identificador exacto del modelo.
-
-Para transformar catálogos Markdown dentro del contenedor, configure en `.env`
-la clave de OpenRouter y el modelo elegido. `docker-compose.yml` entrega estas
-variables al servicio `api`. Por ejemplo, Qwen3.8 Flash:
-
-```dotenv
-OPENROUTER_API_KEY=reemplace_con_una_clave_nueva_de_openrouter
-OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-OPENROUTER_MODEL=qwen/qwen3.8-flash
-OPENROUTER_TIMEOUT_SEGUNDOS=180
-OPENROUTER_MAX_TOKENS=32768
-OPENROUTER_MAX_CARACTERES_POR_LOTE=40000
-```
-
-La clave es confidencial: no la escriba en `docker-compose.yml`, no la suba al
-repositorio y establezca un límite de gasto en OpenRouter antes de procesar
-catálogos.
-
-Si el modelo devuelve 0 productos, el panel de fuentes lo dice en el detalle del
-archivo e indica el modelo cargado; en los registros queda además un fragmento
-de la respuesta del modelo para poder diagnosticarlo. El navegador puede
-cancelar un análisis largo con el botón **Cancelar** del panel, y la espera se
-corta a los 10 minutos por archivo.
-
-### Piloto local de embeddings (Semana 4)
-
-El piloto usa `intfloat/multilingual-e5-small`, un modelo multilingüe gratuito
-que se ejecuta localmente y genera vectores de 384 dimensiones. La primera
-ejecución descarga los pesos públicos del modelo; el contenido del catálogo no
-se envía a un proveedor externo. En Docker, los pesos permanecen en el volumen
-`model_cache` y la inferencia corre en la imagen Python 3.12. FastEmbed/ONNX
-Runtime no tiene rueda para el Python 3.15 usado por el entorno virtual de
-desarrollo; use Docker o un entorno local Python 3.12 para este comando.
-
-Después de aplicar `4_0`, reconstruye la imagen si aún no tiene FastEmbed y
-vectoriza primero una muestra pequeña:
-
-```powershell
-docker compose up -d --build api
-docker compose exec api python scripts\vectorizar_catalogo.py --lote 10
-docker compose exec api python scripts\buscar_productos_vectorial.py "taladro para concreto"
-```
-
-La orden de vectorización tiene dos caminos. Tras cada ingesta exitosa la
-aplicación lanza en segundo plano la indexación de los productos pendientes
-(`VECTORIZACION_AUTOMATICA=false` la desactiva), así que el panel de fuentes
-baja solo a 0. El script sigue disponible para reanudar a mano un lote o para
-verificar resultados con una muestra pequeña antes de procesar el catálogo
-completo con `--todos`. Para revisar el estado desde pgAdmin:
-
-```sql
-SELECT COUNT(*) AS productos,
-       COUNT(*) FILTER (WHERE descripcion_vectorial IS NOT NULL) AS vectorizados
-FROM productos;
-```
-
-La búsqueda semántica todavía es un servicio de backend de Semana 4; el chat web
-seguirá mostrando su respuesta provisional hasta la integración RAG de Semana 5.
-La reingesta invalida el vector cuando cambia nombre, marca o descripción para
-que el siguiente proceso de vectorización lo regenere.
-
-**Smoke test técnico (dataset sintético):** el modelo devolvió 384 dimensiones.
-En cuatro consultas de ejemplo, el producto esperado quedó primero en 3 de 4;
-la consulta de brocas priorizó un taladro relacionado. Con los pesos ya
-descargados, cargar el modelo y vectorizar cuatro pasajes tomó 16,0 s; codificar
-las cuatro consultas con el modelo cargado tomó 162,5 ms. Esto es una comprobación
-preliminar, no una medición de búsqueda PostgreSQL ni una garantía de calidad
-para el catálogo real. Revise el [registro preliminar de Semana 4](docs/actas/acta_04_embeddings_busqueda.md)
-antes de procesar el catálogo completo.
+El navegador puede cancelar un análisis largo con el botón **Cancelar** del
+panel, y la espera se corta a los 10 minutos por archivo.
 
 ## Pruebas
 
@@ -507,18 +417,17 @@ venv\Scripts\python.exe -m pytest tests/ -q
 | `stress/` | Lote real de 20 archivos / 5000 productos (Semana 3, optativo) |
 
 ```text
-Última verificación: **515 pruebas pasaron y 1 se omitió** en 189,94 s. La
-prueba optativa de estrés ETL también pasó: 20 archivos y 5000 productos dentro
-del objetivo de 4,25 s.
+Última verificación: **561 pruebas aprobadas y 28 omitidas** con PostgreSQL en
+Docker. Las pruebas de integración clonan las bases y no alteran los datos de
+desarrollo.
 ```
 
 Las pruebas de integración **no tocan las bases de desarrollo**: al iniciar la
 sesión clonan `ferreteria_rag` y `ferreteria_usuarios` como
 `ferreteria_rag_test` y `ferreteria_usuarios_test`, y las eliminan al terminar.
-La copia de prueba recibe automáticamente las migraciones ETL, vectorial y de
-perfil de usuario; la
-base de desarrollo no se altera. Si PostgreSQL no responde, esas pruebas se
-omiten en lugar de fallar.
+La copia de prueba recibe automáticamente las migraciones de ingesta, índices de
+búsqueda y perfil de usuario; la base de desarrollo no se altera. Si PostgreSQL
+no responde, esas pruebas se omiten en lugar de fallar.
 
 La prueba de carga reducida es optativa:
 
@@ -540,7 +449,7 @@ app/                Código del backend (FastAPI)
   db/               Pools de conexión a PostgreSQL
   models/           Acceso a datos (SQL parametrizado)
   schemas/          DTOs de Pydantic
-  services/         Correo, recuperación, ETL, embeddings, búsqueda y LLM
+  services/         Correo, recuperación, ETL local y utilidades del catálogo
   static/           CSS, JS, imágenes y Bootstrap servido localmente
 templates/          Vistas Jinja2
 tests/              Suite de pruebas

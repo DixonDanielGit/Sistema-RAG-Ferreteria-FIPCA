@@ -1,13 +1,8 @@
--- Migracion 11.0 - Markdown de catalogos en disco (RF-02.4).
+-- Migracion 11.0 - Retiro de la columna heredada de un diseno anterior.
 --
--- El Markdown derivado del catalogo ya no se guarda en la base: es informacion
--- derivada del archivo original y se conserva en:
---
---   UPLOADS_DIR/markdown/<id_archivo>.md
---
--- Al eliminar un catalogo se borran, en este orden, su registro y productos en
--- la base y despues el original y su Markdown del disco. Si el borrado fisico
--- falla, queda registrado en el log para que la limpieza pueda reintentarse.
+-- La columna archivos_subidos.contenido_markdown pertenecia al diseno anterior
+-- y la aplicacion actual no la usa. Esta migracion la retira de forma
+-- idempotente; si la instalacion nunca aplico la 10_0, no hay nada que hacer.
 --
 -- No toca productos, ofertas ni datos de inventario y puede repetirse sin
 -- efecto (idempotente).

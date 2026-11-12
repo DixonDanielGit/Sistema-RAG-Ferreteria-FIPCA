@@ -27,13 +27,18 @@ RAG)" se sustituye **exclusivamente** por el **Módulo de Buscador Comercial
 - La búsqueda se resuelve con **Full-Text Search nativo de PostgreSQL
   (`tsvector`/`tsquery` o `ILIKE`)**: respuestas en milisegundos sobre los
   ~8.000 productos, a costo cero y **sin IA en tiempo real**.
-- El ETL convierte los archivos con **Microsoft MarkItDown** a Markdown y un
-  modelo rápido (**OpenRouter**) estructura los registros (sugiriendo un
-  nombre comercial cuando falte) antes de guardarlos en PostgreSQL.
+- El ETL es **100 % local**: los archivos se procesan con **parsers de Python**
+  (`pandas`/`openpyxl` para Excel, `pdfplumber`/`PyMuPDF` para PDF,
+  `python-docx` para Word y lectura nativa para TXT) y lógica determinista con
+  expresiones regulares. **No se usan modelos generativos ni LLM** (OpenRouter,
+  Gemini u otros) durante la ingesta.
+- Si un archivo no encaja en la estructura esperada, se rechaza ese archivo con
+  un mensaje claro al usuario; no se intenta adivinar su contenido con IA.
 
 **Fase 1 (prioritaria y exclusiva):** las semanas 4 y 5 se dedican de lleno al
-Buscador de Catálogos de Proveedores —subida de archivos, MarkItDown, ETL con
-IA, base de datos y búsqueda web con AJAX— hasta lograr el MVP de la semana 4.
+Buscador de Catálogos de Proveedores —subida de archivos, parsers locales en
+Python, persistencia relacional y búsqueda web con AJAX— hasta lograr el MVP de
+la semana 4.
 
 **Fase 2 (diferida):** el **Módulo de Conexión con la Base de Datos del Sistema
 de Ventas** (reportes de ventas, stock real y métricas comerciales) queda
@@ -41,14 +46,13 @@ documentado más abajo como bloque **en pausa**; no se inicia hasta que el
 cliente dé la orden explícita.
 
 **MVP al cierre de la semana 4:** un usuario autenticado sube un catálogo de
-proveedores, el ETL lo convierte con MarkItDown y lo estructura con el modelo
-configurado en OpenRouter (gratuito o de pago) en tablas relacionales de PostgreSQL,
-y desde la interfaz web puede
-buscar productos con AJAX obteniendo resultados **instantáneos (milisegundos)**
-por Full-Text Search. El buscador devuelve únicamente productos reales de la
-base de datos; si no hay coincidencias lo indica sin inventar productos. El
-flujo debe estar probado de extremo a extremo y ser demostrable en el entorno
-piloto. 
+proveedores, el ETL local extrae y normaliza los registros con los parsers de
+Python y los guarda de forma estructurada en PostgreSQL, y desde la interfaz web
+puede buscar productos con AJAX obteniendo resultados **instantáneos
+(milisegundos)** por Full-Text Search, mostrando producto, precio, proveedor y
+número de contacto. El buscador devuelve únicamente productos reales de la base
+de datos; si no hay coincidencias lo indica sin inventar productos. El flujo debe
+estar probado de extremo a extremo y ser demostrable en el entorno piloto.
 
 ---
 
@@ -76,11 +80,13 @@ piloto.
 
 ## Semana 3: Interfaz e ingesta ETL — completada
 
-La interfaz se adelantó mediante la Adenda 1 y el motor de ingesta se terminó
-antes de la etapa prevista. Se registran aquí como trabajo ejecutado, no como
-tareas pendientes.
+La interfaz se adelantó mediante la Adenda 1 y el motor de ingesta base se
+terminó antes de la etapa prevista. Se registran aquí como trabajo ejecutado, no
+como tareas pendientes. La directriz vigente exige que la extracción y
+estructuración se realicen con **parsers locales de Python, sin IA**; la
+adaptación y validación de ese motor se controla en la Semana 4.
 
-- [x] Implementar acceso, panel y chat web. (Crear las pantallas para entrar, recuperar la cuenta y usar el sistema.)
+- [x] Implementar acceso, panel y buscador web. (Crear las pantallas para entrar, recuperar la cuenta y usar el sistema.)
 - [x] Añadir temas claro/oscuro, protección CSRF y empaquetado de la API en
   Docker. (Permitir cambiar la apariencia, proteger acciones web y preparar la API para ejecutarse en contenedores.)
 - [x] Implementar la carga e historial de catálogos PDF, XLSX, DOCX y TXT. (Permitir cargar catálogos y consultar los archivos enviados.)
@@ -117,37 +123,31 @@ tareas pendientes.
 
 ## Semana 4: Buscador Comercial (Live Search) y entrega del MVP funcional
 
-**Estado actual.** La conversión a Markdown con MarkItDown, la búsqueda
-Full-Text de PostgreSQL, el endpoint y la interfaz del buscador ya están
-implementados. El chat RAG queda fuera del alcance activo. Se habilita el uso
-de modelos de pago de OpenRouter; USD 10 están reservados para pruebas
-controladas, no como presupuesto operativo. La integración se valida con
-respuestas simuladas y queda pendiente el smoke test real con un archivo
-pequeño, usando el saldo de pruebas y revisando el costo reportado antes de
-escalar. En esta revisión pasaron 94 pruebas unitarias focalizadas de ETL,
-OpenRouter e ingesta. No se realizó una llamada real al proveedor. La búsqueda
-trabaja directamente sobre los productos guardados en PostgreSQL, sin exigir
-archivos cargados. En una validación de integración anterior se omitieron 29
-pruebas porque no se pudo preparar la base de pruebas
-(`relation "productos" does not exist`). Siguen pendientes la validación con
-catálogo representativo, el recorrido de extremo a extremo y la demostración
-del MVP.
+**Estado actual.** La búsqueda Full-Text de PostgreSQL, el endpoint y la
+interfaz del buscador ya están implementados y operan directamente sobre los
+productos guardados, sin exigir archivos cargados. El chat RAG y los embeddings
+quedan fuera del alcance activo. La directriz vigente elimina la IA del ETL: las
+etapas de conversión a Markdown y estructuración con modelos externos se retiran
+del alcance y se sustituyen por **parsers locales de Python con lógica
+determinista**. Queda pendiente consolidar y validar ese ETL local, probarlo con
+un catálogo representativo, ejecutar el recorrido de extremo a extremo y
+demostrar el MVP.
 
-- [x] Integrar **Microsoft MarkItDown** en el pipeline ETL para convertir los
-  archivos PDF, Excel y Word a formato Markdown. (Unificar la lectura de los
-  documentos en un solo paso de conversión.)
-- [x] Conectar **OpenRouter** para que tome el Markdown y estructure los
-  registros por lotes; se admiten modelos configurados gratuitos o de pago y
-  se valida la evidencia literal antes de insertar.
-- [ ] Habilitar la sugerencia de un nombre comercial cuando falte en el
-  catálogo, sin completar hechos ausentes ni permitir que el nombre sugerido
-  altere la evidencia literal del origen. (Pendiente de ajustar el contrato de
-  extracción y sus validaciones; actualmente el nombre también debe aparecer
-  literalmente en la fuente.)
-- [ ] Validar la respuesta del modelo y guardar los datos limpios en las tablas
-  relacionales de PostgreSQL, sin alterar stock ni inventar proveedores.
-  (Falta el smoke test real controlado con un catálogo representativo; persistir
-  solo información válida y trazable al archivo de origen.)
+- [ ] Implementar y consolidar los **parsers locales** del ETL: `pandas` y
+  `openpyxl` para `.xlsx`; `pdfplumber` y `PyMuPDF` (`fitz`) para `.pdf`;
+  `python-docx` para `.docx`; lectura nativa para `.txt`. (Extraer códigos,
+  descripciones, precios y datos de proveedor sin servicios externos.)
+- [ ] Definir el mapeo determinista de columnas y cabeceras, junto con
+  expresiones regulares para precios, códigos y contactos. (Normalizar los
+  datos con reglas reproducibles y auditables.)
+- [ ] Rechazar los archivos de formato irregular o incompatible con un mensaje
+  claro al usuario, sin intentar adivinarlos con IA y sin detener el resto del
+  lote. (Aplicar la plantilla estándar o corregir las columnas antes de
+  reintentar.)
+- [ ] Guardar los datos extraídos de forma directa y estructurada en las tablas
+  relacionales de PostgreSQL (producto, precio, proveedor y número de
+  contacto), sin alterar stock, sin inventar proveedores y conservando la
+  trazabilidad al archivo de origen.
 - [x] Preparar la indexación **Full-Text Search** de PostgreSQL (columna
   `tsvector` + índice) sobre productos y consultar con `tsquery`, con respaldo
   `ILIKE`. (Habilitar búsquedas instantáneas y a costo cero en los ~8.000
@@ -157,12 +157,19 @@ del MVP.
   comercial**. (Mostrar resultados de productos en tiempo real sin recargar la
   página y sin IA en tiempo real. La consulta puede tener desde un carácter y
   busca directamente en `productos`, aunque no se hayan cargado archivos.)
-- [x] Cubrir el ETL nuevo y la búsqueda con pruebas unitarias y de API,
-  incluidos valores límite. (En la ejecución focalizada pasaron 69 pruebas
-  unitarias/API de ETL, transformación Markdown y búsqueda, incluidas consultas
-  límite. Las 29 pruebas de integración se omitieron porque no se pudo preparar
-  la base de pruebas (`relation "productos" does not exist`); completar esa
-  validación antes de dar por aceptado el MVP.)
+- [ ] Asegurar que los resultados y el detalle de cada coincidencia muestren
+  producto, precio, proveedor y **número de contacto** asociado, sin exponer
+  datos innecesarios. (Completar la información comercial exigida por el
+  buscador.)
+- [ ] Cubrir con pruebas unitarias los parsers locales y la normalización:
+  archivos válidos, columnas faltantes, precios con formatos distintos, valores
+  límite y rechazo de formatos incompatibles. (Comprobar que cada formato se
+  procese sin IA y que los errores se informen con claridad.)
+- [x] Cubrir la búsqueda con pruebas unitarias y de API, incluidos valores
+  límite. (En una ejecución focalizada pasaron pruebas de búsqueda y consultas
+  límite. Las pruebas de integración que no pudieron preparar la base
+  (`relation "productos" does not exist`) deben repetirse antes de aceptar el
+  MVP.)
 - [x] Redirigir al usuario a `/search` después de iniciar sesión y al abrir
   `/login` con una sesión activa. (Dejar el buscador como destino directo de
   entrada al sistema.)
@@ -176,8 +183,9 @@ del MVP.
   funcional. (Resolver problemas que impidan usar el sistema y dejarlo listo
   para mostrar.)
 - [ ] **Criterio de salida del MVP:** flujo completo demostrable desde la web
-  sobre productos cargados; respuestas en milisegundos, resultados limitados a
-  productos reales, sin IA en tiempo real, comportamiento honesto sin
+  sobre productos cargados con los parsers locales; respuestas en milisegundos,
+  resultados limitados a productos reales con precio, proveedor y número de
+  contacto, sin IA en la ingesta ni en tiempo real, comportamiento honesto sin
   coincidencias y pruebas críticas pasando.
   (Condición para considerar listo el prototipo: que pueda demostrarse y
   encuentre solo productos comprobables.)
@@ -201,17 +209,18 @@ del MVP.
 - [ ] Ajustar la indexación según las mediciones: pesos, sinónimos, prefijos en
   `tsquery` o respaldo con `ILIKE`. (Mejorar la precisión y la velocidad sin
   añadir IA en tiempo real.)
-- [ ] Verificar que ninguna consulta del usuario invoque un modelo de
-  lenguaje ni embeddings en tiempo real. (Confirmar que la búsqueda sea local
-  en PostgreSQL y a costo cero.)
-- [ ] Probar fallos del ETL con modelo (respuesta inválida de OpenRouter,
-  límite de tokens, proveedor caído) y mensajes de recuperación para el
-  usuario. (Comprobar que el sistema informe claramente si un servicio falla
-  o tarda.)
+- [ ] Verificar que ninguna consulta del usuario ni ninguna etapa del ETL
+  invoque un modelo de lenguaje, un servicio de embeddings o una API externa de
+  IA. (Confirmar que la búsqueda y la ingesta sean locales en PostgreSQL y
+  Python, a costo cero.)
+- [ ] Probar fallos del ETL local: archivos corruptos, columnas faltantes,
+  formatos incompatibles, precios ilegibles y lotes que superan los límites;
+  comprobar que el rechazo sea por archivo, con mensaje claro, sin detener el
+  resto del lote.
 - [ ] Revisar seguridad del flujo de búsqueda y del ETL, manejo de
-  configuración y registros sin exponer credenciales (incluida la clave de
-  Gemini) ni datos innecesarios. (Verificar que la información sensible no
-  quede expuesta.)
+  configuración y registros sin exponer credenciales ni datos innecesarios.
+  (Confirmar que el ETL no requiere claves de OpenRouter/Gemini y que la
+  información sensible no quede expuesta.)
 - [ ] **Entregable:** Acta 5 de validación del piloto, relevancia, seguridad y
   rendimiento del Buscador Comercial. (Documento con los resultados de
   precisión, velocidad y seguridad del piloto.)
@@ -235,7 +244,9 @@ del MVP.
 - [ ] Preparar proxy inverso, HTTPS y dominio, según los datos disponibles del
   cliente. (Configurar una dirección web segura para acceder al sistema.)
 - [ ] Definir respaldos, persistencia de base de datos, archivos cargados y
-  claves del ETL (OpenRouter); documentar recuperación básica. (Planificar copias de seguridad y cómo restaurar la información.)
+  configuración del ETL local; documentar recuperación básica. (Planificar
+  copias de seguridad y cómo restaurar la información; el ETL no requiere
+  claves de IA.)
 - [ ] Revisar salud, logs, permisos, límites de recursos y configuración de la
   API para el entorno de producción. (Comprobar que el sistema esté preparado para funcionar en el servidor.)
 - [ ] Redactar y revisar manual técnico y guía breve de uso para el personal. (Preparar instrucciones para quienes administren y utilicen el sistema.)
@@ -296,7 +307,7 @@ del MVP.
 | Hito | Fecha objetivo | Condición de aceptación |
 |---|---|---|
 | Replanificación | Día 3 | Semanas 1–3 registradas como completadas; alcance del Buscador Comercial priorizado; autenticación y roles intactos |
-| MVP funcional | Cierre de semana 4 | Catálogo subido, ETL con MarkItDown + OpenRouter, búsqueda full-text en milisegundos desde la web, resultados reales y pruebas de flujo |
+| MVP funcional | Cierre de semana 4 | Catálogo subido, ETL local con parsers de Python, búsqueda full-text en milisegundos desde la web con producto/precio/proveedor/contacto, resultados reales y pruebas de flujo |
 | Validación del piloto | Cierre de semana 5 | Relevancia, latencia (milisegundos), seguridad y comportamiento sin coincidencias documentados |
 | Módulos administrativos | Cierre de semana 6 | Inventario y bitácora operables con permisos y reglas de negocio |
 | Preparación de producción | Cierre de semana 7 | Despliegue ensayado, secretos, respaldos y documentación listos |

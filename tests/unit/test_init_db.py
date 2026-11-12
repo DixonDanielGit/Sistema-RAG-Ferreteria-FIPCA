@@ -286,16 +286,20 @@ def test_migracion_8_0_completa_proveedor_desde_archivo_sin_adivinar():
     assert "vectorizado_en = null" in migracion
 
 
-def test_migracion_11_0_mueve_el_markdown_fuera_de_la_base():
+def test_migracion_11_0_retira_la_columna_heredada_de_markdown():
     raiz = Path(__file__).resolve().parents[2]
     esquema = (raiz / "init.sql").read_text(encoding="utf-8").lower()
     migracion = (raiz / "scripts" / "migracion_11_0.sql").read_text(
         encoding="utf-8"
     ).lower()
 
+    # El diseno actual no guarda Markdown: el ETL es local y persiste los
+    # campos comerciales directamente en PostgreSQL.
     assert "contenido_markdown" not in esquema
+    assert "alter table archivos_subidos" in migracion
     assert "drop column if exists contenido_markdown" in migracion
-    assert "uploads_dir/markdown/<id_archivo>.md" in migracion
+    # No se generan ni se esperan archivos Markdown en disco.
+    assert "markdown/<id_archivo>.md" not in migracion
 
 
 # ---------------------------------------------------------------------
@@ -331,7 +335,7 @@ def test_bitacora_rechaza_delete(usuarios):
     with usuarios.cursor() as cur:
         cur.execute(
             "INSERT INTO bitacora (id_usuario, accion, modulo) "
-            "VALUES (%s, 'Consulta RAG', 'rag_chat')",
+            "VALUES (%s, 'Consulta de permisos', 'auth')",
             (id_usuario,),
         )
         with pytest.raises(errors.RaiseException):

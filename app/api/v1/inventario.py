@@ -26,7 +26,6 @@ from app.core.logging import registrar_evento
 from app.models import inventario as inventario_model
 from app.schemas.inventario_schema import (
     ArchivoIngesta,
-    EstadoVectorizacion,
     LIMITE_DEFECTO_BUSQUEDA,
     LIMITE_MAXIMO_BUSQUEDA,
     LONGITUD_MAXIMA_BUSQUEDA,
@@ -43,7 +42,7 @@ from app.schemas.inventario_schema import (
     SolicitudObservacionCatalogo,
     SolicitudObservacionProducto,
 )
-from app.services import etl_service, vector_search
+from app.services import etl_service
 
 router = APIRouter(prefix="/inventario", tags=["Inventario"])
 
@@ -276,31 +275,6 @@ def actualizar_observacion_catalogo(
     return resultado
 
 
-@router.get(
-    "/vectorizacion",
-    response_model=EstadoVectorizacion,
-    summary="Cobertura del indice de busqueda",
-)
-def estado_vectorizacion(
-    _: dict[str, Any] = Depends(usuario_actual),
-) -> dict[str, Any]:
-    """Productos del catalogo todavia sin embedding.
-
-    Un producto sin vector no entra en la busqueda semantica, asi que el
-    asistente no puede responder sobre el: el panel lo muestra para que la
-    vectorizacion no se olvide despues de cada carga. `en_curso` indica si
-    un lote automatico esta corriendo ahora para que el panel espere el
-    resultado en lugar de mostrar un conteo viejo.
-    """
-    pendientes = inventario_model.contar_productos_sin_embedding()
-    total = inventario_model.contar_productos_catalogo()
-    return {
-        "total": total,
-        "pendientes": pendientes,
-        "en_curso": vector_search.vectorizacion_en_curso(),
-    }
-
-
 @router.post(
     "/ingesta",
     response_model=RespuestaIngesta,
@@ -316,7 +290,7 @@ def estado_vectorizacion(
 async def ingesta(
     request: Request,
     archivos: list[UploadFile] | None = File(
-        default=None, description="PDF, XLSX, DOCX, TXT o Markdown"
+        default=None, description="PDF, XLSX, DOCX o TXT"
     ),
     selecciones_precio: str | None = Form(default=None),
     metadatos_catalogo: str | None = Form(default=None),
@@ -443,12 +417,6 @@ async def ingesta(
     finally:
         _cerradura_ingesta.release()
 
-    # La carga deja productos sin vector: se indexan en segundo plano para
-    # que el panel de fuentes no quede marcando pendientes hasta que alguien
-    # recuerde correr el script manual. Solo si algo se guardo de verdad.
-    if any(estado in {"ok", "parcial"} for estado in estados):
-        vector_search.lanzar_vectorizacion_automatica()
-
     return RespuestaIngesta(
         resultados=resultados,
         total_archivos=len(resultados),
@@ -468,7 +436,7 @@ async def ingesta(
     },
 )
 async def previsualizacion(
-    archivo: UploadFile = File(description="PDF, XLSX, DOCX, TXT o Markdown"),
+    archivo: UploadFile = File(description="PDF, XLSX, DOCX o TXT"),
     selecciones_precio: str | None = Form(default=None),
     _: dict[str, Any] = Depends(requiere_permiso("catalogos:ingestar")),
 ) -> dict[str, Any]:
@@ -532,8 +500,6 @@ async def eliminar_archivos(
             ),
             id_usuario=usuario["id"],
         )
-    if resultado["eliminados"]:
-        vector_search.lanzar_vectorizacion_automatica()
     return resultado
 
 
@@ -555,8 +521,8 @@ async def eliminar_archivo(
     """Retira un catalogo cargado, procesado o no, y todo lo que provino de el.
 
     La eliminacion es transaccional: los productos asociados al documento
-    (con sus vectores) se quitan junto con el registro del archivo y el
-    original deja de existir en disco.
+    se quitan junto con el registro del archivo y el original deja de existir
+    en disco.
     """
     resultado = await run_in_threadpool(
         etl_service.eliminar_catalogo_completo, id_archivo
@@ -575,5 +541,4 @@ async def eliminar_archivo(
         ),
         id_usuario=usuario["id"],
     )
-    vector_search.lanzar_vectorizacion_automatica()
     return resultado

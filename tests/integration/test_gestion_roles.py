@@ -53,7 +53,7 @@ class TestGestionDeRoles:
             )
             cantidad_segunda_ejecucion = cur.fetchone()[0]
 
-        assert cantidad_primera_ejecucion == 4
+        assert cantidad_primera_ejecucion == 5
         assert cantidad_segunda_ejecucion == cantidad_primera_ejecucion
 
     def test_solo_admin_ve_el_modulo_de_roles(
@@ -245,6 +245,7 @@ class TestGestionDeRoles:
             "catalogos:ingestar",
             "catalogos:eliminar",
             "configuracion:diagnostico",
+            "bitacora:consultar",
         }
         assert cliente.put(
             f"/api/v1/auth/roles/{rol_admin['id_rol']}",

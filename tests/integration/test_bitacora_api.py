@@ -35,9 +35,9 @@ def _registrar_eventos(cuenta: dict) -> None:
     )
     bitacora.registrar(
         id_usuario=cuenta["id"],
-        accion="consulta al asistente sobre taladros",
+        accion="consulta de permisos del sistema",
         ip="10.0.0.2",
-        modulo="rag_chat",
+        modulo="auth",
     )
 
 
@@ -120,7 +120,7 @@ class TestFiltros:
 
         assert respuesta.status_code == 200
         assert [evento["accion"] for evento in respuesta.json()] == [
-            "consulta al asistente sobre taladros"
+            "consulta de permisos del sistema"
         ]
 
     def test_filtra_por_fechas(self, cliente, crear_cuenta, token_de):
@@ -157,7 +157,7 @@ class TestFiltros:
 
         assert respuesta.status_code == 200
         eventos = respuesta.json()
-        assert eventos[0]["accion"] == "consulta al asistente sobre taladros"
+        assert eventos[0]["accion"] == "consulta de permisos del sistema"
         assert eventos[1]["accion"] == "carga de catalogo de prueba"
 
     def test_lista_modulos(self, cliente, crear_cuenta, token_de):
@@ -170,7 +170,7 @@ class TestFiltros:
         assert respuesta.status_code == 200
         modulos = respuesta.json()
         assert "inventario" in modulos
-        assert "rag_chat" in modulos
+        assert "auth" in modulos
 
 
 class TestValidacion:

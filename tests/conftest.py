@@ -18,22 +18,14 @@ from dotenv import load_dotenv
 RAIZ = Path(__file__).resolve().parents[1]
 load_dotenv(RAIZ / ".env")
 
-# La vectorizacion automatica lanza hilos que escriben vectores en segundo
-# plano: la suite la apaga para que ninguna prueba dependa de un hilo ajeno
-# ni toque las bases fuera de su propio flujo. Quien pruebe esa rama la
-# habilita a mano en la prueba.
-os.environ["VECTORIZACION_AUTOMATICA"] = "0"
-
-# Los limites del ETL y de la transformacion se pueden ajustar por entorno para
-# aceptar catalogos grandes. Las pruebas unitarias deben ver siempre los valores
-# documentados, asi que se fijan aqui antes de importar la aplicacion:
-# load_dotenv no sobrescribe variables que ya existen en el entorno.
+# Los limites del ETL se pueden ajustar por entorno para aceptar catalogos
+# grandes. Las pruebas unitarias deben ver siempre los valores documentados,
+# asi que se fijan aqui antes de importar la aplicacion: load_dotenv no
+# sobrescribe variables que ya existen en el entorno.
 os.environ["ETL_MAX_FILAS_ARCHIVO"] = "20000"
 os.environ["ETL_MAX_LINEAS_TEXTO"] = "1000000"
 os.environ["ETL_MAX_PAGINAS_PDF"] = "500"
 os.environ["ETL_MAX_PAGINAS_DOCX"] = "500"
-os.environ["OPENROUTER_MAX_TOKENS"] = "32768"
-os.environ["OPENROUTER_MAX_CARACTERES_POR_LOTE"] = "24000"
 
 RAG_PLANTILLA = "ferreteria_rag"
 USUARIOS_PLANTILLA = "ferreteria_usuarios"
@@ -115,7 +107,9 @@ def bases_de_prueba():
         conexion_usuarios = conexion_admin(USUARIOS_PRUEBA)
         try:
             with conexion_usuarios.cursor() as cur:
-                for version in ("5_0", "6_0", "9_0"):
+                # Las migraciones de busqueda (9_0 en adelante) pertenecen a
+                # ferreteria_rag; la base de usuarios solo recibe las propias.
+                for version in ("5_0", "6_0"):
                     migracion = RAIZ / "scripts" / f"migracion_{version}.sql"
                     cur.execute(migracion.read_text(encoding="utf-8"))
                 # La base de desarrollo puede tener permisos asignados a mano

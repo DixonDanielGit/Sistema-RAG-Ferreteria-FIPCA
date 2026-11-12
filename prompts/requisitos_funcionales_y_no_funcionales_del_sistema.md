@@ -14,12 +14,17 @@
   Comercial ("Live Search" de Proveedores y Productos)**. No se mantiene un chat
   generativo en tiempo real en la interfaz.
 - **Módulos intactos:** los módulos de **Autenticación, Control de Roles y
-  Usuarios (RF-01)** conservan su arquitectura y sus esquemas tal como fueron
-  planeados inicialmente; esta especificación no los modifica ni los renumera.
+  Usuarios (RF-01)** y la **Bitácora inmutable de Auditoría (RF-05)** conservan
+  su arquitectura y sus esquemas tal como fueron planeados inicialmente; esta
+  especificación no los modifica ni los renumera.
+- **ETL sin IA generativa:** la ingesta de catálogos es **100 % local**. No se
+  envían archivos, fragmentos de texto ni Markdown a OpenRouter, Gemini ni a
+  ningún otro modelo de lenguaje (LLM). La extracción se realiza con parsers
+  nativos de Python y lógica determinista.
 - **Fase 1 (prioritaria y exclusiva):** desarrollar, probar y estabilizar el
-  Buscador de Catálogos de Proveedores: subida de archivos, conversión con
-  Microsoft MarkItDown, ETL estructurado con IA (`Gemini Flash`), base de datos
-  relacional en PostgreSQL y búsqueda web con AJAX.
+  Buscador de Catálogos de Proveedores: subida de archivos, extracción local con
+  parsers de Python, normalización determinista, base de datos relacional en
+  PostgreSQL y búsqueda web con AJAX.
 - **Fase 2 (posterior y condicionada):** el **Módulo de Conexión con la Base de
   Datos del Sistema de Ventas de la Ferretería** (reportes de ventas, stock real
   y métricas comerciales) queda documentado en este SRS como módulo
@@ -48,19 +53,26 @@
 
 ### RF-02: Gestión y Ingesta Masiva de Catálogos (Motor ETL)
 - **RF-02.1:** Extracción, transformación y carga (ETL) de archivos de proveedores en formatos PDF, Excel (`.xlsx`), Word (`.docx`) y texto (`.txt`). No se admiten `.xls` ni `.csv`.
-- **RF-02.2:** Normalización automática de datos de productos (precios, marcas, descripciones, equivalencias).
+- **RF-02.2:** Normalización automática de datos de productos (códigos, precios, marcas, descripciones, equivalencias, proveedor y número de contacto).
 - **RF-02.3:** Tolerancia a fallos durante la ingesta masiva sin detener el servicio.
-- **RF-02.4:** Los archivos subidos (PDF, Excel, Word) se convierten a formato
-  Markdown con **Microsoft MarkItDown** en Python, que actúa como paso único de
-  lectura y normalización de formato del documento.
-- **RF-02.5:** Un modelo rápido (**Gemini Flash**) recibe el Markdown producido
-  por MarkItDown, estructura los registros en tablas relacionales de PostgreSQL
-  y **genera un nombre comercial sugerido cuando el producto carece de uno**. El
-  modelo se usa únicamente de forma asíncrona dentro del ETL, nunca para
-  responder consultas del usuario; sus resultados se validan antes de guardarse.
-- **RF-02.6:** Los datos limpios resultantes se persisten en tablas relacionales
-  de PostgreSQL (productos, proveedores, categorías y archivos subidos),
-  conservando la trazabilidad del archivo de origen.
+- **RF-02.4:** El contenido se extrae **localmente en Python** según el formato del archivo:
+  - `.xlsx`: lectura directa y ultrarrápida con **pandas** y **openpyxl**, a partir de la estructura de columnas y cabeceras.
+  - `.pdf`: extracción de texto con **pdfplumber** y **PyMuPDF (`fitz`)**.
+  - `.docx`: extracción con **python-docx**.
+  - `.txt`: lectura nativa de texto plano.
+
+  No se utiliza conversión a Markdown ni se depende de servicios externos para leer los archivos.
+- **RF-02.5:** La estructuración es **determinista**: mapeo de columnas y cabeceras, expresiones regulares (Regex) y reglas de normalización para identificar códigos, descripciones, precios, proveedores y contactos. Queda **prohibido** el uso de modelos generativos o LLM (OpenRouter, Gemini u otros) en cualquier etapa de la ingesta.
+- **RF-02.6:** Si un archivo presenta un formato irregular o incompatible que el
+  parser local no pueda interpretar de forma limpia, el sistema **no intenta
+  adivinarlo con IA**: rechaza únicamente ese archivo y devuelve al usuario un
+  mensaje claro (por ejemplo, "Formato de catálogo no compatible, por favor
+  verifique las columnas o use la plantilla estándar"). El resto del lote
+  continúa procesándose.
+- **RF-02.7:** Los datos limpios resultantes se persisten de forma directa y
+  estructurada en tablas relacionales de PostgreSQL (productos, precios,
+  proveedores, contactos, categorías y archivos subidos), conservando la
+  trazabilidad del archivo de origen.
 
 ### RF-03: Módulo de Buscador Comercial ("Live Search" de Proveedores y Productos)
 - **RF-03.1:** La interfaz web (Bootstrap 5 + AJAX) permite buscar en tiempo
@@ -71,9 +83,10 @@
   `ILIKE` cuando corresponda, para garantizar respuestas **instantáneas
   (milisegundos)** y a **costo cero** por consulta.
 - **RF-03.3:** Los resultados se limitan estrictamente a los productos existentes
-  en la base de datos (código, nombre comercial, marca, categoría y proveedor);
-  el buscador **nunca inventa productos ni precios** y debe indicar
-  claramente cuando no hay coincidencias.
+  en la base de datos y muestran, como mínimo, **producto, precio, proveedor y
+  número de contacto** (además de código, nombre comercial, marca y categoría
+  cuando estén disponibles); el buscador **nunca inventa productos ni precios** y
+  debe indicar claramente cuando no hay coincidencias.
 - **RF-03.4:** El buscador sustituye al chat conversacional: la pantalla de
   consulta muestra resultados de productos con sus datos comerciales, no
   respuestas generativas en lenguaje natural.
@@ -113,11 +126,15 @@
 ### RNF-02: Seguridad y Protección de Datos
 - **RNF-02.1:** Contraseñas encriptadas mediante algoritmos de hashing seguros (`scrypt` o `bcrypt`).
 - **RNF-02.2:** Sanitización de todas las entradas para prevenir Inyecciones SQL y Cross-Site Scripting (XSS).
-- **RNF-02.3:** Protección del canal con el modelo en el ETL: sanitización del
-  Markdown que se envía a `Gemini Flash`, validación estructural de la respuesta
-  del modelo y rechazo de datos inválidos antes de persistirlos (defensa anti
-  prompt injection aplicada al proceso por lotes). La consulta del usuario nunca
-  se envía a un modelo de lenguaje.
+- **RNF-02.3:** El pipeline ETL se ejecuta íntegramente en local: **no se
+  transmiten archivos, fragmentos de texto ni Markdown a servicios externos de
+  IA**. Se validan estructura, tipos y rangos antes de persistir, se sanean las
+  entradas y se rechazan los registros inválidos (defensa contra datos
+  malformados y contenido malicioso incrustado en el catálogo). La consulta del
+  usuario tampoco se envía a un modelo de lenguaje.
+- **RNF-02.4:** El ETL no requiere claves de API de OpenRouter, Gemini ni de
+  ningún proveedor de IA. Los registros y mensajes de error no deben exponer
+  credenciales ni datos innecesarios.
 
 ### RNF-03: Arquitectura, Despliegue y Portabilidad
 - **RNF-03.1:** Despliegue en contenedores aislados mediante Docker y Docker Compose.

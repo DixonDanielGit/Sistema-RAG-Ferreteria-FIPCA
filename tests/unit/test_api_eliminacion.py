@@ -23,7 +23,6 @@ def _app(usuario=None):
 
 def test_admin_elimina_catalogo_procesado(monkeypatch):
     llamadas = []
-    vectorizaciones = []
 
     def eliminar(id_archivo):
         llamadas.append(id_archivo)
@@ -35,11 +34,6 @@ def test_admin_elimina_catalogo_procesado(monkeypatch):
         }
 
     monkeypatch.setattr(inventario.etl_service, "eliminar_catalogo_completo", eliminar)
-    monkeypatch.setattr(
-        inventario.vector_search,
-        "lanzar_vectorizacion_automatica",
-        lambda: vectorizaciones.append(True),
-    )
     cliente = TestClient(_app())
 
     respuesta = cliente.delete("/api/v1/inventario/archivos/7")
@@ -53,7 +47,6 @@ def test_admin_elimina_catalogo_procesado(monkeypatch):
         "archivo_original_eliminado": True,
     }
     assert llamadas == [7]
-    assert vectorizaciones == [True]
 
 
 def test_eliminar_catalogo_inexistente_responde_404(monkeypatch):
