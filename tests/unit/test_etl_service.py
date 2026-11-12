@@ -959,6 +959,157 @@ def test_pdf_usa_la_estrategia_de_cuadros_cuando_el_catalogo_es_de_tarjetas(
     assert productos[0]["precio"] == Decimal("12.04")
 
 
+def _pagina_de_palabras(filas):
+    """Pagina falsa: ``filas`` es una lista de renglones y cada renglon una
+    lista de ``(texto, x)``. El tope avanza 12 pt por renglon."""
+    palabras = []
+    for indice, renglon in enumerate(filas):
+        tope = 100.0 + indice * 12
+        for texto, x in renglon:
+            ancho = len(str(texto)) * 4.8
+            palabras.append(
+                {
+                    "text": str(texto),
+                    "x0": float(x),
+                    "x1": float(x) + ancho,
+                    "top": tope,
+                    "bottom": tope + 7.2,
+                }
+            )
+    return type("Pagina", (), {"extract_words": lambda self: palabras})()
+
+
+def test_pdf_columnas_lee_bloques_con_ref_marca_y_precio():
+    # Dos productos por renglon comparten linea base: cada uno se arma dentro
+    # de su columna, sin mezclar el nombre de uno con el precio del otro.
+    pagina = _pagina_de_palabras(
+        [
+            [("00-002-096", 125), ("00-002-097", 405)],
+            [("Ref:", 125), ("46-009", 142), ("Ref:", 405), ("46-010", 422)],
+            [("ALICATE", 125), ("ELECTRICISTA", 155), ("ALICATE", 405), ("PINZA", 435)],
+            [("Marca:", 125), ("EXXEL", 156), ("Marca:", 405), ("EXXEL", 436)],
+            [("Min.", 125), ("Vta:", 144), ("1", 162), ("Min.", 405), ("Vta:", 424), ("1", 442)],
+            [("Precio:", 125), ("4.73", 156), ("Precio:", 405), ("3.47", 435)],
+            [("Precio", 125), ("+", 153), ("IVA:", 160), ("5.49", 179),
+             ("Precio", 405), ("+", 432), ("IVA:", 439), ("4.03", 458)],
+        ]
+    )
+
+    fichas = etl_service._fichas_columnas_pagina(pagina)
+
+    assert fichas == [
+        ("46-009", "ALICATE ELECTRICISTA", "4.73", "EXXEL"),
+        ("46-010", "ALICATE PINZA", "3.47", "EXXEL"),
+    ]
+
+
+def test_pdf_columnas_no_inventa_nombre_si_el_proveedor_no_lo_trae():
+    pagina = _pagina_de_palabras(
+        [
+            [("REF-1", 100)],
+            [("Ref:", 100), ("REF-1", 117)],
+            [("Marca:", 100), ("ACME", 131)],
+            [("Precio:", 100), ("9.50", 131)],
+        ]
+    )
+
+    fichas = etl_service._fichas_columnas_pagina(pagina)
+
+    assert [(f[0], f[2]) for f in fichas] == [("REF-1", "9.50")]
+    assert fichas[0][1] == ""
+
+
+def test_pdf_etiquetas_lee_bloques_con_codigo_marca_y_existencia():
+    # El nombre y el precio vienen arriba del CODIGO; la marca y la existencia
+    # debajo. Cada columna es un producto distinto.
+    pagina = _pagina_de_palabras(
+        [
+            [("ALICATE", 226), ("CORTE", 275), ("DIAGONAL", 314),
+             ("ALICATE", 395), ("ELECTRICISTA", 444)],
+            [("UYUSTOOLS", 226), ("UYUSTOOLS", 395), ("8\"", 464)],
+            [("$3.26", 234), ("$4.49", 403)],
+            [("CODIGO:", 239), ("0000-AALC6D-", 268),
+             ("CODIGO:", 408), ("0000-AALU8D-", 438)],
+            [("MARCA:", 239), ("UYUSTOOLS", 265), ("MARCA:", 408), ("UYUSTOOLS", 434)],
+            [("MEDIDA:", 239), ("6\"", 268), ("MEDIDA:", 408), ("8\"", 437)],
+            [("EXISTENCIA:", 239), ("251", 280), ("EXISTENCIA:", 408), ("100", 449)],
+        ]
+    )
+
+    fichas = etl_service._fichas_etiquetas_pagina(pagina)
+
+    assert fichas == [
+        ("0000-AALC6D-", "ALICATE CORTE DIAGONAL UYUSTOOLS", "3.26", "UYUSTOOLS", 251),
+        ("0000-AALU8D-", "ALICATE ELECTRICISTA UYUSTOOLS 8\"", "4.49", "UYUSTOOLS", 100),
+    ]
+
+
+def test_pdf_tabla_dolar_lee_codigo_punto_con_precio_en_la_fila():
+    pagina = _pagina_de_palabras(
+        [
+            [("COD.", 8), ("A-84109", 32)],
+            [("DISCO", 8), ("CERAMICO", 48)],
+            [("Segmentado", 8)],
+            [("( 7\"", 8), ("180", 24), ("MM)", 43)],
+            [("ORIGEN", 25)],
+            [("IMPORTADO", 17)],
+            [("EMPAQUE", 23), ("PRECIO", 80), ("/", 105), ("UND", 110)],
+            [("1", 27), ("UND", 33), ("$", 91), ("8,56", 98), ("MAKITA", 156)],
+        ]
+    )
+
+    fichas = etl_service._fichas_tabla_dolar_pagina(pagina)
+
+    assert fichas == [
+        ("A-84109", "DISCO CERAMICO Segmentado ( 7\" 180 MM)", "8,56", "MAKITA")
+    ]
+
+
+def test_pdf_tabla_dolar_toma_el_codigo_suelto_del_renglon_siguiente():
+    # Cuando el proveedor deja "COD." sin codigo, el codigo esta justo debajo.
+    pagina = _pagina_de_palabras(
+        [
+            [("COD.", 8)],
+            [("DDU115", 32)],
+            [("DISCO", 8), ("CERAMICO", 48)],
+            [("ORIGEN", 25)],
+            [("1", 27), ("UND", 33), ("$", 91), ("3,26", 98)],
+        ]
+    )
+
+    fichas = etl_service._fichas_tabla_dolar_pagina(pagina)
+
+    assert fichas == [("DDU115", "DISCO CERAMICO", "3,26", None)]
+
+
+@pytest.mark.parametrize(
+    ("funcion", "texto_activador", "texto_normal"),
+    [
+        (
+            "_es_catalogo_de_columnas",
+            "Ref: 16-002 Precio: 3.13",
+            "CODIGO DESCRIPCION PRECIO\nSKU-01 Martillo 1,00",
+        ),
+        (
+            "_es_catalogo_de_etiquetas",
+            "CODIGO: 0000-AALC6D- $3.26",
+            "CODIGO DESCRIPCION PRECIO\nSKU-01 Martillo 1,00",
+        ),
+        (
+            "_es_catalogo_de_tabla_dolar",
+            "COD. A-84109 $ 8,56",
+            "CODIGO DESCRIPCION PRECIO\nSKU-01 Martillo 1,00",
+        ),
+    ],
+)
+def test_pdf_las_compuertas_nuevas_solo_se_activan_con_su_formato(
+    funcion, texto_activador, texto_normal
+):
+    compuerta = getattr(etl_service, funcion)
+    assert compuerta(texto_normal) is False
+    assert compuerta("\n".join([texto_activador] * 5)) is True
+
+
 def test_excel_pregunta_por_todas_las_hojas_con_precios_ambiguos():
     libro = Workbook()
     primera = libro.active

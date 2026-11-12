@@ -924,12 +924,65 @@ PATRON_ETIQUETA_PRECIO = re.compile(r"^Ref\.?$", re.IGNORECASE)
 # ya extraido para no abrir el PDF con pdfplumber por segunda vez cuando el
 # catalogo trae tablas o fichas normales.
 PATRON_MARCA_CODIGO = re.compile(r"C[OÓ]DIGO", re.IGNORECASE)
+PATRON_MARCA_CODIGO_COLUMNA = re.compile(r"C[OÓ]DIGO\s*:", re.IGNORECASE)
+PATRON_MARCA_REF = re.compile(r"\bRef\s*:", re.IGNORECASE)
 PATRON_MARCA_PRECIO = re.compile(r"Ref\.", re.IGNORECASE)
 MINIMO_MARCAS_CUADROS = 5
 LADO_MINIMO_BORDE = 20.0
 ANCHO_MINIMO_TARJETA = 60.0
 TOLERANCIA_BORDE_PDF = 2.0
 TOLERANCIA_RENGLON_TARJETA = 3.0
+
+# --- Catalogos de columnas sin bordes ---------------------------------------
+# Muchos proveedores no dibujan la rejilla: la pagina trae bloques de texto
+# alineados en columnas separadas por espacios en blanco. Dos familias:
+#   * etiquetas por producto ("Ref:", "Marca:", "Precio:") en cada renglon;
+#   * etiquetas de columna ("CODIGO:", "MARCA:", "MEDIDA:") bajo un titulo.
+# En ambos casos la celda se reconstruye cortando el renglon por el hueco
+# horizontal, porque dos productos vecinos comparten la misma linea base y
+# separarlos por palabra mezcla el nombre de uno con el precio del otro.
+SALTO_CELDA_PDF = 40.0
+AGRUPE_RENGLON_PDF = 3
+ANCHO_MAXIMO_COLUMNA_PDF = 80.0
+PATRON_ETIQUETA_REF = re.compile(r"^Ref\s*:?\s*(\S+)$", re.IGNORECASE)
+PATRON_ETIQUETA_PRECIO_COLUMNA = re.compile(
+    r"^Precio\s*:\s*\$?\s*([\d.,]+)$", re.IGNORECASE
+)
+PATRON_MARCA_PRECIO_COLUMNA = re.compile(
+    r"Precio\s*:\s*\$?\s*\d", re.IGNORECASE
+)
+PATRON_ETIQUETA_MARCA_COLUMNA = re.compile(r"^Marca\s*:\s*(.+)$", re.IGNORECASE)
+PATRON_ETIQUETA_EXISTENCIA = re.compile(
+    r"^Existencia\s*:?\s*(\d+)", re.IGNORECASE
+)
+PATRON_ETIQUETA_CODIGO_COLUMNA = re.compile(
+    r"^C[oó]digo\s*:?\s*(\S+)$", re.IGNORECASE
+)
+PATRON_PRECIO_DOLAR = re.compile(r"^\$\s*([\d.,]+)$")
+PATRON_MARCA_PRECIO_DOLAR = re.compile(r"\$\s*\d")
+
+# --- Catalogos de tabla con precio en dolares -------------------------------
+# Otro formato muy comun: cada renglon de cabecera de producto trae "COD." mas
+# el codigo, debajo la descripcion repartida en varios renglones y al final una
+# fila de tabla con "EMPAQUE PRECIO/UND MARCA", por ejemplo "$ 8,56 MAKITA".
+# El precio y la marca se leen de esa fila; la descripcion es lo que queda
+# entre el codigo y la seccion de origen/empaque.
+# "COD." puede venir solo o pegado a su codigo ("COD. A-84109"); el ancla de
+# columna es la palabra COD. y el inicio de bloque acepta las dos formas.
+PATRON_ETIQUETA_COD_PUNTO = re.compile(r"^COD\.?$", re.IGNORECASE)
+PATRON_INICIO_BLOQUE_COD = re.compile(r"^COD\.", re.IGNORECASE)
+PATRON_MARCA_COD_PUNTO = re.compile(r"\bCOD\.", re.IGNORECASE)
+PATRON_FIN_DESCRIPCION = re.compile(
+    r"^(?:origen|importado|nacional|empaque|marca|precio)$", re.IGNORECASE
+)
+PATRON_PRECIO_EN_LINEA = re.compile(r"\$\s*([\d.,]+)")
+PATRON_CODIGO_SUELTO = re.compile(r"^[A-Z0-9][A-Z0-9._/-]{2,}$", re.IGNORECASE)
+# Renglones que forman parte de la ficha pero no son el nombre del producto.
+PATRON_RUIDO_FICHA_PDF = re.compile(
+    r"^(?:ref\.?$|precio\b|marca\s*:|min\.?|cant\.?|grupo\b|existencia\b|"
+    r"bulto\b|sub\s*empaque|empaque\b|medida\s*:|origen\b)",
+    re.IGNORECASE,
+)
 
 
 def _es_codigo_pdf(valor: str) -> bool:
@@ -963,6 +1016,22 @@ def _es_catalogo_de_cuadros(texto: str) -> bool:
     if len(PATRON_MARCA_CODIGO.findall(texto)) < MINIMO_MARCAS_CUADROS:
         return False
     return len(PATRON_MARCA_PRECIO.findall(texto)) >= MINIMO_MARCAS_CUADROS
+
+
+def _es_catalogo_de_columnas(texto: str) -> bool:
+    """Decide si el PDF usa columnas con etiquetas por producto (Ref:/Precio:)."""
+    if len(PATRON_MARCA_REF.findall(texto)) < MINIMO_MARCAS_CUADROS:
+        return False
+    return (
+        len(PATRON_MARCA_PRECIO_COLUMNA.findall(texto)) >= MINIMO_MARCAS_CUADROS
+    )
+
+
+def _es_catalogo_de_etiquetas(texto: str) -> bool:
+    """Decide si el PDF usa etiquetas de columna (CODIGO:/MARCA:/MEDIDA:)."""
+    if len(PATRON_MARCA_CODIGO_COLUMNA.findall(texto)) < MINIMO_MARCAS_CUADROS:
+        return False
+    return len(PATRON_MARCA_PRECIO_DOLAR.findall(texto)) >= MINIMO_MARCAS_CUADROS
 
 
 def _pagina_en_cuadros(palabras: list[dict[str, Any]]) -> bool:
@@ -1182,6 +1251,470 @@ def _fichas_cuadros_pagina(pagina: Any) -> list[tuple[str, str, str]]:
         if ficha is not None:
             fichas.append(ficha)
     return fichas
+
+
+def _celdas_pagina_pdf(pagina: Any) -> list[tuple[float, float, str]]:
+    """Divide la pagina en celdas (tope, izquierda, texto) por huecos.
+
+    Se conserva para los formatos donde cada renglon es una sola ficha. Los
+    catalogos en columnas usan ``_columnas_de_palabras_pdf``, que reparte por
+    la posicion de cada palabra y no depende del ancho del hueco.
+    """
+    palabras = pagina.extract_words()
+    if not palabras:
+        return []
+    renglones: dict[int, list[dict[str, Any]]] = {}
+    for palabra in palabras:
+        indice = round(float(palabra["top"]) / AGRUPE_RENGLON_PDF)
+        renglones.setdefault(indice, []).append(palabra)
+    celdas: list[tuple[float, float, str]] = []
+    for indice in sorted(renglones):
+        grupo = sorted(renglones[indice], key=lambda parte: float(parte["x0"]))
+        actual = [grupo[0]]
+        for palabra in grupo[1:]:
+            if float(palabra["x0"]) - float(actual[-1]["x1"]) >= SALTO_CELDA_PDF:
+                celdas.append(_celda_de(actual))
+                actual = [palabra]
+            else:
+                actual.append(palabra)
+        celdas.append(_celda_de(actual))
+    return celdas
+
+
+def _columnas_de_palabras_pdf(
+    palabras: list[dict[str, Any]],
+    patron_ancla: re.Pattern[str],
+) -> list[list[tuple[float, float, str]]]:
+    """Reparte las palabras en columnas usando la x de la etiqueta ancla.
+
+    La etiqueta ("Ref:" o "CODIGO:") aparece en todas las columnas a la misma
+    altura horizontal, asi que su x marca el inicio de cada una. Entre dos
+    anclas vecinas la frontera es su punto medio, y cada palabra cae en la
+    columna donde esta su centro. Asi el nombre de una tarjeta nunca se mezcla
+    con el precio de la vecina, aunque el hueco entre ellas sea pequeno.
+    """
+    anclas = sorted(
+        {
+            round(float(palabra["x0"]), 1)
+            for palabra in palabras
+            if patron_ancla.match(str(palabra["text"]))
+        }
+    )
+    if not anclas:
+        return []
+    cortes = _cortes_de_columnas_pdf(anclas)
+    columnas: dict[int, list[tuple[float, float, str]]] = {}
+    for palabra in palabras:
+        # Se usa el borde izquierdo, no el centro: un titulo largo puede
+        # invadir la columna vecina y quedaria asignado a la tarjeta equivocada.
+        columnas.setdefault(_banda_de_pdf(float(palabra["x0"]), cortes), []).append(
+            (float(palabra["top"]), float(palabra["x0"]), str(palabra["text"]))
+        )
+    return [
+        sorted(columnas[banda], key=lambda parte: (parte[0], parte[1]))
+        for banda in sorted(columnas)
+    ]
+
+
+def _renglones_de_columna_pdf(
+    columna: list[tuple[float, float, str]],
+) -> list[str]:
+    """Agrupa la columna en renglones de texto, de arriba abajo."""
+    renglones: list[list[tuple[float, float, str]]] = []
+    for palabra in columna:
+        if renglones and abs(renglones[-1][0][0] - palabra[0]) <= AGRUPE_RENGLON_PDF:
+            renglones[-1].append(palabra)
+        else:
+            renglones.append([palabra])
+    return [
+        " ".join(parte[2] for parte in sorted(grupo, key=lambda p: p[1]))
+        for grupo in renglones
+    ]
+
+
+def _celda_de(palabras: list[dict[str, Any]]) -> tuple[float, float, str]:
+    return (
+        round(float(palabras[0]["top"]), 1),
+        round(float(palabras[0]["x0"]), 1),
+        " ".join(str(palabra["text"]) for palabra in palabras),
+    )
+
+
+def _agrupar_anclas_pdf(anclas: Iterable[float]) -> list[float]:
+    """Agrupa anclas casi iguales: la misma columna puede tener x con pequenas
+    diferencias entre productos (238.8 y 241.1), y tomarlas como dos columnas
+    partiria la tarjeta por la mitad."""
+    grupos: list[list[float]] = []
+    for x in sorted(set(anclas)):
+        if grupos and x - grupos[-1][-1] < ANCHO_MAXIMO_COLUMNA_PDF:
+            grupos[-1].append(x)
+        else:
+            grupos.append([x])
+    return [grupo[0] for grupo in grupos]
+
+
+def _cortes_de_columnas_pdf(anclas: Iterable[float]) -> list[float]:
+    """Punto medio entre anclas vecinas: la frontera real de cada columna."""
+    ordenadas = _agrupar_anclas_pdf(anclas)
+    return [
+        (izquierda + derecha) / 2
+        for izquierda, derecha in zip(ordenadas, ordenadas[1:])
+    ]
+
+
+def _banda_de_pdf(x: float, cortes: list[float]) -> int:
+    for indice, corte in enumerate(cortes):
+        if x < corte:
+            return indice
+    return len(cortes)
+
+
+def _repartir_en_columnas_pdf(
+    celdas: list[tuple[float, float, str]], anclas: Iterable[float]
+) -> dict[int, list[tuple[float, float, str]]]:
+    """Asigna cada celda a la columna de su ancla mas cercana."""
+    cortes = _cortes_de_columnas_pdf(anclas)
+    columnas: dict[int, list[tuple[float, float, str]]] = {}
+    for celda in sorted(celdas):
+        columnas.setdefault(_banda_de_pdf(celda[1], cortes), []).append(celda)
+    return columnas
+
+
+def _es_ruido_ficha_pdf(texto: str) -> bool:
+    return PATRON_RUIDO_FICHA_PDF.match(texto.strip()) is not None
+
+
+def _fichas_columnas_pagina(pagina: Any) -> list[tuple[str, str, str, str | None]]:
+    """Fichas de catalogos con etiquetas por producto (Ref:/Marca:/Precio:).
+
+    Cada producto ocupa un bloque vertical de renglones dentro de su columna;
+    la columna se detecta por la x del propio "Ref:", que se repite en todas.
+    """
+    palabras = pagina.extract_words()
+    if not palabras:
+        return []
+    fichas: list[tuple[str, str, str, str | None]] = []
+    for columna in _columnas_de_palabras_pdf(palabras, PATRON_ETIQUETA_REF):
+        actual: dict[str, Any] | None = None
+        for texto in _renglones_de_columna_pdf(columna):
+            referencia = PATRON_ETIQUETA_REF.match(texto)
+            if referencia:
+                if actual and actual["precio"]:
+                    fichas.append(_ficha_desde_bloque_pdf(actual))
+                actual = {
+                    "codigo": referencia.group(1),
+                    "nombre": [],
+                    "precio": None,
+                    "marca": None,
+                }
+                continue
+            if actual is None:
+                continue
+            precio = PATRON_ETIQUETA_PRECIO_COLUMNA.match(texto)
+            if precio:
+                if actual["precio"] is None:
+                    actual["precio"] = precio.group(1)
+                continue
+            marca = PATRON_ETIQUETA_MARCA_COLUMNA.match(texto)
+            if marca:
+                if actual["marca"] is None:
+                    actual["marca"] = marca.group(1).strip()
+                continue
+            if _es_ruido_ficha_pdf(texto):
+                continue
+            if actual["precio"] is None and actual["nombre"] is not None:
+                actual["nombre"].append(texto)
+        if actual and actual["precio"]:
+            fichas.append(_ficha_desde_bloque_pdf(actual))
+    return fichas
+
+
+def _ficha_desde_bloque_pdf(bloque: dict[str, Any]) -> tuple[str, str, str, str | None]:
+    nombre = " ".join(bloque["nombre"] or []).strip()
+    return (bloque["codigo"], nombre, bloque["precio"], bloque["marca"])
+
+
+def _fichas_etiquetas_pagina(
+    pagina: Any,
+) -> list[tuple[str, str, str, str | None, int | None]]:
+    """Fichas de catalogos con etiquetas de columna (CODIGO:/MARCA:/MEDIDA:).
+
+    En cada columna el bloque de un producto se arma asi: arriba el nombre y el
+    precio en dolares, despues su "CODIGO:", y debajo marca, medida y
+    existencia. Por eso el nombre y el precio que vienen antes de un codigo son
+    los de ESE codigo, y la marca y la existencia que vienen despues tambien.
+    """
+    palabras = pagina.extract_words()
+    if not palabras:
+        return []
+    fichas: list[tuple[str, str, str, str | None, int | None]] = []
+    for columna in _columnas_de_palabras_pdf(palabras, PATRON_ETIQUETA_CODIGO_COLUMNA):
+        bloque: dict[str, Any] | None = None
+        nombre: list[str] = []
+        precio: str | None = None
+        for texto in _renglones_de_columna_pdf(columna):
+            encontrado = PATRON_ETIQUETA_CODIGO_COLUMNA.match(texto)
+            if encontrado:
+                if bloque and bloque["precio"]:
+                    fichas.append(_ficha_etiquetas_desde_bloque(bloque))
+                if precio:
+                    # El nombre y el precio leidos arriba pertenecen a este
+                    # codigo, no al anterior.
+                    bloque = {
+                        "codigo": encontrado.group(1),
+                        "nombre": " ".join(nombre).strip(),
+                        "precio": precio,
+                        "marca": None,
+                        "existencia": None,
+                    }
+                else:
+                    bloque = None
+                nombre = []
+                precio = None
+                continue
+            dolar = PATRON_PRECIO_DOLAR.match(texto)
+            if dolar:
+                if precio is None:
+                    precio = dolar.group(1)
+                continue
+            encontrada_marca = PATRON_ETIQUETA_MARCA_COLUMNA.match(texto)
+            if encontrada_marca:
+                if bloque and bloque["marca"] is None:
+                    bloque["marca"] = encontrada_marca.group(1).strip()
+                continue
+            encontrada_existencia = PATRON_ETIQUETA_EXISTENCIA.match(texto)
+            if encontrada_existencia:
+                if bloque and bloque["existencia"] is None:
+                    bloque["existencia"] = int(encontrada_existencia.group(1))
+                continue
+            if _es_ruido_ficha_pdf(texto):
+                continue
+            if precio is None:
+                nombre.append(texto)
+        if bloque and bloque["precio"]:
+            fichas.append(_ficha_etiquetas_desde_bloque(bloque))
+    return fichas
+
+
+def _ficha_etiquetas_desde_bloque(
+    bloque: dict[str, Any],
+) -> tuple[str, str, str, str | None, int | None]:
+    return (
+        bloque["codigo"],
+        bloque["nombre"],
+        bloque["precio"],
+        bloque["marca"],
+        bloque["existencia"],
+    )
+
+
+def _fichas_tabla_dolar_pagina(pagina: Any) -> list[tuple[str, str, str, str | None]]:
+    """Fichas de catalogos con "COD." y una fila "PRECIO / UND" en dolares.
+
+    La descripcion va entre el codigo y la seccion de origen; el precio y la
+    marca salen de la fila de la tabla ("1 UND $ 8,56 MAKITA"). La marca se
+    toma como las palabras que siguen al precio, nunca como el nombre.
+    """
+    palabras = pagina.extract_words()
+    if not palabras:
+        return []
+    fichas: list[tuple[str, str, str, str | None]] = []
+    for columna in _columnas_de_palabras_pdf(palabras, PATRON_ETIQUETA_COD_PUNTO):
+        bloques: list[list[str]] = []
+        actual: list[str] | None = None
+        for texto in _renglones_de_columna_pdf(columna):
+            if PATRON_INICIO_BLOQUE_COD.match(texto):
+                if actual:
+                    bloques.append(actual)
+                actual = [texto]
+                continue
+            if actual is not None:
+                actual.append(texto)
+        if actual:
+            bloques.append(actual)
+        for bloque in bloques:
+            ficha = _ficha_tabla_dolar_desde_bloque(bloque)
+            if ficha is not None:
+                fichas.append(ficha)
+    return fichas
+
+
+def _ficha_tabla_dolar_desde_bloque(bloque: list[str]) -> tuple[str, str, str, str | None] | None:
+    """Arma una ficha desde el bloque de renglones de un producto."""
+    cabecera = bloque[0]
+    # "COD. A-84109" trae el codigo en el mismo renglon. Aqui solo se cuenta
+    # hasta el final de la etiqueta, para no incluir la descripcion que
+    # pdfplumber pega en el mismo renglon.
+    codigo = cabecera[PATRON_INICIO_BLOQUE_COD.match(cabecera).end() :].strip()
+    codigo = codigo.strip(":") or None
+    resto = bloque[1:]
+    if codigo is None:
+        # El proveedor dejo el codigo suelto en el renglon siguiente
+        # ("COD." y luego "DDU115"): se toma la primera palabra con digito.
+        for indice, linea in enumerate(resto):
+            primera = linea.split()[0] if linea.split() else ""
+            if (
+                PATRON_CODIGO_SUELTO.match(primera)
+                and not PATRON_FIN_DESCRIPCION.match(primera)
+                and any(caracter.isdigit() for caracter in primera)
+            ):
+                codigo = primera
+                resto = resto[:indice] + resto[indice + 1 :]
+                break
+    if not codigo:
+        return None
+    nombre: list[str] = []
+    precio: str | None = None
+    marca: str | None = None
+    for texto in resto:
+        encontrado = PATRON_PRECIO_EN_LINEA.search(texto)
+        if encontrado and precio is None:
+            precio = encontrado.group(1)
+            sobrante = texto[encontrado.end() :].strip()
+            if sobrante and not sobrante.replace(" ", "").isdigit():
+                marca = sobrante
+            continue
+        if precio is not None:
+            continue
+        if PATRON_FIN_DESCRIPCION.match(texto.split()[0] if texto.split() else ""):
+            continue
+        if "EMPAQUE" in texto.upper() or "PRECIO / UND" in texto.upper():
+            # Encabezado de la fila de tabla, no es parte del nombre.
+            continue
+        nombre.append(texto)
+    if not precio:
+        return None
+    return (codigo, " ".join(nombre).strip(), precio, marca)
+
+
+def _es_catalogo_de_tabla_dolar(texto: str) -> bool:
+    """Decide si el PDF usa "COD." con una fila de precio en dolares."""
+    if len(PATRON_MARCA_COD_PUNTO.findall(texto)) < MINIMO_MARCAS_CUADROS:
+        return False
+    return len(PATRON_MARCA_PRECIO_DOLAR.findall(texto)) >= MINIMO_MARCAS_CUADROS
+
+
+def _extraer_pdf_tabla_dolar(
+    contenido: bytes,
+) -> tuple[list[dict[str, Any]], int, list[str]]:
+    """Extrae catalogos con "COD." y una fila "PRECIO / UND" en dolares."""
+    productos: list[dict[str, Any]] = []
+    errores: list[str] = []
+    try:
+        documento = pdfplumber.open(io.BytesIO(contenido))
+    except Exception as exc:  # noqa: BLE001 - se informa como PDF ilegible
+        logger.info("pdfplumber no pudo abrir el PDF para leer la tabla: %s", exc)
+        return [], 0, []
+    with documento:
+        if len(documento.pages) > MAX_PAGINAS_PDF:
+            raise ErrorIngesta(
+                f"El PDF supera el maximo de {MAX_PAGINAS_PDF} paginas"
+            )
+        for pagina in documento.pages:
+            try:
+                fichas = _fichas_tabla_dolar_pagina(pagina)
+            except Exception as exc:  # noqa: BLE001 - una pagina no rompe el lote
+                logger.info("No se pudo leer una pagina del PDF: %s", exc)
+                continue
+            for codigo, nombre, precio, marca in fichas:
+                _agregar_ficha_pdf(productos, errores, codigo, nombre, precio, marca)
+    return productos, len(errores), errores[:MAX_ERRORES_DETALLE]
+
+
+def _extraer_pdf_columnas(
+    contenido: bytes,
+) -> tuple[list[dict[str, Any]], int, list[str]]:
+    """Extrae catalogos de columnas sin bordes, con etiquetas por producto."""
+    productos: list[dict[str, Any]] = []
+    errores: list[str] = []
+    try:
+        documento = pdfplumber.open(io.BytesIO(contenido))
+    except Exception as exc:  # noqa: BLE001 - se informa como PDF ilegible
+        logger.info("pdfplumber no pudo abrir el PDF para leer columnas: %s", exc)
+        return [], 0, []
+    with documento:
+        if len(documento.pages) > MAX_PAGINAS_PDF:
+            raise ErrorIngesta(
+                f"El PDF supera el maximo de {MAX_PAGINAS_PDF} paginas"
+            )
+        for pagina in documento.pages:
+            try:
+                fichas = _fichas_columnas_pagina(pagina)
+            except Exception as exc:  # noqa: BLE001 - una pagina no rompe el lote
+                logger.info("No se pudo leer una pagina del PDF: %s", exc)
+                continue
+            for codigo, nombre, precio, marca in fichas:
+                _agregar_ficha_pdf(productos, errores, codigo, nombre, precio, marca)
+    return productos, len(errores), errores[:MAX_ERRORES_DETALLE]
+
+
+def _extraer_pdf_etiquetas(
+    contenido: bytes,
+) -> tuple[list[dict[str, Any]], int, list[str]]:
+    """Extrae catalogos de columnas con etiquetas CODIGO:/MARCA:/MEDIDA:."""
+    productos: list[dict[str, Any]] = []
+    errores: list[str] = []
+    try:
+        documento = pdfplumber.open(io.BytesIO(contenido))
+    except Exception as exc:  # noqa: BLE001 - se informa como PDF ilegible
+        logger.info("pdfplumber no pudo abrir el PDF para leer etiquetas: %s", exc)
+        return [], 0, []
+    with documento:
+        if len(documento.pages) > MAX_PAGINAS_PDF:
+            raise ErrorIngesta(
+                f"El PDF supera el maximo de {MAX_PAGINAS_PDF} paginas"
+            )
+        for pagina in documento.pages:
+            try:
+                fichas = _fichas_etiquetas_pagina(pagina)
+            except Exception as exc:  # noqa: BLE001 - una pagina no rompe el lote
+                logger.info("No se pudo leer una pagina del PDF: %s", exc)
+                continue
+            for codigo, nombre, precio, marca, existencia in fichas:
+                _agregar_ficha_pdf(
+                    productos,
+                    errores,
+                    codigo,
+                    nombre,
+                    precio,
+                    marca,
+                    existencia=existencia,
+                )
+    return productos, len(errores), errores[:MAX_ERRORES_DETALLE]
+
+
+def _agregar_ficha_pdf(
+    productos: list[dict[str, Any]],
+    errores: list[str],
+    codigo: str,
+    nombre: str,
+    precio: str,
+    marca: str | None,
+    existencia: int | None = None,
+) -> None:
+    """Valida y agrega una ficha leida por columnas; nunca inventa el nombre."""
+    numero_fila = len(productos) + len(errores) + 1
+    if numero_fila > MAX_FILAS_ARCHIVO:
+        raise ErrorIngesta(
+            f"El archivo supera el maximo de {MAX_FILAS_ARCHIVO} filas"
+        )
+    if not nombre.strip():
+        errores.append(
+            f"Fila {numero_fila}: la ficha {codigo} no trae descripcion"
+        )
+        return
+    fila = [codigo, nombre, precio]
+    columnas = {"codigo": 0, "nombre": 1, "precio": 2}
+    if marca:
+        fila.append(marca)
+        columnas["marca"] = 3
+    if existencia is not None:
+        fila.append(str(existencia))
+        columnas["cantidad_disponible_proveedor"] = len(fila) - 1
+    try:
+        productos.append(_producto_desde_fila(fila, columnas, numero_fila))
+    except ErrorIngesta as exc:
+        errores.append(str(exc))
 
 
 def _es_etiqueta_pdf(valor: str) -> bool:
@@ -1696,6 +2229,30 @@ def _extraer_pdf(contenido: bytes) -> tuple[list[dict[str, Any]], int, list[str]
             raise
         except Exception as exc:  # noqa: BLE001 - una estrategia no rompe el lote
             logger.info("La estrategia cuadros no aplica a este PDF: %s", exc)
+
+    if _es_catalogo_de_columnas(texto):
+        try:
+            resultados.append(("columnas", *_extraer_pdf_columnas(contenido)))
+        except ErrorIngesta:
+            raise
+        except Exception as exc:  # noqa: BLE001 - una estrategia no rompe el lote
+            logger.info("La estrategia columnas no aplica a este PDF: %s", exc)
+
+    if _es_catalogo_de_etiquetas(texto):
+        try:
+            resultados.append(("etiquetas", *_extraer_pdf_etiquetas(contenido)))
+        except ErrorIngesta:
+            raise
+        except Exception as exc:  # noqa: BLE001 - una estrategia no rompe el lote
+            logger.info("La estrategia etiquetas no aplica a este PDF: %s", exc)
+
+    if _es_catalogo_de_tabla_dolar(texto):
+        try:
+            resultados.append(("tabla_dolar", *_extraer_pdf_tabla_dolar(contenido)))
+        except ErrorIngesta:
+            raise
+        except Exception as exc:  # noqa: BLE001 - una estrategia no rompe el lote
+            logger.info("La estrategia tabla_dolar no aplica a este PDF: %s", exc)
 
     filas = _filas_pdf(texto)
     for indice, fila in enumerate(filas):
