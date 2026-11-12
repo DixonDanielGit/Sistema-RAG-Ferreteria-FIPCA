@@ -236,6 +236,7 @@ iniciar sesión y `-b cookies.txt` en las llamadas siguientes.
 | POST | `/api/v1/auth/recuperar` | público | Envía (o registra) el enlace de recuperación |
 | POST | `/api/v1/auth/restablecer` | público | Cambia la contraseña con el token del enlace |
 | POST | `/api/v1/inventario/previsualizacion` | `catalogos:ingestar` | Analiza un catálogo sin guardarlo |
+| POST | `/api/v1/inventario/extraccion-prueba` | autenticado | Extrae los productos en memoria y los devuelve en JSON, sin escribir en la base ni en disco |
 | POST | `/api/v1/inventario/ingesta` | `catalogos:ingestar` | Importa los catálogos confirmados |
 | GET | `/api/v1/inventario/archivos` | autenticado | Historial de las últimas 100 cargas |
 | GET | `/api/v1/inventario/busqueda` | autenticado | Busca y pagina coincidencias; permite ordenar por código, producto, proveedor, precio o existencias |
@@ -279,6 +280,39 @@ curl -X POST http://localhost:8000/api/v1/inventario/ingesta \
   -H "Authorization: Bearer <token>" \
   -F "archivos=@catalogo.txt"
 ```
+
+Para verificar **solo la extracción** (el buscador trabaja con librerías
+locales: `pypdf`, `pdfplumber`, `openpyxl` y `python-docx`) existe
+`/api/v1/inventario/extraccion-prueba`. Lee el archivo en memoria y devuelve
+los productos en JSON: no guarda el original en `uploads`, no crea el registro
+en `archivos_subidos`, no inserta productos ni ofertas y no escribe en la
+bitácora. Cualquier columna que el catálogo no traiga se devuelve en `null`,
+para que se distinga "el proveedor no la envió" de "se perdió en la lectura":
+
+```bash
+curl -X POST http://localhost:8000/api/v1/inventario/extraccion-prueba \
+  -H "Authorization: Bearer <token>" \
+  -F "archivos=@catalogo.pdf" \
+  -F "archivos=@lista.xlsx"
+```
+
+La respuesta trae un resultado por archivo (`estado`, `filas_ok`, `filas_error`,
+`filas_duplicadas`, `detalle` y la lista completa en `productos`) más el
+`persistido: false` que confirma que nada se guardó. Acepta el mismo
+`selecciones_precio` que `/ingesta` cuando un `.xlsx` tiene varias columnas de
+precio: en ese caso el archivo queda en `estado: pendiente` con sus
+`opciones_precio`. Solo exige sesión válida, así que una cuenta sin capacidad
+`catalogos:ingestar` también puede usarlo para revisar la lectura.
+
+Desde la interfaz hay un atajo: en `/search`, el panel **Fuentes** muestra el
+bloque violeta **"Probar extraccion (desarrollo)"**, visible solo mientras
+`ENTORNO` no sea `produccion`. Se eligen los archivos ahí (usa su propio
+selector, porque la zona de carga sube a `/ingesta` en cuanto se suelta el
+archivo), se pulsa el botón y el JSON extraído se imprime en pantalla. Para
+verlo en la pestaña **Red** de Firefox: abrir `/search`, pulsar `F12` →
+pestaña **Red**, ejecutar la prueba y seleccionar la petición
+`extraccion-prueba` → pestaña **Respuesta**. Si el catálogo es muy grande el
+bloque se trunca a 300 000 caracteres y el JSON completo queda en esa pestaña.
 
 Los `.xlsx` y `.docx` se revisan además contra paquetes ZIP dañados o con
 relaciones de compresión anómalas. Cada archivo se limita a 20 000 filas de

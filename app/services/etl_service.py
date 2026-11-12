@@ -73,6 +73,27 @@ MAX_ERRORES_DETALLE = 20
 # en la documentacion cuando no contiene una cabecera reconocible.
 TXT_COLUMNAS_POSICIONALES = ("codigo", "nombre", "precio", "descripcion", "marca")
 
+# Campos que todo catalogo deberia traer. La extraccion en memoria siempre
+# devuelve esta forma, con ``None`` donde el archivo no trajo el dato, para que
+# se pueda revisar columna por columna sin adivinar el origen de cada ficha.
+CAMPOS_PRODUCTO_EXTRAIBLE = (
+    "codigo",
+    "nombre",
+    "marca",
+    "precio",
+    "descuentos",
+    "descripcion",
+    "descuento_oferta",
+    "cantidad_disponible_proveedor",
+    "politica_ventas",
+    "proveedor",
+    "telefono",
+    "correo",
+    "moneda",
+    "iva_oferta",
+    "iva_incluido",
+)
+
 SINONIMOS = {
     "codigo": {
         "codigo", "cod", "sku", "referencia", "ref", "item", "itemnumber",
@@ -1664,6 +1685,178 @@ def previsualizar_archivo(
         "detalle": _detalle(detalles),
         "seleccion_pendiente": False,
         "opciones_precio": [],
+    }
+
+
+def extraer_catalogo_en_memoria(
+    nombre: str,
+    contenido: bytes,
+    selecciones_precio: dict[int, int] | None = None,
+) -> dict[str, Any]:
+    """Extrae los productos de un archivo sin escribir en la base ni en disco.
+
+    Es la verificacion del buscador local: sirve para comprobar que las
+    librerias de Python (pypdf, pdfplumber, openpyxl y python-docx) leen bien
+    el catalogo del proveedor antes de guardar nada. A diferencia de
+    ``procesar_archivo`` no guarda el original en ``UPLOADS_DIR``, no crea el
+    registro en ``archivos_subidos`` ni inserta productos u ofertas.
+
+    Tampoco pagina los DOCX con LibreOffice: ese paso existe para rechazar
+    documentos enormes antes de persistirlos, y aqui nada se persiste. El
+    limite de filas por archivo si se sigue aplicando.
+    """
+    try:
+        nombre = _nombre_seguro(nombre)
+    except ErrorIngesta as exc:
+        visible = str(nombre).replace("\\", "/").rsplit("/", 1)[-1]
+        return _resultado_extraccion(
+            visible[:255] or "archivo",
+            Path(visible).suffix.lower().lstrip(".") or "desconocido",
+            len(contenido),
+            "rechazado",
+            detalle=str(exc),
+        )
+
+    extension = Path(nombre).suffix.lower()
+    tipo = extension.lstrip(".") or "desconocido"
+    if extension not in EXTENSIONES_PERMITIDAS:
+        return _resultado_extraccion(
+            nombre,
+            tipo,
+            len(contenido),
+            "rechazado",
+            detalle="Formato no permitido; use PDF, XLSX, DOCX o TXT",
+        )
+    if len(contenido) > MAX_ARCHIVO_BYTES:
+        return _resultado_extraccion(
+            nombre,
+            tipo,
+            len(contenido),
+            "rechazado",
+            detalle=f"El archivo supera el limite de {MAX_ARCHIVO_MB} MB",
+        )
+    if not contenido:
+        return _resultado_extraccion(
+            nombre, tipo, 0, "error", detalle="El archivo esta vacio"
+        )
+
+    paginas_docx = None
+    if extension == ".docx":
+        try:
+            _validar_paquete(contenido)
+        except ErrorIngesta as exc:
+            return _resultado_extraccion(
+                nombre, tipo, len(contenido), "error", detalle=str(exc)
+            )
+        paginas_docx = 0
+
+    try:
+        productos, filas_error, errores = _extraer(
+            nombre,
+            contenido,
+            selecciones_precio,
+            paginas_docx,
+        )
+    except SeleccionPrecioRequerida as exc:
+        return _resultado_extraccion(
+            nombre,
+            tipo,
+            len(contenido),
+            "pendiente",
+            detalle=str(exc),
+            seleccion_pendiente=True,
+            opciones_precio=exc.opciones,
+        )
+    except ArchivoSinFilasValidas as exc:
+        return _resultado_extraccion(
+            nombre,
+            tipo,
+            len(contenido),
+            "error",
+            filas_error=exc.filas_error,
+            detalle=str(exc),
+            errores=[str(exc)],
+        )
+    except ErrorIngesta as exc:
+        return _resultado_extraccion(
+            nombre, tipo, len(contenido), "error", detalle=str(exc)
+        )
+    except (
+        InvalidFileException,
+        PackageNotFoundError,
+        ParseError,
+        PdfReadError,
+        zipfile.BadZipFile,
+        OSError,
+        ValueError,
+    ) as exc:
+        logger.warning("No se pudo extraer archivo de prueba %s: %s", nombre, exc)
+        return _resultado_extraccion(
+            nombre,
+            tipo,
+            len(contenido),
+            "error",
+            detalle="El archivo esta danado o no tiene un formato valido",
+        )
+
+    productos, filas_duplicadas, errores_duplicados, detalles_duplicados = (
+        _consolidar_codigos(productos)
+    )
+    filas_error += errores_duplicados
+    errores = detalles_duplicados + errores
+    aviso_descripcion = _aviso_sin_descripcion(productos)
+    if aviso_descripcion:
+        errores.append(aviso_descripcion)
+
+    return _resultado_extraccion(
+        nombre,
+        tipo,
+        len(contenido),
+        "ok" if not filas_error else "parcial",
+        productos=productos,
+        filas_ok=len(productos),
+        filas_error=filas_error,
+        filas_duplicadas=filas_duplicadas,
+        errores=errores,
+    )
+
+
+def _resultado_extraccion(
+    nombre: str,
+    tipo: str,
+    tamano_bytes: int,
+    estado: str,
+    *,
+    productos: Iterable[dict[str, Any]] = (),
+    filas_ok: int = 0,
+    filas_error: int = 0,
+    filas_duplicadas: int = 0,
+    detalle: str | None = None,
+    errores: Iterable[str] = (),
+    seleccion_pendiente: bool = False,
+    opciones_precio: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Arma la respuesta de ``extraer_catalogo_en_memoria``.
+
+    Los campos que el archivo no traia se dejan en ``None`` para que el JSON
+    conserve siempre la misma forma y se pueda revisar columna por columna.
+    """
+    lista_errores = list(errores)
+    return {
+        "nombre": nombre,
+        "tipo": tipo,
+        "tamano_bytes": tamano_bytes,
+        "estado": estado,
+        "productos": [
+            {campo: producto.get(campo) for campo in CAMPOS_PRODUCTO_EXTRAIBLE}
+            for producto in productos
+        ],
+        "filas_ok": filas_ok,
+        "filas_error": filas_error,
+        "filas_duplicadas": filas_duplicadas,
+        "detalle": _detalle(lista_errores) if lista_errores else detalle,
+        "seleccion_pendiente": seleccion_pendiente,
+        "opciones_precio": opciones_precio or [],
     }
 
 

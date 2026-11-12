@@ -245,6 +245,79 @@ class DetalleProducto(BaseModel):
     ofertas: list[OfertaProductoDetalle] = Field(default_factory=list)
 
 
+EstadoExtraccion = Literal["ok", "parcial", "error", "pendiente", "rechazado"]
+
+
+class OpcionPrecioArchivo(BaseModel):
+    """Columna de precio del archivo que exige confirmar cual importar."""
+
+    hoja: str
+    hoja_indice: int = Field(ge=0)
+    columna: str
+    columna_indice: int = Field(ge=0)
+
+
+class ProductoExtraido(BaseModel):
+    """Ficha leida por las librerias locales antes de guardar nada.
+
+    Todos los campos son opcionales: cuando el catalogo del proveedor no trae
+    la columna, el valor se devuelve en ``null`` para que se distinga "no viene
+    en el archivo" de "se perdio en la lectura".
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    codigo: str | None = None
+    nombre: str | None = None
+    marca: str | None = None
+    precio: float | None = None
+    descuentos: float | None = None
+    descripcion: str | None = None
+    descuento_oferta: float | None = None
+    cantidad_disponible_proveedor: int | None = None
+    politica_ventas: str | None = None
+    proveedor: str | None = None
+    telefono: str | None = None
+    correo: str | None = None
+    moneda: str | None = None
+    iva_oferta: float | None = None
+    iva_incluido: bool | None = None
+
+
+EstadoExtraccion = Literal["ok", "parcial", "error", "pendiente", "rechazado"]
+
+
+class ResultadoExtraccionArchivo(BaseModel):
+    """Producto extraido de un archivo en memoria, sin tocar la base de datos."""
+
+    nombre: str
+    tipo: str
+    tamano_bytes: int = Field(ge=0)
+    estado: EstadoExtraccion
+    productos: list[ProductoExtraido] = Field(default_factory=list)
+    filas_ok: int = Field(default=0, ge=0)
+    filas_error: int = Field(default=0, ge=0)
+    filas_duplicadas: int = Field(default=0, ge=0)
+    detalle: str | None = None
+    seleccion_pendiente: bool = False
+    opciones_precio: list[OpcionPrecioArchivo] = Field(default_factory=list)
+
+
+class RespuestaExtraccion(BaseModel):
+    """Resumen del lote analizado solo en memoria."""
+
+    resultados: list[ResultadoExtraccionArchivo]
+    total_archivos: int = Field(ge=0)
+    archivos_ok: int = Field(ge=0)
+    archivos_parciales: int = Field(ge=0)
+    archivos_error: int = Field(ge=0)
+    archivos_pendientes: int = Field(ge=0)
+    archivos_rechazados: int = Field(ge=0)
+    productos_extraidos: int = Field(ge=0)
+    persistido: bool = False
+    aviso: str
+
+
 class SolicitudObservacionProducto(BaseModel):
     """Texto de la observacion comercial propia de un producto."""
 

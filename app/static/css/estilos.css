@@ -2673,6 +2673,101 @@ body.cuerpo-buscador main {
   display: none;
 }
 
+/* Bloque de prueba de extraccion (solo desarrollo). Es una herramienta
+   tecnica: se marca en violeta para distinguirla de la carga real y su
+   salida es JSON, por eso va en monoespaciada con scroll propio. */
+.fuentes__extraccion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--esp-2);
+  padding: var(--esp-3);
+  border: 1px dashed var(--violeta-texto);
+  border-radius: var(--radio-sm);
+  background: var(--violeta-superficie);
+}
+
+.fuentes__extraccion-boton {
+  align-self: flex-start;
+  min-height: 36px;
+  padding: 0 var(--esp-3);
+  border: 1px solid var(--violeta-texto);
+  border-radius: var(--radio-sm);
+  background: transparent;
+  color: var(--violeta-texto);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--transicion),
+    color var(--transicion);
+}
+
+.fuentes__extraccion-boton:hover:not(:disabled) {
+  background: var(--violeta-texto);
+  color: var(--violeta-superficie);
+}
+
+.fuentes__extraccion-boton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.fuentes__extraccion-ayuda {
+  margin: 0;
+  color: var(--violeta-texto);
+  font-size: 0.71rem;
+  line-height: 1.45;
+}
+
+/* Selector propio de la prueba: el input va oculto y la etiqueta hace de
+   boton, igual que la zona de carga del panel. */
+.fuentes__extraccion-archivo {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 var(--esp-3);
+  border: 1px solid var(--violeta-texto);
+  border-radius: var(--radio-sm);
+  color: var(--violeta-texto);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--transicion),
+    color var(--transicion);
+}
+
+.fuentes__extraccion-archivo:hover {
+  background: var(--violeta-texto);
+  color: var(--violeta-superficie);
+}
+
+.fuentes__extraccion-cuenta {
+  color: var(--violeta-texto);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.fuentes__extraccion-estado {
+  color: var(--violeta-texto);
+}
+
+.fuentes__extraccion-salida {
+  max-height: 320px;
+  margin: 0;
+  padding: var(--esp-2) var(--esp-3);
+  overflow: auto;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio-sm);
+  background: var(--superficie);
+  color: var(--texto-suave);
+  font: 0.74rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  scrollbar-color: var(--borde-fuerte) transparent;
+  white-space: pre;
+}
+
 .fuentes__dialogo {
   width: min(560px, calc(100vw - 40px));
   height: fit-content;

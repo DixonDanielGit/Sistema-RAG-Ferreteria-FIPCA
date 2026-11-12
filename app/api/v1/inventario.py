@@ -32,6 +32,7 @@ from app.schemas.inventario_schema import (
     LONGITUD_MINIMA_BUSQUEDA,
     MetadatosCatalogo,
     DetalleProducto,
+    RespuestaExtraccion,
     RespuestaObservacion,
     RespuestaEliminacionArchivo,
     RespuestaEliminacionCatalogos,
@@ -51,6 +52,34 @@ router = APIRouter(prefix="/inventario", tags=["Inventario"])
 # o de un cliente API) se procesen en paralelo y colapsen el servidor.
 _cerradura_ingesta = threading.Lock()
 _adaptador_metadatos = TypeAdapter(list[MetadatosCatalogo])
+
+
+def _leer_selecciones_precio(valor: str | None) -> dict[int, int]:
+    """Convierte el JSON de seleccion de precios en ``{hoja: columna}``.
+
+    Las tres rutas que leen catalogos (ingesta, previsualizacion y la prueba de
+    extraccion) reciben la misma seleccion, asi que la validacion vive aqui.
+    """
+    try:
+        opciones = json.loads(valor or "{}")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="La seleccion de precios no tiene un formato valido",
+        ) from exc
+    if not isinstance(opciones, dict) or any(
+        not isinstance(clave, str)
+        or not clave.isdecimal()
+        or not isinstance(valor_columna, int)
+        or isinstance(valor_columna, bool)
+        or valor_columna < 0
+        for clave, valor_columna in opciones.items()
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="La seleccion de precios no tiene un formato valido",
+        )
+    return {int(clave): valor_columna for clave, valor_columna in opciones.items()}
 
 
 @router.get(
@@ -358,26 +387,7 @@ async def ingesta(
                 detail=f"Archivo {indice + 1}: nombre de proveedor invalido",
             ) from exc
 
-    try:
-        opciones = json.loads(selecciones_precio or "{}")
-    except json.JSONDecodeError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail="La seleccion de precios no tiene un formato valido",
-        ) from exc
-    if not isinstance(opciones, dict) or any(
-        not isinstance(clave, str)
-        or not clave.isdecimal()
-        or not isinstance(valor, int)
-        or isinstance(valor, bool)
-        or valor < 0
-        for clave, valor in opciones.items()
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="La seleccion de precios no tiene un formato valido",
-        )
-    selecciones = {int(clave): valor for clave, valor in opciones.items()}
+    selecciones = _leer_selecciones_precio(selecciones_precio)
 
     if not _cerradura_ingesta.acquire(blocking=False):
         raise HTTPException(
@@ -443,34 +453,85 @@ async def previsualizacion(
     """Analiza el archivo sin guardar el original ni modificar el inventario."""
     contenido = await archivo.read(etl_service.MAX_ARCHIVO_BYTES + 1)
     await archivo.close()
-    try:
-        opciones = json.loads(selecciones_precio or "{}")
-    except json.JSONDecodeError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail="La seleccion de precios no tiene un formato valido",
-        ) from exc
-    if not isinstance(opciones, dict) or any(
-        not isinstance(clave, str)
-        or not clave.isdecimal()
-        or not isinstance(valor, int)
-        or isinstance(valor, bool)
-        or valor < 0
-        for clave, valor in opciones.items()
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="La seleccion de precios no tiene un formato valido",
-        )
+    selecciones = _leer_selecciones_precio(selecciones_precio)
     try:
         return await run_in_threadpool(
             etl_service.previsualizar_archivo,
             archivo.filename or "",
             contenido,
-            {int(clave): valor for clave, valor in opciones.items()},
+            selecciones,
         )
     except etl_service.ErrorIngesta as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post(
+    "/extraccion-prueba",
+    response_model=RespuestaExtraccion,
+    summary="Extraer productos de archivos sin guardar nada (prueba del buscador local)",
+    responses={
+        400: {"description": "Lote vacio o con demasiados archivos"},
+        401: {"description": "Sesion no valida"},
+    },
+)
+async def extraccion_prueba(
+    archivos: list[UploadFile] | None = File(
+        default=None, description="PDF, XLSX, DOCX o TXT"
+    ),
+    selecciones_precio: str | None = Form(default=None),
+    _: dict[str, Any] = Depends(usuario_actual),
+) -> RespuestaExtraccion:
+    """Lee los archivos con librerias locales y devuelve lo extraido en JSON.
+
+    Es el paso de verificacion del buscador local: permite comprobar que la
+    extraccion (pypdf, pdfplumber, openpyxl y python-docx) esta trayendo bien
+    codigo, nombre, marca, precio y descripcion **antes** de guardar algo. No
+    escribe el original en ``uploads``, no crea el registro del archivo y no
+    inserta productos ni ofertas, por lo que tampoco se escribe en la bitacora.
+
+    Los campos que el archivo no trae se devuelven en ``null``.
+    """
+    if not archivos or len(archivos) > etl_service.MAX_ARCHIVOS_INGESTA:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"El lote debe contener entre 1 y "
+                f"{etl_service.MAX_ARCHIVOS_INGESTA} archivos"
+            ),
+        )
+    selecciones = _leer_selecciones_precio(selecciones_precio)
+
+    resultados: list[dict[str, Any]] = []
+    for archivo in archivos:
+        try:
+            contenido = await archivo.read(etl_service.MAX_ARCHIVO_BYTES + 1)
+            resultados.append(
+                await run_in_threadpool(
+                    etl_service.extraer_catalogo_en_memoria,
+                    archivo.filename or "",
+                    contenido,
+                    selecciones,
+                )
+            )
+        finally:
+            await archivo.close()
+
+    estados = [resultado["estado"] for resultado in resultados]
+    return RespuestaExtraccion(
+        resultados=resultados,
+        total_archivos=len(resultados),
+        archivos_ok=estados.count("ok"),
+        archivos_parciales=estados.count("parcial"),
+        archivos_error=estados.count("error"),
+        archivos_pendientes=estados.count("pendiente"),
+        archivos_rechazados=estados.count("rechazado"),
+        productos_extraidos=sum(len(resultado["productos"]) for resultado in resultados),
+        persistido=False,
+        aviso=(
+            "Respuesta de prueba: nada se guardo en la base de datos ni en "
+            "disco. Revise los productos extraidos de cada archivo"
+        ),
+    )
 
 
 @router.post(

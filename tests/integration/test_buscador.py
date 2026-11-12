@@ -384,16 +384,16 @@ class TestEndpointDeCatalogo:
         assert pagina.status_code == 422
         assert limite.status_code == 422
 
-    def test_pagina_del_buscador_ofrece_tamanos_de_25_a_100_registros(
+    def test_pagina_del_buscador_ofrece_tamanos_de_10_a_100_registros(
         self, navegador, sesion
     ):
         respuesta = navegador.get("/search")
 
         assert respuesta.status_code == 200
         assert 'id="limite-resultados-buscador"' in respuesta.text
-        assert '<option value="25" selected>25</option>' in respuesta.text
+        assert '<option value="10" selected>10</option>' in respuesta.text
+        assert '<option value="25">25</option>' in respuesta.text
         assert '<option value="50">50</option>' in respuesta.text
-        assert '<option value="75">75</option>' in respuesta.text
         assert '<option value="100">100</option>' in respuesta.text
 
     def test_devuelve_paginas_estables_y_total_de_productos_activos(

@@ -7,7 +7,7 @@
 
   var MINIMO_BUSQUEDA = 1;
   var RETRASO_MS = 350;
-  var LIMITE = 25;
+  var LIMITE = 10;
 
   var formulario = document.getElementById("form-buscador");
   var entrada = document.getElementById("consulta-buscador");
@@ -29,6 +29,9 @@
   var siguienteCatalogo = document.getElementById("pagina-siguiente-catalogo");
   var estadoPaginacion = document.getElementById("estado-paginacion-catalogo");
   var limiteResultados = document.getElementById("limite-resultados-buscador");
+  if (limiteResultados) {
+    LIMITE = Number(limiteResultados.value) || LIMITE;
+  }
   var dialogoDetalle = document.getElementById("dialogo-detalle-producto");
   var cerrarDetalle = document.getElementById("cerrar-detalle-producto");
   var estadoDetalle = document.getElementById("estado-detalle-producto");

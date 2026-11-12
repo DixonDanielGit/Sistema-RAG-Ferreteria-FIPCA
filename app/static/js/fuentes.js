@@ -5,6 +5,11 @@
   var MAX_ARCHIVOS = 20;
   var MAX_BYTES = 100 * 1024 * 1024;
   var EXTENSIONES = ["pdf", "xlsx", "docx", "txt"];
+  /* La prueba de extraccion devuelve todo el catalogo leido. Un PDF grande
+     pasa del medio millon de caracteres y volcarlo completo en el DOM
+     congela la pestana: se corta el bloque y el JSON integro se sigue
+     viendo en la consola de red del navegador. */
+  var MAX_CARACTERES_SALIDA = 300000;
   /* El analisis local puede tardar en catalogos muy grandes. Se corta la
      espera a los 10 minutos para no dejar la pantalla colgada sin respuesta. */
   var ESPERA_MAXIMA_MS = 10 * 60 * 1000;
@@ -97,6 +102,13 @@
     var contadorSeleccion = document.getElementById("contador-seleccion");
     var eliminarSeleccionados = document.getElementById("eliminar-seleccionados");
     var zona = document.getElementById("zona-archivos");
+    var botonExtraccion = document.getElementById("boton-extraccion");
+    var estadoExtraccion = document.getElementById("estado-extraccion");
+    var textoEstadoExtraccion = document.getElementById("texto-estado-extraccion");
+    var salidaExtraccion = document.getElementById("salida-extraccion");
+    var entradaExtraccion = document.getElementById("archivos-extraccion");
+    var cuentaExtraccion = document.getElementById("cuenta-extraccion");
+    var archivosExtraccion = [];
     var boton = document.getElementById("boton-archivos");
     var abrir = document.getElementById("abrir-fuentes");
     var cerrar = document.getElementById("cerrar-fuentes");
@@ -193,6 +205,7 @@
     var datosProveedorPrevios = null;
     var subiendo = false;
     var eliminando = false;
+    var extrayendo = false;
     var cancelarSolicitud = null;
     var temporizadorEspera = null;
     var seleccionados = Object.create(null);
@@ -605,6 +618,10 @@
       if (boton) boton.disabled = ocupacion();
       if (zona) zona.disabled = ocupacion();
       if (entrada) entrada.disabled = ocupacion();
+      /* La prueba usa su propio selector, asi que no depende de la cola de
+         carga: solo se bloquea mientras ella misma esta esperando. */
+      if (botonExtraccion) botonExtraccion.disabled = extrayendo;
+      if (entradaExtraccion) entradaExtraccion.disabled = extrayendo;
       if (lista) {
         lista.querySelectorAll(".fuentes__eliminar").forEach(function (nodo) {
           nodo.disabled = ocupacion();
@@ -1015,6 +1032,129 @@
         agregar(entrada.files);
         entrada.value = "";
       });
+    }
+
+    /* Prueba de extraccion (solo desarrollo): usa su propio selector y llama
+       al endpoint que lee los archivos en memoria sin guardar nada. La
+       peticion queda visible en la pestana de Red del navegador. No comparte
+       la cola del panel porque esa se sube a /ingesta al instante. */
+    function actualizarCuentaExtraccion() {
+      if (!cuentaExtraccion) return;
+      var total = archivosExtraccion.length;
+      cuentaExtraccion.textContent = total
+        ? total + (total === 1 ? " archivo elegido" : " archivos elegidos")
+        : "Sin archivos elegidos";
+    }
+
+    function mensajeEstadoExtraccion(texto) {
+      if (!estadoExtraccion) return;
+      if (texto) {
+        if (textoEstadoExtraccion) textoEstadoExtraccion.textContent = texto;
+        estadoExtraccion.hidden = false;
+      } else {
+        estadoExtraccion.hidden = true;
+        if (textoEstadoExtraccion) textoEstadoExtraccion.textContent = "";
+      }
+    }
+
+    function pintarSalidaExtraccion(texto) {
+      if (!salidaExtraccion) return;
+      if (!texto) {
+        salidaExtraccion.hidden = true;
+        salidaExtraccion.textContent = "";
+        return;
+      }
+      var cortado =
+        texto.length > MAX_CARACTERES_SALIDA
+          ? texto.slice(0, MAX_CARACTERES_SALIDA) +
+            "\n… salida truncada: el JSON completo esta en la pestana de Red " +
+            "del navegador (" + texto.length.toLocaleString("es-VE") +
+            " caracteres)."
+          : texto;
+      salidaExtraccion.textContent = cortado;
+      salidaExtraccion.hidden = false;
+      salidaExtraccion.scrollTop = 0;
+    }
+
+    async function probarExtraccion() {
+      if (extrayendo) return;
+      var candidatos = archivosExtraccion.slice();
+      if (!candidatos.length) {
+        mensajeEstadoExtraccion(
+          "Elija al menos un archivo antes de probar la extracción."
+        );
+        return;
+      }
+      if (candidatos.length > MAX_ARCHIVOS) {
+        mensajeEstadoExtraccion(
+          "La prueba admite hasta " + MAX_ARCHIVOS + " archivos por lote."
+        );
+        return;
+      }
+
+      var formulario = new FormData();
+      candidatos.forEach(function (archivo) {
+        formulario.append("archivos", archivo, archivo.name);
+      });
+
+      extrayendo = true;
+      if (botonExtraccion) botonExtraccion.disabled = true;
+      aviso("");
+      pintarSalidaExtraccion("");
+      mensajeEstadoExtraccion(
+        "Extrayendo " + candidatos.length +
+          (candidatos.length === 1 ? " archivo…" : " archivos…")
+      );
+
+      try {
+        var respuesta = await Fipca.pedir(
+          "/api/v1/inventario/extraccion-prueba",
+          {
+            metodo: "POST",
+            cuerpo: formulario,
+            timeoutMs: ESPERA_MAXIMA_MS,
+            noRedirigir: true,
+          }
+        );
+        mensajeEstadoExtraccion(
+          "Extraídos " + respuesta.productos_extraidos +
+          (respuesta.productos_extraidos === 1 ? " producto" : " productos") +
+          " de " + respuesta.total_archivos +
+          (respuesta.total_archivos === 1 ? " archivo" : " archivos") +
+          " (nada se guardó)."
+        );
+        pintarSalidaExtraccion(JSON.stringify(respuesta, null, 2));
+      } catch (fallo) {
+        if (fallo.estado === 401) {
+          Fipca.navegar("/login?expirada=1");
+          return;
+        }
+        var detalle =
+          fallo.datos && fallo.datos.detail
+            ? JSON.stringify(fallo.datos, null, 2)
+            : fallo.message || "No se pudo probar la extracción.";
+        mensajeEstadoExtraccion(fallo.message || "No se pudo probar la extracción.");
+        pintarSalidaExtraccion(detalle);
+      } finally {
+        extrayendo = false;
+        actualizar();
+      }
+    }
+
+    if (botonExtraccion) {
+      botonExtraccion.addEventListener("click", probarExtraccion);
+    }
+
+    if (entradaExtraccion) {
+      entradaExtraccion.addEventListener("change", function () {
+        if (extrayendo) return;
+        archivosExtraccion = Array.prototype.slice.call(entradaExtraccion.files);
+        actualizarCuentaExtraccion();
+        if (salidaExtraccion) salidaExtraccion.hidden = true;
+        mensajeEstadoExtraccion("");
+        entradaExtraccion.value = "";
+      });
+      actualizarCuentaExtraccion();
     }
 
     /* Buscador del panel: filtra sin recargar ni volver a pedir el

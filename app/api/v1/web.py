@@ -44,6 +44,9 @@ def _contexto(request: Request, usuario: dict[str, Any] | None = None) -> dict[s
         "sistema": config.nombre,
         "version": config.version,
         "expiracion_sesion_minutos": config.jwt_expiracion_minutos,
+        # La prueba de extraccion en memoria solo se ofrece en desarrollo:
+        # expone el contenido leido de los archivos del proveedor.
+        "es_desarrollo": not config.es_produccion,
         "usuario": usuario,
     }
 

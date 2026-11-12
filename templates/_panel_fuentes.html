@@ -50,6 +50,38 @@
     <p class="fuentes__error" id="error-fuentes" role="alert" aria-live="polite"></p>
     {% endif %}
 
+    {% if es_desarrollo %}
+    {#- Prueba del buscador local: lee los archivos en cola con las librerias
+        de Python y devuelve el JSON extraido. No escribe en la base ni en
+        disco, y solo se ofrece en desarrollo porque expone el contenido del
+        catalogo del proveedor. -#}
+    <div class="fuentes__extraccion" id="bloque-extraccion">
+      <button class="fuentes__extraccion-boton" type="button" id="boton-extraccion">
+        Probar extraccion (desarrollo)
+      </button>
+      <p class="fuentes__extraccion-ayuda">
+        Elija los archivos aqui y se leen en memoria, sin guardar nada: revise
+        el JSON en la consola de red del navegador.
+      </p>
+      {#- Selector propio: la zona de carga de arriba sube a /ingesta en
+          cuanto suelta el archivo, asi que no puede compartirse con la prueba. -#}
+      <label class="fuentes__extraccion-archivo" for="archivos-extraccion">
+        Elegir archivos de prueba
+        <input class="visually-hidden" type="file" id="archivos-extraccion"
+               multiple accept=".pdf,.xlsx,.docx,.txt" tabindex="-1" />
+      </label>
+      <span class="fuentes__extraccion-cuenta" id="cuenta-extraccion"
+            role="status" aria-live="polite">Sin archivos elegidos</span>
+      <p class="fuentes__estado fuentes__extraccion-estado" id="estado-extraccion"
+         role="status" aria-live="polite" hidden>
+        <span class="fuentes__cargando" aria-hidden="true"></span>
+        <span id="texto-estado-extraccion"></span>
+      </p>
+      <pre class="fuentes__extraccion-salida" id="salida-extraccion"
+           tabindex="0" hidden></pre>
+    </div>
+    {% endif %}
+
     <div class="fuentes__busqueda" id="busqueda-fuentes" hidden>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
            stroke-linecap="round" aria-hidden="true">
