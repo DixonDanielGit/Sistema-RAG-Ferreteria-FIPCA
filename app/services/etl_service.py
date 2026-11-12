@@ -910,6 +910,27 @@ TOLERANCIA_LINEA_PDF = 1.5
 SALTO_COLUMNA_PDF = 25.0
 DISTANCIA_MAXIMA_PDF = 15.0
 
+# --- Catalogos en cuadros ----------------------------------------------------
+# Algunos proveedores arman el catalogo como una rejilla de tarjetas dibujadas:
+# cada producto es un recuadro con su descripcion, "CODIGO X", "MIN. EMP. N" y
+# "Ref. precio". La rejilla real se reconstruye con los bordes verticales de la
+# pagina, que a diferencia del texto no se desalinean: cada tarjeta queda
+# delimitada por el borde vertical de su izquierda y el de su derecha. Leerla
+# como filas de texto mezcla descripciones de tarjetas vecinas, y leerla como
+# tabla con pdfplumber mezcla celdas de varias tarjetas en una sola columna.
+PATRON_ETIQUETA_CODIGO = re.compile(r"^C[OÓ]DIGO$", re.IGNORECASE)
+PATRON_ETIQUETA_PRECIO = re.compile(r"^Ref\.?$", re.IGNORECASE)
+# Marcas de que la pagina usa el formato de cuadros. Se buscan sobre el texto
+# ya extraido para no abrir el PDF con pdfplumber por segunda vez cuando el
+# catalogo trae tablas o fichas normales.
+PATRON_MARCA_CODIGO = re.compile(r"C[OÓ]DIGO", re.IGNORECASE)
+PATRON_MARCA_PRECIO = re.compile(r"Ref\.", re.IGNORECASE)
+MINIMO_MARCAS_CUADROS = 5
+LADO_MINIMO_BORDE = 20.0
+ANCHO_MINIMO_TARJETA = 60.0
+TOLERANCIA_BORDE_PDF = 2.0
+TOLERANCIA_RENGLON_TARJETA = 3.0
+
 
 def _es_codigo_pdf(valor: str) -> bool:
     """Un codigo de catalogo real: alfanumerico, con digito y sin medidas."""
@@ -929,6 +950,238 @@ def _es_codigo_pdf(valor: str) -> bool:
 
 def _es_precio_pdf(valor: str) -> bool:
     return PATRON_PRECIO_PDF.fullmatch(valor.replace(" ", "")) is not None
+
+
+def _es_catalogo_de_cuadros(texto: str) -> bool:
+    """Decide si el PDF usa el formato de tarjetas dibujadas.
+
+    Se cuenta sobre el texto ya extraido. Abrir el documento otra vez para
+    decidirlo cuesta decenas de segundos en catalogos de cientos de paginas
+    que no usan cuadros, y no aporta nada: los catalogos de tarjetas repiten
+    las etiquetas "CODIGO" y "Ref." cientos de veces.
+    """
+    if len(PATRON_MARCA_CODIGO.findall(texto)) < MINIMO_MARCAS_CUADROS:
+        return False
+    return len(PATRON_MARCA_PRECIO.findall(texto)) >= MINIMO_MARCAS_CUADROS
+
+
+def _pagina_en_cuadros(palabras: list[dict[str, Any]]) -> bool:
+    """True si la pagina trae etiquetas de codigo y de precio."""
+    etiquetas = {palabra["text"] for palabra in palabras}
+    return any(PATRON_ETIQUETA_CODIGO.match(texto) for texto in etiquetas) and any(
+        PATRON_ETIQUETA_PRECIO.match(texto) for texto in etiquetas
+    )
+
+
+def _bordes_verticales_pdf(pagina: Any) -> list[tuple[float, float, float]]:
+    """Bordes verticales dibujados de la pagina, como (x, arriba, abajo).
+
+    Son las lineas del recuadro de cada tarjeta. El texto se desalinea de un
+    producto a otro, pero el dibujo no: por eso la rejilla se arma con ellos.
+    """
+    bordes: list[tuple[float, float, float]] = []
+    for rect in pagina.rects:
+        if rect.get("width", 0) <= 2 and rect.get("height", 0) >= LADO_MINIMO_BORDE:
+            bordes.append(
+                (
+                    (float(rect["x0"]) + float(rect["x1"])) / 2,
+                    float(rect["top"]),
+                    float(rect["bottom"]),
+                )
+            )
+    for linea in pagina.lines:
+        x0, x1 = sorted((float(linea["x0"]), float(linea["x1"])))
+        arriba, abajo = sorted((float(linea["top"]), float(linea["bottom"])))
+        if x1 - x0 <= 2 and abajo - arriba >= LADO_MINIMO_BORDE:
+            bordes.append(((x0 + x1) / 2, arriba, abajo))
+    return bordes
+
+
+def _caja_tarjeta_pdf(
+    x0: float,
+    x1: float,
+    centro: float,
+    bordes: list[tuple[float, float, float]],
+) -> tuple[float, float, float, float] | None:
+    """Delimita la tarjeta que contiene la etiqueta, con sus bordes vecinos."""
+    izquierda = [
+        borde
+        for borde in bordes
+        if borde[0] <= x0 + TOLERANCIA_BORDE_PDF
+        and borde[1] - TOLERANCIA_BORDE_PDF
+        <= centro
+        <= borde[2] + TOLERANCIA_BORDE_PDF
+    ]
+    derecha = [
+        borde
+        for borde in bordes
+        if borde[0] >= x1 - TOLERANCIA_BORDE_PDF
+        and borde[1] - TOLERANCIA_BORDE_PDF
+        <= centro
+        <= borde[2] + TOLERANCIA_BORDE_PDF
+    ]
+    if not izquierda or not derecha:
+        return None
+    inicio = max(izquierda, key=lambda borde: borde[0])
+    fin = min(derecha, key=lambda borde: borde[0])
+    if fin[0] - inicio[0] < ANCHO_MINIMO_TARJETA:
+        return None
+    return (inicio[0], min(inicio[1], fin[1]), fin[0], max(inicio[2], fin[2]))
+
+
+def _lineas_de_caja_pdf(
+    palabras: list[dict[str, Any]],
+    caja: tuple[float, float, float, float],
+) -> list[list[str]]:
+    """Agrupa en renglones las palabras que caen dentro de la tarjeta."""
+    izquierda, arriba, derecha, abajo = caja
+    dentro = [
+        palabra
+        for palabra in palabras
+        if izquierda
+        <= (float(palabra["x0"]) + float(palabra["x1"])) / 2
+        <= derecha
+        and arriba <= (float(palabra["top"]) + float(palabra["bottom"])) / 2 <= abajo
+    ]
+    dentro.sort(key=lambda palabra: (float(palabra["top"]), float(palabra["x0"])))
+    renglones: list[list[Any]] = []
+    for palabra in dentro:
+        tope = float(palabra["top"])
+        if renglones and abs(renglones[-1][0] - tope) <= TOLERANCIA_RENGLON_TARJETA:
+            renglones[-1][1].append(palabra)
+        else:
+            renglones.append([tope, [palabra]])
+    return [
+        [
+            str(palabra["text"])
+            for palabra in sorted(grupo[1], key=lambda parte: float(parte["x0"]))
+        ]
+        for grupo in renglones
+    ]
+
+
+def _ficha_tarjeta_pdf(
+    renglones: list[list[str]],
+) -> tuple[str, str, str] | None:
+    """Extrae (codigo, nombre, precio) de los renglones de una tarjeta.
+
+    La descripcion es todo lo que esta antes de la etiqueta del codigo: asi el
+    "MIN. EMP." de la misma tarjeta no se cuela en el nombre ni se mezcla con
+    la descripcion del producto vecino.
+    """
+    codigo: str | None = None
+    precio: str | None = None
+    nombre: list[str] = []
+    for tokens in renglones:
+        primero = tokens[0]
+        if PATRON_ETIQUETA_CODIGO.match(primero):
+            if codigo is None and len(tokens) > 1:
+                unido = "".join(tokens[1:])
+                if _es_codigo_pdf(unido):
+                    codigo = unido
+                elif _es_codigo_pdf(tokens[1]):
+                    codigo = tokens[1]
+            continue
+        if PATRON_ETIQUETA_PRECIO.match(primero):
+            # El precio llega partido en dos fragmentos en muchas tarjetas
+            # ("9 " + ".19"), por eso se unen sin espacios.
+            if precio is None:
+                precio = "".join(tokens[1:]).strip()
+            continue
+        if codigo is None:
+            nombre.extend(tokens)
+    if not codigo or not precio:
+        return None
+    return codigo, " ".join(nombre), precio
+
+
+def _extraer_pdf_cuadros(
+    contenido: bytes,
+) -> tuple[list[dict[str, Any]], int, list[str]]:
+    """Extrae catalogos armados como tarjetas dibujadas, una ficha por recuadro.
+
+    Cada tarjeta es un rectangulo con la descripcion arriba, "CODIGO X",
+    "MIN. EMP. N" y "Ref. precio". Leerlo como texto plano mezcla los nombres
+    de las tarjetas vecinas (vienen en el mismo renglon) y leerlo como tabla
+    apila celdas de varias tarjetas en una columna. Aqui cada ficha se arma
+    dentro de los bordes de su propio recuadro.
+    """
+    try:
+        documento = pdfplumber.open(io.BytesIO(contenido))
+    except Exception as exc:  # noqa: BLE001 - se informa como PDF ilegible
+        logger.info("pdfplumber no pudo abrir el PDF para leer cuadros: %s", exc)
+        return [], 0, []
+    productos: list[dict[str, Any]] = []
+    errores: list[str] = []
+    with documento:
+        if len(documento.pages) > MAX_PAGINAS_PDF:
+            raise ErrorIngesta(
+                f"El PDF supera el maximo de {MAX_PAGINAS_PDF} paginas"
+            )
+        for numero_pagina, pagina in enumerate(documento.pages, start=1):
+            try:
+                fichas = _fichas_cuadros_pagina(pagina)
+            except Exception as exc:  # noqa: BLE001 - una pagina no rompe el lote
+                logger.info(
+                    "No se pudo leer la pagina %s del PDF: %s", numero_pagina, exc
+                )
+                continue
+            for codigo, nombre, precio in fichas:
+                numero_fila = len(productos) + len(errores) + 1
+                if numero_fila > MAX_FILAS_ARCHIVO:
+                    raise ErrorIngesta(
+                        f"El archivo supera el maximo de {MAX_FILAS_ARCHIVO} filas"
+                    )
+                if not nombre.strip():
+                    # La tarjeta trae codigo y precio pero el proveedor dejo
+                    # el nombre vacio: se informa la ficha concreta en vez
+                    # de inventar una descripcion.
+                    errores.append(
+                        f"Fila {numero_fila}: la ficha {codigo} de la pagina "
+                        f"{numero_pagina} no trae descripcion"
+                    )
+                    continue
+                try:
+                    productos.append(
+                        _producto_desde_fila(
+                            [codigo, nombre, precio],
+                            {"codigo": 0, "nombre": 1, "precio": 2},
+                            numero_fila,
+                        )
+                    )
+                except ErrorIngesta as exc:
+                    errores.append(str(exc))
+    return productos, len(errores), errores[:MAX_ERRORES_DETALLE]
+
+
+def _fichas_cuadros_pagina(pagina: Any) -> list[tuple[str, str, str]]:
+    """Devuelve las fichas (codigo, nombre, precio) de una pagina de tarjetas."""
+    palabras = pagina.extract_words()
+    if not palabras or not _pagina_en_cuadros(palabras):
+        return []
+    bordes = _bordes_verticales_pdf(pagina)
+    if not bordes:
+        return []
+    fichas: list[tuple[str, str, str]] = []
+    vistas: set[tuple[float, float, float, float]] = set()
+    for palabra in palabras:
+        if not PATRON_ETIQUETA_CODIGO.match(palabra["text"]):
+            continue
+        caja = _caja_tarjeta_pdf(
+            float(palabra["x0"]),
+            float(palabra["x1"]),
+            (float(palabra["top"]) + float(palabra["bottom"])) / 2,
+            bordes,
+        )
+        if caja is None or caja in vistas:
+            continue
+        # Una tarjeta puede traer varias etiquetas de codigo cuando el
+        # proveedor duplica el dato: la caja se lee una sola vez.
+        vistas.add(caja)
+        ficha = _ficha_tarjeta_pdf(_lineas_de_caja_pdf(palabras, caja))
+        if ficha is not None:
+            fichas.append(ficha)
+    return fichas
 
 
 def _es_etiqueta_pdf(valor: str) -> bool:
@@ -1436,6 +1689,14 @@ def _extraer_pdf(contenido: bytes) -> tuple[list[dict[str, Any]], int, list[str]
 
     resultados.append(("tabla", *_extraer_pdf_tabla(texto)))
 
+    if _es_catalogo_de_cuadros(texto):
+        try:
+            resultados.append(("cuadros", *_extraer_pdf_cuadros(contenido)))
+        except ErrorIngesta:
+            raise
+        except Exception as exc:  # noqa: BLE001 - una estrategia no rompe el lote
+            logger.info("La estrategia cuadros no aplica a este PDF: %s", exc)
+
     filas = _filas_pdf(texto)
     for indice, fila in enumerate(filas):
         if fila and _clave(fila[0]) == "imagen":
@@ -1462,7 +1723,7 @@ def _extraer_pdf(contenido: bytes) -> tuple[list[dict[str, Any]], int, list[str]
     if productos:
         return productos, errores, detalles
     raise CabeceraIngestaAusente(
-        "No se encontro una tabla ni fichas con codigo, descripcion y precio"
+            "No se encontro una tabla, fichas ni cuadros con codigo, descripcion y precio"
     )
 
 

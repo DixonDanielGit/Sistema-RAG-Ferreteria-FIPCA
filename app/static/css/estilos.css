@@ -4808,9 +4808,19 @@ body.cuerpo-buscador main {
   color: var(--accion-texto-suave) !important;
 }
 
-.datatable-contenedor .dt-paging .dt-paging-button.disabled {
-  color: var(--texto-suave) !important;
-  opacity: 0.6;
+/* DataTables pinta los botones de paginacion inactivos (Primera, Anterior,
+   Siguiente, Ultima) con un gris fijo rgba(0,0,0,.5) marcado !important, que
+   no cambia con el tema y se ve casi negro en modo oscuro. La regla del tema
+   necesita el selector "div" para igualar la especificidad del vendor y
+   cubrir ademas los estados hover y active. */
+div.datatable-contenedor .dt-paging .dt-paging-button.disabled,
+div.datatable-contenedor .dt-paging .dt-paging-button.disabled:hover,
+div.datatable-contenedor .dt-paging .dt-paging-button.disabled:active {
+  color: var(--texto) !important;
+  opacity: 1;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 
 .cuenta-tabla__acciones {

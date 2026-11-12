@@ -54,6 +54,55 @@
     return (bytes / (1024 * 1024)).toFixed(1).replace(".", ",") + " MB";
   }
 
+  /* El servidor devuelve el detalle fila por fila de lo que no pudo importar
+     (fichas sin descripcion, codigos repetidos). Al operador no le sirve para
+     decidir y lo alarma, asi que ese texto no se pinta en pantalla: se manda a
+     la consola del navegador, que es donde el tecnico lo revisa junto con la
+     pestana de Red. En pantalla queda solo el resumen en lenguaje llano. */
+  var detallesRegistrados = Object.create(null);
+
+  function detalleTecnico(contexto, texto, clave) {
+    if (!texto) return;
+    if (!window.console || !console.warn) return;
+    var marca = clave || contexto;
+    if (marca && detallesRegistrados[marca] === texto) return;
+    if (marca) detallesRegistrados[marca] = texto;
+    console.warn("[fuentes] " + contexto, texto);
+  }
+
+  /* Resumen corto de un archivo del historial: el detalle largo solo tiene
+     sentido para el tecnico, no para quien carga catalogos. */
+  function resumenDeArchivo(archivo) {
+    if (archivo.estado !== "parcial" && archivo.estado !== "ok") {
+      return archivo.detalle || "";
+    }
+    detalleTecnico(
+      archivo.nombre,
+      archivo.detalle,
+      "historial:" + (archivo.id_archivo || archivo.nombre)
+    );
+    var omitidas = Number(archivo.filas_error) || 0;
+    if (!omitidas) return "";
+    return omitidas + (omitidas === 1 ? " ficha omitida" : " fichas omitidas") +
+      "; el detalle está en la consola del navegador";
+  }
+
+  /* Resumen de un archivo recien procesado, para el aviso del final. */
+  function resumenDeCarga(nombre, resultado) {
+    var partes = [];
+    var cargadas = Number(resultado.filas_ok) || 0;
+    var omitidas = Number(resultado.filas_error) || 0;
+    if (cargadas) {
+      partes.push(cargadas + (cargadas === 1 ? " producto" : " productos"));
+    }
+    if (omitidas) {
+      partes.push(
+        omitidas + (omitidas === 1 ? " ficha omitida" : " fichas omitidas")
+      );
+    }
+    return nombre + (partes.length ? ": " + partes.join(", ") : "");
+  }
+
   /* Icono de quitar, creado con DOM para no usar innerHTML con datos. */
   function iconoQuitar() {
     return iconoTrazado("M6 6l12 12M18 6L6 18");
@@ -743,11 +792,13 @@
           }
         } else {
           if (archivo.detalle) {
-            var detalle = document.createElement("span");
-            detalle.className = "fuentes__meta";
-            detalle.textContent = archivo.detalle.slice(0, 180);
-            fila.title = archivo.detalle;
-            datos.appendChild(detalle);
+            var textoResumen = resumenDeArchivo(archivo);
+            if (textoResumen) {
+              var detalle = document.createElement("span");
+              detalle.className = "fuentes__meta";
+              detalle.textContent = textoResumen.slice(0, 180);
+              datos.appendChild(detalle);
+            }
           }
           if (puedeEliminar && archivo.id_archivo) {
             var acciones = document.createElement("span");
@@ -892,6 +943,7 @@
       var cargados = 0;
       var cancelados = 0;
       var incidencias = [];
+      var detallesTecnicos = [];
       try {
         for (var i = 0; i < archivos.length; i++) {
           var item = archivos[i];
@@ -941,7 +993,13 @@
               item.estado = "error";
               item.detalle = revision.resultado.detalle ||
                 "No se detectaron productos para importar.";
-              incidencias.push(item.nombre + ": " + item.detalle);
+              incidencias.push(
+                item.nombre + ": no se detectaron productos para importar"
+              );
+              detallesTecnicos.push({
+                nombre: item.nombre,
+                detalle: item.detalle,
+              });
               continue;
             }
 
@@ -967,14 +1025,16 @@
             item.detalle = resultado.detalle || "";
             cargados += respuesta.archivos_ok + respuesta.archivos_parciales;
             if (resultado.estado !== "ok") {
-              incidencias.push(
-                resultado.nombre + ": " + (resultado.detalle || "sin detalle")
-              );
+              incidencias.push(resumenDeCarga(resultado.nombre, resultado));
+              detallesTecnicos.push({
+                nombre: resultado.nombre,
+                detalle: resultado.detalle || "sin detalle",
+              });
             }
           } catch (fallo) {
             if (fallo.cancelado && !fallo.agotadoTiempo) {
               /* Cancelado por el usuario: no es un fallo del catalogo y no se
-                   repite en el resumen de incidencias. */
+                 repite en el resumen de incidencias. */
               item.estado = "cancelado";
               item.detalle = "Analisis cancelado; no se guardo ni se modifico el inventario.";
               cancelados += 1;
@@ -982,16 +1042,30 @@
             }
             item.estado = "error";
             item.detalle = fallo.message || "No se pudo subir el archivo.";
-            incidencias.push(item.nombre + ": " + item.detalle);
+            incidencias.push(item.nombre + ": no se pudo procesar el archivo");
+            detallesTecnicos.push({
+              nombre: item.nombre,
+              detalle: item.detalle,
+            });
           }
         }
 
         if (incidencias.length) {
+          /* El detalle fila por fila va a la consola: en pantalla se resumen
+             los productos importados y, si los hubo, las fichas omitidas. */
+          detallesTecnicos.forEach(function (entrada) {
+            detalleTecnico(
+              entrada.nombre,
+              entrada.detalle,
+              "carga:" + entrada.nombre
+            );
+          });
           aviso(
-            cargados + " archivo(s) cargado(s); los demás requieren revisión." +
-              (cancelados ? " " + cancelados + " cancelado(s)." : " ") +
-              incidencias.join(". ").slice(0, 700),
-            "error"
+            cargados + " archivo(s) cargado(s)." +
+              (cancelados ? " " + cancelados + " cancelado(s)." : "") +
+              " " + incidencias.join("; ") +
+              ". El detalle está en la consola del navegador.",
+            cargados ? "exito" : "error"
           );
         } else if (cancelados && !cargados) {
           aviso("No se importó ningún catálogo.", "error");

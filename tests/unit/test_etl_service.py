@@ -703,6 +703,262 @@ def test_pdf_estrategia_con_codigos_nuevos_conserva_sus_errores():
     assert detalles == ["Fila 2: Precio invalido"]
 
 
+def _pagina_de_cuadros(tarjetas):
+    """Arma una pagina falsa con tarjetas dibujadas: bordes, palabras y renglones.
+
+    ``tarjetas`` es una lista de ``(izquierda, derecha, arriba, renglones)``;
+    cada renglon es el texto de una linea dentro de la tarjeta.
+    """
+    palabras = []
+    rects = []
+    for izquierda, derecha, arriba, renglones in tarjetas:
+        for indice, renglon in enumerate(renglones):
+            tope = arriba + 10 + indice * 13
+            x = izquierda + 6
+            for token in renglon.split():
+                ancho = len(token) * 4.5
+                palabras.append(
+                    {
+                        "text": token,
+                        "x0": float(x),
+                        "x1": float(x + ancho),
+                        "top": float(tope),
+                        "bottom": float(tope + 7.2),
+                    }
+                )
+                x += ancho + 3
+        alto = len(renglones) * 13 + 12
+        for borde in (izquierda, derecha):
+            rects.append(
+                {
+                    "x0": float(borde),
+                    "x1": float(borde + 0.6),
+                    "top": float(arriba),
+                    "bottom": float(arriba + alto),
+                    "width": 0.6,
+                    "height": float(alto),
+                }
+            )
+    return type(
+        "Pagina",
+        (),
+        {
+            "extract_words": lambda self: palabras,
+            "rects": rects,
+            "lines": [],
+        },
+    )()
+
+
+def test_pdf_cuadros_arma_cada_ficha_dentro_de_su_tarjeta():
+    # Tarjetas como las de TAMBOTORCA: las tres descripciones y los tres
+    # codigos comparten renglon, pero cada ficha vive en su propio recuadro.
+    pagina = _pagina_de_cuadros(
+        [
+            (
+                30.0,
+                205.0,
+                130.0,
+                [
+                    "TORN. AUTO. C/PAN 4 X 3/8",
+                    "CÓDIGO 1100029009A3",
+                    "MIN. EMP. 1000",
+                    "Ref. 12.04",
+                ],
+            ),
+            (
+                212.0,
+                388.0,
+                130.0,
+                [
+                    "TORN. AUTO. C/PAN 4 X 1/2",
+                    "CÓDIGO 1100029013A3",
+                    "MIN. EMP. 1000",
+                    "Ref. 18.34",
+                ],
+            ),
+        ]
+    )
+
+    fichas = etl_service._fichas_cuadros_pagina(pagina)
+
+    assert fichas == [
+        ("1100029009A3", "TORN. AUTO. C/PAN 4 X 3/8", "12.04"),
+        ("1100029013A3", "TORN. AUTO. C/PAN 4 X 1/2", "18.34"),
+    ]
+
+
+def test_pdf_cuadros_no_mezcla_descripcion_nombre_ni_minimo():
+    pagina = _pagina_de_cuadros(
+        [
+            (
+                30.0,
+                205.0,
+                130.0,
+                [
+                    "BLIS REMACHE ALUM. AS (N) 42 N 1/8 x 6",
+                    "PZA)",
+                    "CÓDIGO 611203200642",
+                    "MIN. EMP. 10",
+                    "Ref. 20.21",
+                ],
+            ),
+            (
+                212.0,
+                388.0,
+                130.0,
+                [
+                    "BLIS REMACHE ALUM. AS (N) 43 N 1/8 x 8",
+                    "CÓDIGO 611203200843",
+                    "MIN. EMP. 10",
+                    "Ref. 22.54",
+                ],
+            ),
+        ]
+    )
+
+    productos = etl_service._fichas_cuadros_pagina(pagina)
+
+    assert productos[0] == (
+        "611203200642",
+        "BLIS REMACHE ALUM. AS (N) 42 N 1/8 x 6 PZA)",
+        "20.21",
+    )
+    assert productos[1] == (
+        "611203200843",
+        "BLIS REMACHE ALUM. AS (N) 43 N 1/8 x 8",
+        "22.54",
+    )
+    for _codigo, nombre, _precio in productos:
+        assert "MIN." not in nombre
+        assert "EMP." not in nombre
+
+
+def test_pdf_cuadros_une_el_precio_partido_en_dos_fragmentos():
+    # El proveedor parte el precio en dos fragmentos ("9 " + ".19").
+    pagina = _pagina_de_cuadros(
+        [
+            (
+                30.0,
+                205.0,
+                130.0,
+                ["BOMBILLO DICROICO LED 7W 6500 K", "CÓDIGO 4102DC7WH", "Ref. 9 .19"],
+            ),
+            (
+                212.0,
+                388.0,
+                130.0,
+                ["PINZA MINIATURA ELECTRICISTA 4.5\"", "CÓDIGO 58smp069c", "Ref. 9 .37"],
+            ),
+        ]
+    )
+
+    fichas = etl_service._fichas_cuadros_pagina(pagina)
+
+    assert [ficha[2] for ficha in fichas] == ["9.19", "9.37"]
+
+
+def test_pdf_cuadros_ignora_las_tarjetas_sin_precio():
+    # Sin "Ref." no hay precio: la tarjeta se descarta en vez de inventarlo.
+    pagina = _pagina_de_cuadros(
+        [
+            (
+                30.0,
+                205.0,
+                130.0,
+                ["MARTILLO", "CÓDIGO M-01", "MIN. EMP. 10"],
+            ),
+        ]
+    )
+
+    assert etl_service._fichas_cuadros_pagina(pagina) == []
+
+
+def test_pdf_cuadros_informa_la_tarjeta_que_el_proveedor_dejo_sin_descripcion(
+    monkeypatch,
+):
+    # Hay tarjetas con codigo y precio pero sin nombre: no se inventa uno.
+    class Pagina:
+        pass
+
+    monkeypatch.setattr(
+        etl_service,
+        "pdfplumber",
+        type(
+            "Plumber",
+            (),
+            {
+                "open": staticmethod(
+                    lambda _flujo: type(
+                        "Documento",
+                        (),
+                        {
+                            "__enter__": lambda self: self,
+                            "__exit__": lambda *_args: None,
+                            "pages": [Pagina()],
+                        },
+                    )()
+                )
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        etl_service,
+        "_fichas_cuadros_pagina",
+        lambda _pagina: [("1120096031A3", "", "48.86")],
+    )
+
+    productos, errores, detalle = etl_service._extraer_pdf_cuadros(b"pdf")
+
+    assert productos == []
+    assert errores == 1
+    assert "1120096031A3" in detalle[0]
+    assert "no trae descripcion" in detalle[0]
+
+
+def test_pdf_solo_activa_la_lectura_por_cuadros_si_el_texto_la_delata():
+    assert etl_service._es_catalogo_de_cuadros(
+        "CODIGO DESCRIPCION PRECIO\nSKU-01 Martillo 1,00"
+    ) is False
+    texto_cuadros = "\n".join(
+        ["CÓDIGO 1100029009A3 MIN. EMP. 1000 Ref. 12.04"] * 5
+    )
+    assert etl_service._es_catalogo_de_cuadros(texto_cuadros) is True
+
+
+def test_pdf_usa_la_estrategia_de_cuadros_cuando_el_catalogo_es_de_tarjetas(
+    monkeypatch,
+):
+    producto = {
+        "codigo": "1100029009A3",
+        "nombre": "TORN. AUTO. C/PAN 4 X 3/8",
+        "marca": None,
+        "precio": Decimal("12.04"),
+        "descuentos": Decimal("0.00"),
+        "descripcion": None,
+    }
+    texto_tarjetas = "\n".join(
+        ["CÓDIGO 1100029009A3 MIN. EMP. 1000 Ref. 12.04"] * 5
+    )
+    monkeypatch.setattr(
+        etl_service, "_texto_pdf_local", lambda _contenido: texto_tarjetas
+    )
+    monkeypatch.setattr(
+        etl_service,
+        "_extraer_pdf_cuadros",
+        lambda _contenido: ([producto], 0, []),
+    )
+    monkeypatch.setattr(
+        etl_service, "PdfReader", lambda *_args, **_kwargs: type("Lector", (), {"pages": []})()
+    )
+
+    productos, errores, _ = etl_service._extraer_pdf(b"pdf de prueba")
+
+    assert errores == 0
+    assert [item["codigo"] for item in productos] == ["1100029009A3"]
+    assert productos[0]["precio"] == Decimal("12.04")
+
+
 def test_excel_pregunta_por_todas_las_hojas_con_precios_ambiguos():
     libro = Workbook()
     primera = libro.active
