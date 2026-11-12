@@ -194,6 +194,7 @@ demostrar el MVP.
 - [x] Redirigir al usuario a `/search` después de iniciar sesión y al abrir
   `/login` con una sesión activa. (Dejar el buscador como destino directo de
   entrada al sistema.)
+- [ ] Optimizar ETL para procesamiento por streaming (evitar OOM en archivos grandes).
 - [ ] Preparar un catálogo de prueba representativo (~8.000 productos) y
   evaluar consultas concretas con resultados esperados. (Probar con productos
   y búsquedas parecidas a las del uso real.)
@@ -322,23 +323,3 @@ demostrar el MVP.
   cuando se autorice.)
 
 ---
-
-## Hitos de control
-
-| Hito | Fecha objetivo | Condición de aceptación |
-|---|---|---|
-| Replanificación | Día 3 | Semanas 1–3 registradas como completadas; alcance del Buscador Comercial priorizado; autenticación y roles intactos |
-| MVP funcional | Cierre de semana 4 | Catálogo subido, ETL local con parsers de Python, búsqueda full-text en milisegundos desde la web con producto/precio/proveedor/contacto, resultados reales y pruebas de flujo |
-| Validación del piloto | Cierre de semana 5 | Relevancia, latencia (milisegundos), seguridad y comportamiento sin coincidencias documentados |
-| Módulos administrativos | Cierre de semana 6 | Inventario y bitácora operables con permisos y reglas de negocio |
-| Preparación de producción | Cierre de semana 7 | Despliegue ensayado, secretos, respaldos y documentación listos |
-| Entrega definitiva | Cierre de semana 8 | VPS verificado, pruebas finales y conformidad del cliente |
-| Fase 2: sistema de ventas | Por ordenar | **En pausa:** inicia solo con orden explícita del cliente; reportes, stock real y métricas |
-
-**Regla de alcance:** si una validación del MVP revela un defecto que impide
-buscar de forma rápida y segura, se prioriza corregirlo sobre
-funcionalidades administrativas no esenciales. No se elimina ninguna de las
-ocho semanas ni se desplaza la entrega del MVP más allá de la semana 4. El
-bloque de reportes de ventas (Fase 2) permanece en pausa hasta la orden
-explícita de iniciar su desarrollo, sin alterar la arquitectura de
-autenticación y roles ya definida.
