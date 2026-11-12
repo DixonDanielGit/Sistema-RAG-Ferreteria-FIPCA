@@ -133,21 +133,35 @@ determinista**. Queda pendiente consolidar y validar ese ETL local, probarlo con
 un catálogo representativo, ejecutar el recorrido de extremo a extremo y
 demostrar el MVP.
 
-- [ ] Implementar y consolidar los **parsers locales** del ETL: `pandas` y
+- [x] Implementar y consolidar los **parsers locales** del ETL: `pandas` y
   `openpyxl` para `.xlsx`; `pdfplumber` y `PyMuPDF` (`fitz`) para `.pdf`;
   `python-docx` para `.docx`; lectura nativa para `.txt`. (Extraer códigos,
   descripciones, precios y datos de proveedor sin servicios externos.)
-- [ ] Definir el mapeo determinista de columnas y cabeceras, junto con
+  — Implementado en `etl_service.py`: 91 funciones privadas cubriendo XLSX
+  (`_extraer_xlsx`), PDF con 6 estrategias (`_extraer_pdf_espacial`,
+  `_extraer_pdf_fichas`, `_extraer_pdf_cuadros`, `_extraer_pdf_columnas`,
+  `_extraer_pdf_etiquetas`, `_extraer_pdf_tabla_dolar`), DOCX
+  (`_extraer_docx`) y TXT (`_extraer_txt`).
+- [x] Definir el mapeo determinista de columnas y cabeceras, junto con
   expresiones regulares para precios, códigos y contactos. (Normalizar los
   datos con reglas reproducibles y auditables.)
-- [ ] Rechazar los archivos de formato irregular o incompatible con un mensaje
+  — `SINONIMOS` cubriendo codigo/nombre/precio/marca/descuento/proveedor/telefono,
+  `_leer_precio` con regex robustas, `_es_codigo_pdf`, `_es_precio_pdf`,
+  `_mapear_cabecera` y `_inferir_columnas`.
+- [x] Rechazar los archivos de formato irregular o incompatible con un mensaje
   claro al usuario, sin intentar adivinarlos con IA y sin detener el resto del
   lote. (Aplicar la plantilla estándar o corregir las columnas antes de
   reintentar.)
-- [ ] Guardar los datos extraídos de forma directa y estructurada en las tablas
+  — `_validar_paquete` con guardabrisas de ZIP-bomb, `_validar_paginas_docx`,
+  `_validar_archivos_limite`, mensajes de error claros por archivo (no afecta
+  al lote), límite de errores por detalle 20.
+- [x] Guardar los datos extraídos de forma directa y estructurada en las tablas
   relacionales de PostgreSQL (producto, precio, proveedor y número de
   contacto), sin alterar stock, sin inventar proveedores y conservando la
   trazabilidad al archivo de origen.
+  — `crear_archivo` (con advisory lock para proveedor), `upsert_producto`
+  (upsert por codigo sin tocar stock), `crear_oferta` (vinculacion
+  producto-proveedor), migraciones `3_0` y `8_0`.
 - [x] Preparar la indexación **Full-Text Search** de PostgreSQL (columna
   `tsvector` + índice) sobre productos y consultar con `tsquery`, con respaldo
   `ILIKE`. (Habilitar búsquedas instantáneas y a costo cero en los ~8.000
@@ -157,14 +171,21 @@ demostrar el MVP.
   comercial**. (Mostrar resultados de productos en tiempo real sin recargar la
   página y sin IA en tiempo real. La consulta puede tener desde un carácter y
   busca directamente en `productos`, aunque no se hayan cargado archivos.)
-- [ ] Asegurar que los resultados y el detalle de cada coincidencia muestren
+- [x] Asegurar que los resultados y el detalle de cada coincidencia muestren
   producto, precio, proveedor y **número de contacto** asociado, sin exponer
   datos innecesarios. (Completar la información comercial exigida por el
   buscador.)
-- [ ] Cubrir con pruebas unitarias los parsers locales y la normalización:
+  — `inventario.py:344` mapea `telefono_vendedor` del proveedor en la respuesta
+  de búsqueda; la tabla de resultados en `buscador.html` muestra columnas de
+  producto, precio, proveedor y contacto. Falta validación E2E con catálogo
+  real.
+- [x] Cubrir con pruebas unitarias los parsers locales y la normalización:
   archivos válidos, columnas faltantes, precios con formatos distintos, valores
   límite y rechazo de formatos incompatibles. (Comprobar que cada formato se
   procese sin IA y que los errores se informen con claridad.)
+  — `test_etl_service.py` cubre XLSX/PDF/DOCX/TXT con casos validos, columnas
+  faltantes y formatos incompatibles; `test_api_ingesta.py` prueba el flujo
+  completo de ingesta; cobertura en expansion.
 - [x] Cubrir la búsqueda con pruebas unitarias y de API, incluidos valores
   límite. (En una ejecución focalizada pasaron pruebas de búsqueda y consultas
   límite. Las pruebas de integración que no pudieron preparar la base
