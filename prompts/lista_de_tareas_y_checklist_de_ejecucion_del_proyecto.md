@@ -194,7 +194,7 @@ demostrar el MVP.
 - [x] Redirigir al usuario a `/search` después de iniciar sesión y al abrir
   `/login` con una sesión activa. (Dejar el buscador como destino directo de
   entrada al sistema.)
-- [ ] Optimizar ETL para procesamiento por streaming (evitar OOM en archivos grandes).
+- [x] Optimizar ETL para procesamiento por streaming (evitar OOM en archivos grandes).
 - [ ] Preparar un catálogo de prueba representativo (~8.000 productos) y
   evaluar consultas concretas con resultados esperados. (Probar con productos
   y búsquedas parecidas a las del uso real.)
