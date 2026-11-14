@@ -310,12 +310,31 @@ demostrar el MVP.
 > cronograma y ninguna de sus tareas puede desplazar el Buscador Comercial.
 > Al activarse, deberá respetar sin cambios los módulos de autenticación,
 > roles y capacidades ya definidos.
+>
+> **Arquitectura:** Sistema basado en reglas con túnel VPN + microservicio de
+> lectura. No se utilizan modelos de lenguaje (LLM) ni servicios de IA en
+> tiempo real. El módulo comprende preguntas pre-hechas con comprensión de
+> lenguaje natural mediante librerías NLP de Python (spaCy, NLTK, regex) y
+> plantillas SQL deterministas.
 
-- [ ] Conectar el sistema con la base de datos del sistema de ventas de la
-  ferretería (solo lectura) y documentar su esquema y credenciales.
-  (Preparar la fuente de datos de las ventas sin modificarla.)
-- [ ] Implementar reportes de ventas a partir de esa conexión.
-  (Mostrar cómo se han vendido los productos.)
+- [ ] Configurar túnel VPN entre el VPS de la app y el servidor de la
+  ferretería (WireGuard o SSH inverso). (Establecer conexión segura y
+  encriptada para transferir datos.)
+- [ ] Implementar microservicio de lectura que se conecte a la base de datos
+  del sistema de ventas (solo SELECT). (Extraer datos de facturas, ventas y
+  stock sin modificar la base original.)
+- [ ] Documentar el esquema de la base de datos del sistema de ventas.
+  (Registrar las tablas, columnas y relaciones disponibles.)
+- [ ] Implementar detector de intenciones con patrones regex y spaCy.
+  (Reconocer qué tipo de pregunta hace el usuario: ventas, stock, métricas.)
+- [ ] Crear catálogo de intents predefinidos (10-15 preguntas frecuentes).
+  (Cubrir las consultas más comunes del negocio con plantillas SQL.)
+- [ ] Implementar extractor de entidades para fechas, productos y montos.
+  (Convertir "mes pasado", "primer trimestre" en fechas reales.)
+- [ ] Generar respuestas con plantillas de texto y estadísticas.
+  (Describir los resultados SQL de forma legible para el usuario.)
+- [ ] Implementar reportes de ventas a partir de la conexión.
+  (Mostrar cómo se han vendido los productos en períodos específicos.)
 - [ ] Mostrar stock real contrastado con el inventario del sistema.
   (Comparar las existencias registradas con las del punto de venta.)
 - [ ] Implementar métricas comerciales y tablero de indicadores.

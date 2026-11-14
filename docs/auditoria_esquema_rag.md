@@ -556,8 +556,8 @@ una compra ni modificar stock en este flujo.
    seleccionado, con proveedor, precio, moneda, IVA, unidad y fecha de catálogo.
 3. En ausencia de moneda/unidad comparables, mostrar la limitación en vez de
    afirmar qué proveedor es más barato.
-4. Usar el LLM únicamente para redactar los resultados SQL y abstenerse cuando
-   falte evidencia.
+4. Usar plantillas de texto deterministas para redactar los resultados SQL y
+   abstenerse cuando falte evidencia. (Sistema basado en reglas con NLP, sin LLM.)
 
 ### Fase 4 — Integrar compras e inventario, si se requiere
 
@@ -581,11 +581,12 @@ vectorial**. Propuesta de enrutamiento:
 | "¿qué se está acabando?" | SQL sobre existencias actualizadas y movimientos | P3, integración de almacén |
 | "¿cuánto cuesta X?" | SQL de ofertas con proveedor, moneda, unidad y vigencia | cotizaciones |
 
-El modelo de lenguaje recibe **solo** las filas devueltas por SQL y redacta; no
-calcula ni completa cifras. Si no hay filas comparables, responde que no hay
-datos registrados o que los datos no son comparables; no estima. Cada fuente
-mostrada debe incluir proveedor, archivo/fecha del catálogo, código de
-proveedor y producto interno si la vinculación fue confirmada.
+El sistema basado en reglas recibe **solo** las filas devueltas por SQL y las
+presenta con plantillas de texto; no calcula ni completa cifras. Si no hay
+filas comparables, responde que no hay datos registrados o que los datos no son
+comparables; no estima. Cada fuente mostrada debe incluir proveedor,
+archivo/fecha del catálogo, código de proveedor y producto interno si la
+vinculación fue confirmada.
 
 Contrato mínimo de respuesta:
 

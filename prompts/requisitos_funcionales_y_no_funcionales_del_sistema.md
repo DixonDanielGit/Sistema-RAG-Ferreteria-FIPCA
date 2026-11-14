@@ -110,6 +110,17 @@
   la Fase 1 (Buscador Comercial).
 - **RF-06.3:** Cuando se autorice, deberá respetar los módulos de autenticación,
   roles y capacidades ya definidos (RF-01), sin alterarlos.
+- **RF-06.4:** **Arquitectura basada en reglas (sin LLM):** El módulo utiliza un
+  túnel VPN seguro entre el VPS de la app y el servidor de la ferretería para
+  un microservicio de solo lectura. La comprensión del lenguaje natural se
+  realiza con librerías NLP de Python (spaCy, NLTK, regex) y patrones
+  predefinidos. Las respuestas se generan con plantillas SQL deterministas y
+  plantillas de texto. **No se utilizan modelos de lenguaje (LLM) ni servicios
+  de IA generativa** en ningún momento de este módulo.
+- **RF-06.5:** El catálogo de intents predefinidos (10-15 preguntas frecuentes)
+  cubre consultas comunes del negocio: ventas por período, productos más
+  vendidos, stock actual, métricas comerciales. Las entidades reconocidas
+  incluyen fechas ("mes pasado", "primer trimestre"), productos y montos.
 
 ---
 
