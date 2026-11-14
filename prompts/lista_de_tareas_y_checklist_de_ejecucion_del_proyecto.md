@@ -198,22 +198,27 @@ demostrar el MVP.
 - [ ] Preparar un catálogo de prueba representativo (~8.000 productos) y
   evaluar consultas concretas con resultados esperados. (Probar con productos
   y búsquedas parecidas a las del uso real.)
-- [ ] Ejecutar pruebas de extremo a extremo: autenticación, subida de archivo,
+
+>Observación: Se realizaron pruebas de ingesta de documentos (PDF y Excel) y la gran mayoría se extrajo y almacenó correctamente en la base de datos. Sin embargo, se identificaron casos particulares como "CATALOGO RESINCA.pdf", cuyo formato específico impide su correcta lectura, por lo que será necesario adaptar el código de extracción para procesarlo adecuadamente.
+
+- [x] Ejecutar pruebas de extremo a extremo: autenticación, subida de archivo,
   ETL, búsqueda instantánea, resultados reales y caso sin coincidencias.
   (Verificar el recorrido completo desde el ingreso hasta los resultados.)
-- [ ] Corregir bloqueos de uso del piloto y preparar una demostración
+- [x] Corregir bloqueos de uso del piloto y preparar una demostración
   funcional. (Resolver problemas que impidan usar el sistema y dejarlo listo
   para mostrar.)
-- [ ] **Criterio de salida del MVP:** flujo completo demostrable desde la web
+- [x] **Criterio de salida del MVP:** flujo completo demostrable desde la web
   sobre productos cargados con los parsers locales; respuestas en milisegundos,
   resultados limitados a productos reales con precio, proveedor y número de
   contacto, sin IA en la ingesta ni en tiempo real, comportamiento honesto sin
   coincidencias y pruebas críticas pasando.
   (Condición para considerar listo el prototipo: que pueda demostrarse y
   encuentre solo productos comprobables.)
-- [ ] **Entregable:** MVP funcional del Buscador Comercial y Acta 4 con
+- [x] **Entregable:** MVP funcional del Buscador Comercial y Acta 4 con
   resultados iniciales de búsqueda y aceptación del prototipo. (Prototipo
   utilizable y documento con los resultados iniciales.)
+
+>Observación Adicional: En el alcance de la búsqueda Full-Text de PostgreSQL, se optó por prescindir del uso de inteligencia artificial, determinando que no es necesaria en esta etapa. Todo el flujo de trabajo, desde la extracción de datos de los archivos PDF y Excel hasta su inserción en la base de datos, se resuelve de forma nativa mediante código, sin depender de servicios externos. Esta decisión optimiza la arquitectura al ejecutar la ingesta de documentos localmente y libera a la ferretería de costos recurrentes por consumo de API (Inteligencia Artificial). Cabe señalar que el saldo recargado inicialmente para el procesamiento de documentos fue aprovechado en las fases de desarrollo y pruebas para agilizar la entrega y validación de la aplicación.
 
 ---
 
