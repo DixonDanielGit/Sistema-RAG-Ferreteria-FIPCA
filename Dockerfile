@@ -12,7 +12,8 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=300
 
 WORKDIR /app
 
@@ -24,7 +25,7 @@ RUN apt-get update \
 # Las dependencias se copian solas para aprovechar la cache de capas: cambiar
 # el codigo no obliga a reinstalar paquetes.
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --default-timeout=300 --no-cache-dir -r requirements.txt
 
 # Codigo, plantillas y estaticos. El entrypoint resuelve las plantillas en la
 # raiz del proyecto (/app/templates) y los estaticos dentro del paquete.

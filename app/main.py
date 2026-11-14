@@ -24,7 +24,8 @@ from app.api.deps import usuario_de_cookie
 from app.api.v1 import web
 from app.config import get_settings
 from app.core.logging import AuditoriaMiddleware, configurar_logging
-from app.db.session import BaseDeDatosNoDisponible, cerrar_pools, consultar_uno
+from app.db.session import BaseDeDatosNoDisponible, cerrar_pools, consultar_todos, consultar_uno, ejecutar
+from app.models import inventario as inventario_model
 from app.services import etl_service
 
 logger = logging.getLogger("ferreteria")
@@ -46,6 +47,63 @@ ETIQUETAS_VALIDACION = {
 }
 
 
+def _limpiar_previsualizaciones_vencidas(config) -> None:
+    """Limpia archivos de previsualizacion que expiraron mientras el
+    servidor no estaba corriendo.
+
+    Se ejecuta al arrancar la aplicacion. Marca como ``rechazado`` los
+    registros en estado ``pendiente`` con mas de ``PREVIEW_EXPIRACION_MINUTOS``
+    de antiguedad y borra sus archivos del disco.
+    """
+    try:
+        expirados = consultar_todos(
+            """
+            SELECT id_archivo, token_confirmacion
+              FROM archivos_subidos
+             WHERE estado = 'pendiente'
+               AND token_confirmacion IS NOT NULL
+               AND fecha_de_subida < CURRENT_TIMESTAMP - INTERVAL '1 minute' * %s
+            """,
+            (config.preview_expiracion_minutos,),
+            rag=True,
+        )
+    except Exception:
+        logger.warning("No se pudo consultar previsualizaciones vencidas", exc_info=True)
+        return
+
+    if not expirados:
+        logger.info("No hay previsualizaciones vencidas que limpiar")
+        return
+
+    directorio = config.uploads_dir.resolve()
+    limpiados = 0
+    for registro in expirados:
+        token = registro.get("token_confirmacion")
+        if not token:
+            continue
+        try:
+            ejecutar(
+                """
+                UPDATE archivos_subidos
+                   SET estado = 'rechazado',
+                       terminado_en = CURRENT_TIMESTAMP
+                 WHERE id_archivo = %s
+                   AND estado = 'pendiente'
+                """,
+                (registro["id_archivo"],),
+                rag=True,
+            )
+            for nombre_archivo in [f"{token}.productos.json"]:
+                ruta = directorio / nombre_archivo
+                ruta.unlink(missing_ok=True)
+            limpiados += 1
+        except Exception:
+            logger.warning("Error al limpiar preview token=%s", token, exc_info=True)
+
+    if limpiados:
+        logger.info("Previsualizaciones vencidas limpiadas: %d", limpiados)
+
+
 @asynccontextmanager
 async def ciclo_de_vida(_: FastAPI):
     config = get_settings()
@@ -56,6 +114,7 @@ async def ciclo_de_vida(_: FastAPI):
         etl_service.MAX_PAGINAS_PDF,
         etl_service.MAX_PAGINAS_DOCX,
     )
+    _limpiar_previsualizaciones_vencidas(config)
     yield
     cerrar_pools()
     logger.info("Conexiones cerradas; aplicacion detenida")

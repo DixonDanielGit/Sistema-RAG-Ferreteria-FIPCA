@@ -12,7 +12,7 @@
   var MAX_CARACTERES_SALIDA = 300000;
   /* El analisis local puede tardar en catalogos muy grandes. Se corta la
      espera a los 10 minutos para no dejar la pantalla colgada sin respuesta. */
-  var ESPERA_MAXIMA_MS = 10 * 60 * 1000;
+  var ESPERA_MAXIMA_MS = 3 * 60 * 1000;  /* 3 min — la ingesta diferida solo inserta */
   var AVISO_ESPERA_MS = 20 * 1000;
   var REGEX_CONTACTO = {
     vendedor: /^[\p{L}\p{M}](?:[\p{L}\p{M} .'-])*$/u,
@@ -604,15 +604,30 @@
 
     async function previsualizar(archivo, selecciones) {
       var formulario = new FormData();
+      /* Si ya existe un token de una previsualizacion anterior y estamos
+         re-seleccionando precio (selecciones no vacio), primero cancelamos
+         la previsualizacion anterior para liberar recursos. */
+      if (archivo.tokenPrevisualizacion && Object.keys(selecciones).length > 0) {
+        Fipca.pedir("/api/v1/inventario/previsualizacion/" + archivo.tokenPrevisualizacion, {
+          metodo: "DELETE",
+        }).catch(function () {});
+        delete archivo.tokenPrevisualizacion;
+        delete archivo.idArchivoPreview;
+      }
       formulario.append("archivo", archivo.archivo, archivo.nombre);
       formulario.append("selecciones_precio", JSON.stringify(selecciones));
-      return Fipca.pedir("/api/v1/inventario/previsualizacion", {
+      var respuesta = await Fipca.pedir("/api/v1/inventario/previsualizacion", {
         metodo: "POST",
         cuerpo: formulario,
         alProgreso: archivo.alProgreso,
         alIniciar: registrarCancelacion,
         timeoutMs: ESPERA_MAXIMA_MS,
       });
+      if (respuesta.token) {
+        archivo.tokenPrevisualizacion = respuesta.token;
+        archivo.idArchivoPreview = respuesta.id_archivo;
+      }
+      return respuesta;
     }
 
     async function prepararImportacion(archivo, alProgreso) {
@@ -682,13 +697,43 @@
       actualizarLote();
     }
 
+    function formatearFecha(iso) {
+      /* Convierte ISO a objeto Date */
+      if (!iso) return null;
+      var partes = iso.split(/[T ]/);
+      if (!partes[0]) return null;
+      var f = new Date(partes[0] + (partes[0].indexOf("-") === -1 ? "" : "T12:00:00"));
+      return f;
+    }
+
+    function claveFecha(fecha) {
+      if (!fecha) return "9999-99-99";
+      return fecha.toISOString().slice(0, 10);
+    }
+
+    function etiquetaFecha(fecha) {
+      if (!fecha) return "Fecha desconocida";
+      var hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+      var ayer = new Date(hoy);
+      ayer.setDate(ayer.getDate() - 1);
+      var f = new Date(fecha);
+      f.setHours(0, 0, 0, 0);
+      if (f.getTime() === hoy.getTime()) return "Hoy";
+      if (f.getTime() === ayer.getTime()) return "Ayer";
+      var dd = String(f.getDate()).padStart(2, "0");
+      var mm = String(f.getMonth() + 1).padStart(2, "0");
+      var aa = f.getFullYear();
+      return dd + "/" + mm + "/" + aa;
+    }
+
     function pintar() {
       if (!lista) return;
-      lista.querySelectorAll(".fuentes__archivo").forEach(function (nodo) {
+      lista.querySelectorAll(".fuentes__archivo, .fuentes__grupo").forEach(function (nodo) {
         nodo.remove();
       });
 
-      function agregarFila(archivo, indice, esLocal) {
+      function agregarFila(archivo, indice, esLocal, contenedor) {
         var fila = document.createElement("li");
         fila.className = "fuentes__archivo";
         if (esLocal && archivo.estado === "subiendo") {
@@ -718,7 +763,6 @@
           formatear(tamano),
         ];
         if (esLocal) {
-          /* Estados de la cola de subida automatica. */
           var etiqueta = { cola: "En cola", subiendo: "Subiendo…" }[archivo.estado];
           detalles.push(etiqueta || ETIQUETAS_ESTADO[archivo.estado]);
         } else {
@@ -774,8 +818,6 @@
         fila.appendChild(icono);
         fila.appendChild(datos);
         if (esLocal) {
-          /* La cola no se puede mutar mientras sube: los indices y el limite
-             por lote dejarian de ser consistentes. */
           if (!subiendo) {
             var quitar = document.createElement("button");
             quitar.type = "button";
@@ -833,22 +875,55 @@
             fila.appendChild(acciones);
           }
         }
-        lista.appendChild(fila);
+        (contenedor || lista).appendChild(fila);
       }
 
-      var visibles = 0;
-      historial.forEach(function (archivo, indice) {
+      /* Agrupar historial por fecha */
+      var grupos = {};
+      historial.forEach(function (archivo) {
         if (!esVisible(archivo)) return;
-        visibles += 1;
-        agregarFila(archivo, indice, false);
+        var fecha = formatearFecha(archivo.fecha_de_subida);
+        var clave = claveFecha(fecha);
+        if (!grupos[clave]) grupos[clave] = { fecha: fecha, archivos: [] };
+        grupos[clave].archivos.push(archivo);
       });
+
+      var hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+      var claves = Object.keys(grupos).sort().reverse();
+
+      /* Los archivos locales (cola) siempre van primero */
       archivos.forEach(function (archivo, indice) {
         if (!esVisible(archivo)) return;
-        visibles += 1;
-        agregarFila(archivo, indice, true);
+        agregarFila(archivo, indice, true, lista);
       });
-      /* Con filtro activo y lista llena pero sin resultados, se anuncia
-         para no dejar un panel en blanco sin explicacion. */
+
+      /* Historial agrupado por fecha */
+      claves.forEach(function (clave) {
+        var grupo = grupos[clave];
+        var etiqueta = etiquetaFecha(grupo.fecha);
+        var total = grupo.archivos.length;
+
+        var detalle = document.createElement("details");
+        detalle.className = "fuentes__grupo";
+        detalle.open = (clave === claveFecha(hoy) || clave === claveFecha(new Date(hoy.getTime() - 86400000)));
+        var resumen = document.createElement("summary");
+        resumen.className = "fuentes__grupo-titulo";
+        resumen.textContent = etiqueta + " (" + total + ")";
+        detalle.appendChild(resumen);
+
+        var listaGrupo = document.createElement("ul");
+        listaGrupo.className = "fuentes__lista-grupo";
+        grupo.archivos.forEach(function (archivo, indice) {
+          agregarFila(archivo, indice, false, listaGrupo);
+        });
+        detalle.appendChild(listaGrupo);
+        lista.appendChild(detalle);
+      });
+
+      /* Si no hay grupos ni archivos locales, mostrar vacio */
+      var visibles = 0;
+      if (archivos.length) visibles += archivos.length;
+      Object.keys(grupos).forEach(function (k) { visibles += grupos[k].archivos.length; });
       if (sinCoincidencias) {
         sinCoincidencias.hidden = !(consulta && visibles === 0);
       }
@@ -987,6 +1062,12 @@
               item.estado = "cancelado";
               item.detalle = "Importación cancelada; no se guardó ni se modificó el inventario.";
               cancelados += 1;
+              /* Limpiar recursos de la previsualizacion en el servidor */
+              if (item.tokenPrevisualizacion) {
+                Fipca.pedir("/api/v1/inventario/previsualizacion/" + item.tokenPrevisualizacion, {
+                  metodo: "DELETE",
+                }).catch(function () {});
+              }
               continue;
             }
             if (!revision.confirmado) {
@@ -1003,23 +1084,38 @@
               continue;
             }
 
-            var formulario = new FormData();
-            formulario.append("archivos", item.archivo, item.nombre);
-            formulario.append(
-              "selecciones_precio",
-              JSON.stringify(revision.selecciones)
-            );
-            formulario.append(
-              "metadatos_catalogo",
-              JSON.stringify([revision.metadatos])
-            );
             item.progreso = 0;
             actualizarPorcentaje(0);
-            var respuesta = await Fipca.pedir("/api/v1/inventario/ingesta", {
-              metodo: "POST",
-              cuerpo: formulario,
-              alProgreso: actualizarPorcentaje,
-            });
+            var respuesta;
+            if (item.tokenPrevisualizacion) {
+              /* Ingesta diferida: usar token en vez de re-subir el archivo */
+              var cuerpoToken = new FormData();
+              cuerpoToken.append("token", item.tokenPrevisualizacion);
+              cuerpoToken.append(
+                "metadatos_catalogo",
+                JSON.stringify(revision.metadatos)
+              );
+              respuesta = await Fipca.pedir("/api/v1/inventario/ingesta", {
+                metodo: "POST",
+                cuerpo: cuerpoToken,
+              });
+            } else {
+              var formulario = new FormData();
+              formulario.append("archivos", item.archivo, item.nombre);
+              formulario.append(
+                "selecciones_precio",
+                JSON.stringify(revision.selecciones)
+              );
+              formulario.append(
+                "metadatos_catalogo",
+                JSON.stringify([revision.metadatos])
+              );
+              respuesta = await Fipca.pedir("/api/v1/inventario/ingesta", {
+                metodo: "POST",
+                cuerpo: formulario,
+                alProgreso: actualizarPorcentaje,
+              });
+            }
             var resultado = respuesta.resultados[0];
             item.estado = resultado.estado;
             item.detalle = resultado.detalle || "";

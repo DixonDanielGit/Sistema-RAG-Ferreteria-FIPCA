@@ -19,12 +19,20 @@ def crear_archivo(
     tamano_bytes: int,
     id_usuario: int,
     metadatos: dict[str, Any] | None = None,
+    token_confirmacion: str | None = None,
+    crear_proveedor: bool = True,
 ) -> dict[str, Any]:
     """Registra el archivo y asocia atómicamente su proveedor y vendedor.
 
     El catalogo original se conserva en disco; los productos, la cotizacion y
     los datos de contacto quedan en PostgreSQL. El upsert no modifica el stock
     existente ni inventa proveedores.
+
+    ``token_confirmacion``: UUID v4 para la ingesta diferida. Si se pasa,
+    la fila se crea en estado ``pendiente`` y el proveedor se resuelve
+    solo si ``crear_proveedor=True``. Durante la previsualizacion se pasa
+    el token pero sin crear proveedor (aun); al confirmar la ingesta se
+    actualiza el proveedor.
     """
     metadatos = metadatos or {}
     proveedor = metadatos.get("proveedor")
@@ -35,7 +43,7 @@ def crear_archivo(
     moneda = metadatos.get("moneda", "USD")
 
     with cursor_rag() as cursor:
-        if proveedor:
+        if proveedor and crear_proveedor:
             cursor.execute(
                 "SELECT pg_advisory_xact_lock(hashtext(LOWER(%s))::BIGINT)",
                 (proveedor,),
@@ -94,34 +102,61 @@ def crear_archivo(
                 )
                 id_proveedor = cursor.fetchone()["id_proveedores"]
 
-        cursor.execute(
-            """
-            INSERT INTO archivos_subidos
-                (nombre, tipo, ruta, hash_sha256, tamano_bytes, estado, id_usuario,
-                 id_proveedor, vendedor_nombre, vendedor_telefono, vendedor_correo,
-                 moneda, nota_proveedor)
-            VALUES (%s, %s, %s, %s, %s, 'pendiente', %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id_archivo, nombre, tipo, fecha_de_subida, tamano_bytes,
-                      estado, filas_ok, filas_error, detalle, moneda,
-                      vendedor_nombre AS vendedor,
-                      (SELECT nombre FROM proveedores
-                        WHERE id_proveedores = archivos_subidos.id_proveedor) AS proveedor
-            """,
-            (
-                nombre,
-                tipo,
-                ruta,
-                hash_sha256,
-                tamano_bytes,
-                id_usuario,
-                id_proveedor,
-                nombre_vendedor,
-                telefono_vendedor,
-                correo_vendedor,
-                moneda,
-                metadatos.get("nota_proveedor"),
-            ),
-        )
+        if token_confirmacion:
+            cursor.execute(
+                """
+                INSERT INTO archivos_subidos
+                    (nombre, tipo, ruta, hash_sha256, tamano_bytes, estado, id_usuario,
+                     token_confirmacion, moneda, nota_proveedor)
+                VALUES (%s, %s, %s, %s, %s, 'pendiente', %s, %s, %s, %s)
+                RETURNING id_archivo, nombre, tipo, fecha_de_subida, tamano_bytes,
+                          estado, filas_ok, filas_error, detalle, moneda,
+                          vendedor_nombre AS vendedor,
+                          token_confirmacion,
+                          (SELECT nombre FROM proveedores
+                            WHERE id_proveedores = archivos_subidos.id_proveedor) AS proveedor
+                """,
+                (
+                    nombre,
+                    tipo,
+                    ruta,
+                    hash_sha256,
+                    tamano_bytes,
+                    id_usuario,
+                    token_confirmacion,
+                    moneda,
+                    metadatos.get("nota_proveedor"),
+                ),
+            )
+        else:
+            cursor.execute(
+                """
+                INSERT INTO archivos_subidos
+                    (nombre, tipo, ruta, hash_sha256, tamano_bytes, estado, id_usuario,
+                     id_proveedor, vendedor_nombre, vendedor_telefono, vendedor_correo,
+                     moneda, nota_proveedor)
+                VALUES (%s, %s, %s, %s, %s, 'pendiente', %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id_archivo, nombre, tipo, fecha_de_subida, tamano_bytes,
+                          estado, filas_ok, filas_error, detalle, moneda,
+                          vendedor_nombre AS vendedor,
+                          (SELECT nombre FROM proveedores
+                            WHERE id_proveedores = archivos_subidos.id_proveedor) AS proveedor
+                """,
+                (
+                    nombre,
+                    tipo,
+                    ruta,
+                    hash_sha256,
+                    tamano_bytes,
+                    id_usuario,
+                    id_proveedor,
+                    nombre_vendedor,
+                    telefono_vendedor,
+                    correo_vendedor,
+                    moneda,
+                    metadatos.get("nota_proveedor"),
+                ),
+            )
         return dict(cursor.fetchone())
 
 
@@ -170,6 +205,50 @@ def obtener_archivo(id_archivo: int) -> dict[str, Any] | None:
          WHERE id_archivo = %s
         """,
         (id_archivo,),
+        rag=True,
+    )
+
+
+def archivo_por_token(token: str) -> dict[str, Any] | None:
+    """Busca un archivo pendiente por su token de confirmacion.
+
+    Devuelve los datos completos (incluyendo ruta interna) para que la
+    API pueda leer el JSON de productos pre-extraidos. Retorna ``None``
+    si el token no existe o el archivo ya no esta pendiente.
+    """
+    return consultar_uno(
+        """
+        SELECT id_archivo, nombre, tipo, ruta, hash_sha256, tamano_bytes,
+               estado, filas_ok, filas_error, detalle, moneda, id_usuario,
+               vendedor_nombre AS vendedor,
+               token_confirmacion,
+               (SELECT nombre FROM proveedores
+                 WHERE id_proveedores = archivos_subidos.id_proveedor) AS proveedor
+          FROM archivos_subidos
+         WHERE token_confirmacion = %s::uuid
+           AND estado = 'pendiente'
+        """,
+        (token,),
+        rag=True,
+    )
+
+
+def eliminar_archivo_por_token(token: str) -> dict[str, Any] | None:
+    """Marca un archivo pendiente como rechazado y devuelve su ruta.
+
+    Se usa cuando el usuario cancela la previsualizacion o cuando el
+    token expira. Retorna ``None`` si el token no existe.
+    """
+    return ejecutar(
+        """
+        UPDATE archivos_subidos
+           SET estado = 'rechazado',
+               terminado_en = CURRENT_TIMESTAMP
+         WHERE token_confirmacion = %s::uuid
+           AND estado = 'pendiente'
+        RETURNING id_archivo, nombre, ruta, token_confirmacion
+        """,
+        (token,),
         rag=True,
     )
 

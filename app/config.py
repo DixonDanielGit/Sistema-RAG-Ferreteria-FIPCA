@@ -105,6 +105,11 @@ class Settings:
         default_factory=lambda: _booleano_opcional("COOKIE_SEGURA")
     )
 
+    # Previsualizacion diferida (Fase 1)
+    preview_expiracion_minutos: int = field(
+        default_factory=lambda: _entero("PREVIEW_EXPIRACION_MINUTOS", 60)
+    )
+
     # Recuperacion de contrasena (Adenda 1)
     recuperacion_minutos: int = field(
         default_factory=lambda: _entero("RECUPERACION_MINUTOS", 30)

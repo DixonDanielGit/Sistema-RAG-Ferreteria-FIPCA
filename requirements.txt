@@ -20,4 +20,5 @@ Pillow
 openpyxl
 python-docx
 pypdf
-pdfplumber
+# PyMuPDF: lector de PDF 3-10× mas rapido que pdfplumber (licencia AGPL-3.0).
+pymupdf

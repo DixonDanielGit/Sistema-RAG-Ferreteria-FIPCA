@@ -2381,6 +2381,59 @@ body.cuerpo-buscador main {
   list-style: none;
 }
 
+/* Acordeones por fecha en el historial de fuentes */
+.fuentes__grupo {
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  overflow: hidden;
+}
+
+.fuentes__grupo[open] {
+  padding-bottom: var(--esp-1);
+}
+
+.fuentes__grupo-titulo {
+  padding: var(--esp-1) var(--esp-2);
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--texto-suave);
+  cursor: pointer;
+  background: var(--superficie-alt);
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--esp-1);
+}
+
+.fuentes__grupo-titulo::-webkit-details-marker {
+  display: none;
+}
+
+.fuentes__grupo-titulo::before {
+  content: "▶";
+  font-size: 0.7rem;
+  display: inline-block;
+  transition: transform 0.2s;
+}
+
+.fuentes__grupo[open] > .fuentes__grupo-titulo::before {
+  transform: rotate(90deg);
+}
+
+.fuentes__grupo-titulo:hover {
+  background: var(--superficie-hover);
+}
+
+.fuentes__lista-grupo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--esp-1);
+  margin: 0;
+  padding: var(--esp-1) var(--esp-2) 0;
+  list-style: none;
+}
+
 .fuentes__archivo {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

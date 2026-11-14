@@ -6,21 +6,24 @@ import csv
 import hashlib
 import io
 import itertools
+import json
 import logging
 import os
 import re
+import time
 import shutil
 import subprocess
 import tempfile
 import unicodedata
 import uuid
 import zipfile
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any, Iterable
 from xml.etree.ElementTree import ParseError
 
-import pdfplumber
+import pymupdf
 from docx import Document
 from docx.opc.exceptions import PackageNotFoundError
 from openpyxl import load_workbook
@@ -151,6 +154,132 @@ class SeleccionPrecioRequerida(ErrorIngesta):
     def __init__(self, opciones: list[dict[str, Any]]) -> None:
         self.opciones = opciones
         super().__init__("Seleccione la columna de precio que desea importar")
+
+
+@dataclass
+class _PaginaPlana:
+    """Datos pre-extraidos de una pagina de PDF, sin depender de pdfplumber.
+
+    Se obtienen abriendo el PDF una sola vez con PyMuPDF (fitz). Todas las
+    estrategias de extraccion consumen esta estructura, evitando las 5-7
+    aperturas del archivo que ocurrian al usar pdfplumber + pypdf.
+    """
+    texto: str = ""
+    palabras: list[dict[str, Any]] = field(default_factory=list)
+    rects: list[dict[str, Any]] = field(default_factory=list)
+    lines: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _palabras_a_texto(palabras_list: list[dict[str, Any]]) -> str:
+    """Reconstruye texto plano desde palabras con posicion, agrupando por fila.
+
+    pdfplumber hace esto internamente en ``extract_text()``: agrupa palabras
+    por su posicion vertical (``top``) para formar lineas completas, y
+    conserva los espacios entre columnas (multiples espacios) para que las
+    estrategias de tabla (``_filas_pdf``, ``_extraer_pdf_tabla``) puedan
+    detectar la separacion entre codigo, descripcion y precio.
+
+    La heuristica de separacion: si el hueco entre dos palabras consecutivas
+    supera 8 puntos tipograficos, se considera un salto de columna y se
+    insertan al menos 3 espacios (``\\s{3,}``) para que los detectores de
+    tabla puedan identificar las columnas.
+    """
+    if not palabras_list:
+        return ""
+    agrupadas: list[list[dict[str, Any]]] = []
+    ordenadas = sorted(palabras_list, key=lambda p: (round(p["top"]), p["x0"]))
+    for palabra in ordenadas:
+        if agrupadas and abs(round(agrupadas[-1][0]["top"]) - round(palabra["top"])) <= 2:
+            agrupadas[-1].append(palabra)
+        else:
+            agrupadas.append([palabra])
+    SALTO_COLUMNA_PTS = 8.0
+    lineas: list[str] = []
+    for grupo in agrupadas:
+        ordenadas_x = sorted(grupo, key=lambda x: x["x0"])
+        partes: list[str] = []
+        for i, palabra in enumerate(ordenadas_x):
+            if i > 0:
+                hueco = palabra["x0"] - ordenadas_x[i - 1]["x1"]
+                if hueco > SALTO_COLUMNA_PTS:
+                    partes.append("   ")  # 3+ espacios = salto de columna
+                else:
+                    partes.append(" ")
+            partes.append(palabra["text"])
+        lineas.append("".join(partes))
+    return "\n".join(lineas)
+
+
+def _cargar_pdf_en_paginas_planas(contenido: bytes) -> tuple[str, list[_PaginaPlana]]:
+    """Abre el PDF una sola vez con PyMuPDF y extrae datos de cada pagina.
+
+    Devuelve ``(texto_completo, lista_de_paginas)``. ``texto_completo`` se
+    reconstruye agrupando palabras por posicion vertical (igual que pdfplumber),
+    para que las estrategias basadas en texto (tabla, generica) funcionen
+    correctamente. Cada ``_PaginaPlana`` contiene el texto, las palabras
+    (formato ``{x0, top, x1, bottom, text}``) y los dibujos (rects y lines)
+    de esa pagina.
+    """
+    try:
+        doc = pymupdf.open(stream=contenido, filetype="pdf")
+    except Exception as exc:
+        raise ErrorIngesta("No se pudo abrir el PDF") from exc
+
+    if len(doc) > MAX_PAGINAS_PDF:
+        doc.close()
+        raise ErrorIngesta(
+            f"El PDF supera el maximo de {MAX_PAGINAS_PDF} paginas"
+        )
+
+    textos_pagina: list[str] = []
+    paginas: list[_PaginaPlana] = []
+
+    for pagina_num in range(len(doc)):
+        pagina = doc[pagina_num]
+
+        # Palabras con posicion: (x0, y0, x1, y1, palabra, ...)
+        palabras_raw = pagina.get_text("words") or []
+        palabras_list: list[dict[str, Any]] = []
+        for palabra in palabras_raw:
+            x0, y0, x1, y1 = float(palabra[0]), float(palabra[1]), float(palabra[2]), float(palabra[3])
+            word = str(palabra[4])
+            palabras_list.append({
+                "x0": x0, "top": y0, "x1": x1, "bottom": y1,
+                "text": word, "width": x1 - x0, "height": y1 - y0,
+            })
+
+        # Texto plano reconstruido desde palabras (como pdfplumber)
+        texto = _palabras_a_texto(palabras_list)
+        textos_pagina.append(texto)
+
+        # Dibujos: rects y lines
+        rects_list: list[dict[str, Any]] = []
+        lines_list: list[dict[str, Any]] = []
+        for dibujo in pagina.get_drawings() or []:
+            if dibujo.get("type") == "rect":
+                r = dibujo["rect"]
+                rects_list.append({
+                    "x0": r.x0, "top": r.y0, "x1": r.x1, "bottom": r.y1,
+                    "width": r.width, "height": r.height,
+                })
+            elif dibujo.get("type") == "line":
+                puntos = dibujo.get("points")
+                if puntos and len(puntos) >= 2:
+                    lines_list.append({
+                        "x0": puntos[0][0], "top": puntos[0][1],
+                        "x1": puntos[1][0], "bottom": puntos[1][1],
+                    })
+
+        paginas.append(_PaginaPlana(
+            texto=texto,
+            palabras=palabras_list,
+            rects=rects_list,
+            lines=lines_list,
+        ))
+
+    doc.close()
+    texto_completo = "\n".join(textos_pagina)
+    return texto_completo, paginas
 
 
 def _texto(valor: Any) -> str:
@@ -898,6 +1027,14 @@ PATRON_MEDIDA_PDF = re.compile(
     r"^\d+(?:[.,]\d+)?\s*(?:MM|CM|MTS?|M|KGS?|GRS?|LTS?|L|PUL|UN|U|X|PULG|\"|''|/)$",
     re.IGNORECASE,
 )
+# Patrones de textos que claramente NO son codigos de producto sino fechas,
+# telefonos o medidas que se confunden con codigos.
+PATRON_NO_CODIGO_TEXTO = re.compile(
+    r"^(?:\d{1,2}[-/]\d{1,2}[-/]\d{2,4}"   # fechas: 04-5-2026
+    r"|\d{7,}$"                               # solo numeros largos: 2373580
+    r"|\d+[Xx]\d+(?:[/]\d+)?$"               # medidas: 14X1/2, 7.5MX25MM
+    r"|\d+[/]\d+[Xx]\d+)"                     # medidas: 1/2X14
+)
 ETIQUETAS_PDF = frozenset(
     {
         "cod", "codigo", "codigos", "sku", "referencia", "ref", "item",
@@ -956,7 +1093,7 @@ PATRON_ETIQUETA_EXISTENCIA = re.compile(
     r"^Existencia\s*:?\s*(\d+)", re.IGNORECASE
 )
 PATRON_ETIQUETA_CODIGO_COLUMNA = re.compile(
-    r"^C[oó]digo\s*:?\s*(\S+)$", re.IGNORECASE
+    r"^C[oó]digo\s*:?\s*(\S*)$", re.IGNORECASE
 )
 PATRON_PRECIO_DOLAR = re.compile(r"^\$\s*([\d.,]+)$")
 PATRON_MARCA_PRECIO_DOLAR = re.compile(r"\$\s*\d")
@@ -989,6 +1126,10 @@ def _es_codigo_pdf(valor: str) -> bool:
     """Un codigo de catalogo real: alfanumerico, con digito y sin medidas."""
     texto = valor.strip()
     if not PATRON_CODIGO_PDF.fullmatch(texto):
+        return False
+    # Rechazar textos que claramente no son codigos (fechas, telefonos,
+    # medidas con formato 14X1/2, etc.)
+    if PATRON_NO_CODIGO_TEXTO.fullmatch(texto):
         return False
     tiene_digito = any(caracter.isdigit() for caracter in texto)
     tiene_letra = any(caracter.isalpha() for caracter in texto)
@@ -1042,11 +1183,16 @@ def _pagina_en_cuadros(palabras: list[dict[str, Any]]) -> bool:
     )
 
 
-def _bordes_verticales_pdf(pagina: Any) -> list[tuple[float, float, float]]:
+def _bordes_verticales_pdf(pagina: _PaginaPlana) -> list[tuple[float, float, float]]:
     """Bordes verticales dibujados de la pagina, como (x, arriba, abajo).
 
     Son las lineas del recuadro de cada tarjeta. El texto se desalinea de un
     producto a otro, pero el dibujo no: por eso la rejilla se arma con ellos.
+
+    Si no se detectan bordes dibujados (PyMuPDF puede no detectar las mismas
+    lineas que pdfplumber), se intenta inferir las columnas a partir de la
+    posicion de las etiquetas "C[OÓ]DIGO" en la pagina. Esto permite extraer
+    catalogos como TAMBOTORCA que usan tarjetas sin bordes explicitos.
     """
     bordes: list[tuple[float, float, float]] = []
     for rect in pagina.rects:
@@ -1063,6 +1209,30 @@ def _bordes_verticales_pdf(pagina: Any) -> list[tuple[float, float, float]]:
         arriba, abajo = sorted((float(linea["top"]), float(linea["bottom"])))
         if x1 - x0 <= 2 and abajo - arriba >= LADO_MINIMO_BORDE:
             bordes.append(((x0 + x1) / 2, arriba, abajo))
+
+    # Fallback: inferir columnas desde la posicion de etiquetas "CODIGO"
+    if not bordes:
+        COLUMNA_BUCKET_PTS = 20.0
+        anchos_columna: dict[float, int] = {}
+        for palabra in pagina.palabras:
+            if PATRON_ETIQUETA_CODIGO.match(palabra["text"]):
+                bucket = round(float(palabra["x0"]) / COLUMNA_BUCKET_PTS) * COLUMNA_BUCKET_PTS
+                anchos_columna[bucket] = anchos_columna.get(bucket, 0) + 1
+        # Filtrar por buckets con al menos 2 ocurrencias (descarta ruido)
+        buckets_ordenados = sorted(
+            x for x, count in anchos_columna.items() if count >= 2
+        )
+        if buckets_ordenados:
+            # Crear bordes virtuales: borde izq al primer bucket - delta,
+            # borde der al ultimo bucket + delta, y bordes entre columnas
+            x_min = buckets_ordenados[0] - 10.0
+            x_max = buckets_ordenados[-1] + 10.0
+            bordes.append((x_min, 0.0, 900.0))
+            for i in range(len(buckets_ordenados) - 1):
+                x_medio = (buckets_ordenados[i] + buckets_ordenados[i + 1]) / 2
+                bordes.append((x_medio, 0.0, 900.0))
+            bordes.append((x_max, 0.0, 900.0))
+
     return bordes
 
 
@@ -1165,7 +1335,7 @@ def _ficha_tarjeta_pdf(
 
 
 def _extraer_pdf_cuadros(
-    contenido: bytes,
+    paginas: list[_PaginaPlana],
 ) -> tuple[list[dict[str, Any]], int, list[str]]:
     """Extrae catalogos armados como tarjetas dibujadas, una ficha por recuadro.
 
@@ -1175,92 +1345,262 @@ def _extraer_pdf_cuadros(
     apila celdas de varias tarjetas en una columna. Aqui cada ficha se arma
     dentro de los bordes de su propio recuadro.
     """
-    try:
-        documento = pdfplumber.open(io.BytesIO(contenido))
-    except Exception as exc:  # noqa: BLE001 - se informa como PDF ilegible
-        logger.info("pdfplumber no pudo abrir el PDF para leer cuadros: %s", exc)
+    if not paginas:
         return [], 0, []
     productos: list[dict[str, Any]] = []
     errores: list[str] = []
-    with documento:
-        if len(documento.pages) > MAX_PAGINAS_PDF:
-            raise ErrorIngesta(
-                f"El PDF supera el maximo de {MAX_PAGINAS_PDF} paginas"
+    for numero_pagina, pagina in enumerate(paginas, start=1):
+        try:
+            fichas = _fichas_cuadros_pagina(pagina)
+        except Exception as exc:
+            logger.info(
+                "No se pudo leer la pagina %s del PDF: %s", numero_pagina, exc
             )
-        for numero_pagina, pagina in enumerate(documento.pages, start=1):
-            try:
-                fichas = _fichas_cuadros_pagina(pagina)
-            except Exception as exc:  # noqa: BLE001 - una pagina no rompe el lote
-                logger.info(
-                    "No se pudo leer la pagina %s del PDF: %s", numero_pagina, exc
+            continue
+        for codigo, nombre, precio in fichas:
+            numero_fila = len(productos) + len(errores) + 1
+            if numero_fila > MAX_FILAS_ARCHIVO:
+                raise ErrorIngesta(
+                    f"El archivo supera el maximo de {MAX_FILAS_ARCHIVO} filas"
+                )
+            if not nombre.strip():
+                errores.append(
+                    f"Fila {numero_fila}: la ficha {codigo} de la pagina "
+                    f"{numero_pagina} no trae descripcion"
                 )
                 continue
-            for codigo, nombre, precio in fichas:
-                numero_fila = len(productos) + len(errores) + 1
-                if numero_fila > MAX_FILAS_ARCHIVO:
-                    raise ErrorIngesta(
-                        f"El archivo supera el maximo de {MAX_FILAS_ARCHIVO} filas"
+            try:
+                productos.append(
+                    _producto_desde_fila(
+                        [codigo, nombre, precio],
+                        {"codigo": 0, "nombre": 1, "precio": 2},
+                        numero_fila,
                     )
-                if not nombre.strip():
-                    # La tarjeta trae codigo y precio pero el proveedor dejo
-                    # el nombre vacio: se informa la ficha concreta en vez
-                    # de inventar una descripcion.
-                    errores.append(
-                        f"Fila {numero_fila}: la ficha {codigo} de la pagina "
-                        f"{numero_pagina} no trae descripcion"
-                    )
-                    continue
-                try:
-                    productos.append(
-                        _producto_desde_fila(
-                            [codigo, nombre, precio],
-                            {"codigo": 0, "nombre": 1, "precio": 2},
-                            numero_fila,
-                        )
-                    )
-                except ErrorIngesta as exc:
-                    errores.append(str(exc))
+                )
+            except ErrorIngesta as exc:
+                errores.append(str(exc))
     return productos, len(errores), errores[:MAX_ERRORES_DETALLE]
 
 
-def _fichas_cuadros_pagina(pagina: Any) -> list[tuple[str, str, str]]:
+def _fichas_cuadros_pagina(pagina: _PaginaPlana) -> list[tuple[str, str, str]]:
     """Devuelve las fichas (codigo, nombre, precio) de una pagina de tarjetas."""
-    palabras = pagina.extract_words()
+    palabras = pagina.palabras
     if not palabras or not _pagina_en_cuadros(palabras):
         return []
     bordes = _bordes_verticales_pdf(pagina)
-    if not bordes:
-        return []
+
+    if bordes:
+        # Ruta con bordes: delimita tarjetas por los bordes verticales
+        fichas: list[tuple[str, str, str]] = []
+        vistas: set[tuple[float, float, float, float]] = set()
+        for palabra in palabras:
+            if not PATRON_ETIQUETA_CODIGO.match(palabra["text"]):
+                continue
+            caja = _caja_tarjeta_pdf(
+                float(palabra["x0"]),
+                float(palabra["x1"]),
+                (float(palabra["top"]) + float(palabra["bottom"])) / 2,
+                bordes,
+            )
+            if caja is None or caja in vistas:
+                continue
+            vistas.add(caja)
+            ficha = _ficha_tarjeta_pdf(_lineas_de_caja_pdf(palabras, caja))
+            if ficha is not None:
+                fichas.append(ficha)
+        return fichas
+
+    # Ruta sin bordes: busca CODIGO y REF en la pagina y los empareja
+    # por orden de aparicion (cada CODIGO con el REF de la misma fila).
     fichas: list[tuple[str, str, str]] = []
-    vistas: set[tuple[float, float, float, float]] = set()
-    for palabra in palabras:
-        if not PATRON_ETIQUETA_CODIGO.match(palabra["text"]):
+    ordenadas = sorted(palabras, key=lambda w: (w["top"], w["x0"]))
+
+    # Encontrar CODIGO → code, nombre
+    codigo_items: list[tuple[float, str, str]] = []
+    i = 0
+    while i < len(ordenadas):
+        w = ordenadas[i]
+        if not PATRON_ETIQUETA_CODIGO.match(w["text"]):
+            i += 1
             continue
-        caja = _caja_tarjeta_pdf(
-            float(palabra["x0"]),
-            float(palabra["x1"]),
-            (float(palabra["top"]) + float(palabra["bottom"])) / 2,
-            bordes,
-        )
-        if caja is None or caja in vistas:
+        # Codigo: palabra con digitos a la derecha en la misma linea
+        codigo = None
+        for j in range(i + 1, min(i + 5, len(ordenadas))):
+            sig = ordenadas[j]
+            if abs(sig["top"] - w["top"]) > 10:
+                break
+            if PATRON_CODIGO_PDF.fullmatch(sig["text"]) and any(c.isdigit() for c in sig["text"]):
+                codigo = sig["text"]
+                break
+        if not codigo:
+            i += 1
             continue
-        # Una tarjeta puede traer varias etiquetas de codigo cuando el
-        # proveedor duplica el dato: la caja se lee una sola vez.
-        vistas.add(caja)
-        ficha = _ficha_tarjeta_pdf(_lineas_de_caja_pdf(palabras, caja))
-        if ficha is not None:
-            fichas.append(ficha)
+        # Nombre: palabras arriba del CODIGO (misma zona x)
+        nombre_parts: list[str] = []
+        for j in range(i - 1, max(i - 15, -1), -1):
+            ant = ordenadas[j]
+            if abs(ant["x0"] - w["x0"]) > 50 or abs(ant["top"] - w["top"]) > 25:
+                continue
+            if PATRON_ETIQUETA_CODIGO.match(ant["text"]):
+                break
+            nombre_parts.insert(0, ant["text"])
+        codigo_items.append((w["top"], codigo, " ".join(nombre_parts).strip()))
+        i += 1
+
+    # Encontrar REF → price
+    ref_items: list[tuple[float, str]] = []
+    i = 0
+    while i < len(ordenadas):
+        w = ordenadas[i]
+        if not PATRON_ETIQUETA_PRECIO.match(w["text"]):
+            i += 1
+            continue
+        precio = None
+        for j in range(i + 1, min(i + 5, len(ordenadas))):
+            sig = ordenadas[j]
+            if abs(sig["top"] - w["top"]) > 10:
+                break
+            try:
+                val = sig["text"].replace(",", ".").replace("$", "")
+                float(val)
+                if any(c.isdigit() for c in val) and len(val.replace(".", "")) >= 2:
+                    precio = val
+                    break
+            except ValueError:
+                continue
+        if precio:
+            ref_items.append((w["top"], precio))
+        i += 1
+
+    if not codigo_items or not ref_items:
+        return fichas
+
+    # Emparejar CODIGO y REF por orden: cada fila tiene N CODIGOS (uno por
+    # columna) seguidos por N REF (uno por columna).
+    # Agrupar por fila (top cercano)
+    grupos_c = []
+    for item in codigo_items:
+        if not grupos_c or abs(item[0] - grupos_c[-1][0][0]) > 25:
+            grupos_c.append([item])
+        else:
+            grupos_c[-1].append(item)
+
+    grupos_r = []
+    for item in ref_items:
+        if not grupos_r or abs(item[0] - grupos_r[-1][0][0]) > 25:
+            grupos_r.append([item])
+        else:
+            grupos_r[-1].append(item)
+
+    for gc in grupos_c:
+        # Buscar grupo REF mas cercano debajo
+        c_top = gc[0][0]
+        mejor_gr = None
+        for gr in grupos_r:
+            if gr[0][0] > c_top - 10:
+                mejor_gr = gr
+                break
+        if not mejor_gr:
+            continue
+        # Emparejar dentro del grupo: 1er CODIGO con 1er REF, etc.
+        gc_ord = sorted(gc, key=lambda x: x[1])
+        gr_ord = sorted(mejor_gr, key=lambda x: x[1])
+        for ci, (_, codigo, nombre) in enumerate(gc_ord):
+            if ci < len(gr_ord):
+                precio = gr_ord[ci][1]
+                if codigo and precio and nombre:
+                    fichas.append((codigo, nombre, precio))
+
     return fichas
 
 
-def _celdas_pagina_pdf(pagina: Any) -> list[tuple[float, float, str]]:
+def _agrupar_tarjetas_en_columna(
+    palabras: list[dict[str, Any]],
+    fichas: list[tuple[str, str, str]],
+) -> None:
+    """Agrupa palabras de una columna en tarjetas individuales.
+
+    Cada tarjeta tiene esta estructura:
+        [nombre del producto]  ← una o mas lineas
+        CÓDIGO <codigo>       ← linea con etiqueta CODIGO
+        MIN. EMP. <n>         ← opcional
+        Ref. <precio>         ← linea con etiqueta Ref.
+
+    El nombre va ANTES del CODIGO. La tarjeta se delimita desde el
+    CODIGO actual hasta el siguiente CODIGO de la misma columna.
+    """
+    renglones_agrupados: list[list[dict[str, Any]]] = []
+    for w in palabras:
+        if renglones_agrupados and abs(renglones_agrupados[-1][0]["top"] - w["top"]) <= 3:
+            renglones_agrupados[-1].append(w)
+        else:
+            renglones_agrupados.append([w])
+
+    lineas = [
+        " ".join(str(p["text"]) for p in sorted(g, key=lambda x: x["x0"]))
+        for g in renglones_agrupados
+    ]
+
+    # Identificar tarjetas: buscar CODIGO -> atras para nombre, adelante para precio
+    indices_codigo = [
+        i for i, linea in enumerate(lineas)
+        if PATRON_ETIQUETA_CODIGO.match(linea.split()[0] if linea.split() else "")
+    ]
+
+    for idx, i in enumerate(indices_codigo):
+        # Codigo
+        codigo_texto = _extraer_codigo_desde_renglon(lineas[i])
+        # Nombre: lineas entre el CODIGO anterior y este CODIGO
+        inicio_nombre = (indices_codigo[idx - 1] + 1) if idx > 0 else 0
+        nombre = " ".join(lineas[inicio_nombre:i]).strip()
+        # Precio: buscar "Ref." en lineas despues del CODIGO
+        fin_bloque = indices_codigo[idx + 1] if idx + 1 < len(indices_codigo) else len(lineas)
+        precio = None
+        for j in range(i + 1, fin_bloque):
+            if "Ref." in lineas[j]:
+                precio = lineas[j].split("Ref.")[-1].strip().replace(",", ".")
+                break
+        if codigo_texto and precio and nombre:
+            fichas.append((codigo_texto, nombre, precio))
+
+
+def _extraer_codigo_desde_renglon(linea: str) -> str:
+    """Extrae el codigo de una linea tipo 'CÓDIGO 1100029009A3'."""
+    partes = linea.split()
+    if len(partes) >= 2:
+        return partes[-1]
+    return partes[0] if partes else ""
+
+
+def _agregar_tarjeta(
+    codigo: str,
+    renglones: list[str],
+    fichas: list[tuple[str, str, str]],
+) -> None:
+    """Extrae nombre y precio de los renglones entre CODIGO y Ref."""
+    precio: str | None = None
+    nombre: list[str] = []
+    for linea in renglones:
+        if linea.startswith("MIN.") or linea.startswith("CANT."):
+            continue
+        if "Ref." in linea:
+            precio = linea.split("Ref.")[-1].strip().replace(",", ".")
+            continue
+        nombre.append(linea.strip())
+    if codigo and precio:
+        nombre_str = " ".join(nombre).strip()
+        if nombre_str:
+            fichas.append((codigo, nombre_str, precio))
+
+
+def _celdas_pagina_pdf(pagina: _PaginaPlana) -> list[tuple[float, float, str]]:
     """Divide la pagina en celdas (tope, izquierda, texto) por huecos.
 
     Se conserva para los formatos donde cada renglon es una sola ficha. Los
     catalogos en columnas usan ``_columnas_de_palabras_pdf``, que reparte por
     la posicion de cada palabra y no depende del ancho del hueco.
     """
-    palabras = pagina.extract_words()
+    palabras = pagina.palabras
     if not palabras:
         return []
     renglones: dict[int, list[dict[str, Any]]] = {}
@@ -1384,13 +1724,13 @@ def _es_ruido_ficha_pdf(texto: str) -> bool:
     return PATRON_RUIDO_FICHA_PDF.match(texto.strip()) is not None
 
 
-def _fichas_columnas_pagina(pagina: Any) -> list[tuple[str, str, str, str | None]]:
+def _fichas_columnas_pagina(pagina: _PaginaPlana) -> list[tuple[str, str, str, str | None]]:
     """Fichas de catalogos con etiquetas por producto (Ref:/Marca:/Precio:).
 
     Cada producto ocupa un bloque vertical de renglones dentro de su columna;
     la columna se detecta por la x del propio "Ref:", que se repite en todas.
     """
-    palabras = pagina.extract_words()
+    palabras = pagina.palabras
     if not palabras:
         return []
     fichas: list[tuple[str, str, str, str | None]] = []
@@ -1435,7 +1775,7 @@ def _ficha_desde_bloque_pdf(bloque: dict[str, Any]) -> tuple[str, str, str, str 
 
 
 def _fichas_etiquetas_pagina(
-    pagina: Any,
+    pagina: _PaginaPlana,
 ) -> list[tuple[str, str, str, str | None, int | None]]:
     """Fichas de catalogos con etiquetas de columna (CODIGO:/MARCA:/MEDIDA:).
 
@@ -1444,7 +1784,7 @@ def _fichas_etiquetas_pagina(
     existencia. Por eso el nombre y el precio que vienen antes de un codigo son
     los de ESE codigo, y la marca y la existencia que vienen despues tambien.
     """
-    palabras = pagina.extract_words()
+    palabras = pagina.palabras
     if not palabras:
         return []
     fichas: list[tuple[str, str, str, str | None, int | None]] = []
@@ -1452,23 +1792,42 @@ def _fichas_etiquetas_pagina(
         bloque: dict[str, Any] | None = None
         nombre: list[str] = []
         precio: str | None = None
+        codigo_pendiente: str | None = None
         for texto in _renglones_de_columna_pdf(columna):
             encontrado = PATRON_ETIQUETA_CODIGO_COLUMNA.match(texto)
             if encontrado:
                 if bloque and bloque["precio"]:
                     fichas.append(_ficha_etiquetas_desde_bloque(bloque))
+                codigo_valor = encontrado.group(1) or ""
+                if codigo_valor:
+                    if precio:
+                        bloque = {
+                            "codigo": codigo_valor,
+                            "nombre": " ".join(nombre).strip(),
+                            "precio": precio,
+                            "marca": None,
+                            "existencia": None,
+                        }
+                    else:
+                        bloque = None
+                    codigo_pendiente = None
+                else:
+                    # "CODIGO:" sin el codigo adjunto: viene en la sgte linea
+                    codigo_pendiente = True
+                    bloque = None
+                nombre = []
+                precio = None
+                continue
+            if codigo_pendiente and any(c.isdigit() for c in texto):
+                codigo_pendiente = None
                 if precio:
-                    # El nombre y el precio leidos arriba pertenecen a este
-                    # codigo, no al anterior.
                     bloque = {
-                        "codigo": encontrado.group(1),
+                        "codigo": texto.strip(),
                         "nombre": " ".join(nombre).strip(),
                         "precio": precio,
                         "marca": None,
                         "existencia": None,
                     }
-                else:
-                    bloque = None
                 nombre = []
                 precio = None
                 continue
@@ -1508,14 +1867,14 @@ def _ficha_etiquetas_desde_bloque(
     )
 
 
-def _fichas_tabla_dolar_pagina(pagina: Any) -> list[tuple[str, str, str, str | None]]:
+def _fichas_tabla_dolar_pagina(pagina: _PaginaPlana) -> list[tuple[str, str, str, str | None]]:
     """Fichas de catalogos con "COD." y una fila "PRECIO / UND" en dolares.
 
     La descripcion va entre el codigo y la seccion de origen; el precio y la
     marca salen de la fila de la tabla ("1 UND $ 8,56 MAKITA"). La marca se
     toma como las palabras que siguen al precio, nunca como el nombre.
     """
-    palabras = pagina.extract_words()
+    palabras = pagina.palabras
     if not palabras:
         return []
     fichas: list[tuple[str, str, str, str | None]] = []
@@ -1595,91 +1954,67 @@ def _es_catalogo_de_tabla_dolar(texto: str) -> bool:
 
 
 def _extraer_pdf_tabla_dolar(
-    contenido: bytes,
+    paginas: list[_PaginaPlana],
 ) -> tuple[list[dict[str, Any]], int, list[str]]:
     """Extrae catalogos con "COD." y una fila "PRECIO / UND" en dolares."""
+    if not paginas:
+        return [], 0, []
     productos: list[dict[str, Any]] = []
     errores: list[str] = []
-    try:
-        documento = pdfplumber.open(io.BytesIO(contenido))
-    except Exception as exc:  # noqa: BLE001 - se informa como PDF ilegible
-        logger.info("pdfplumber no pudo abrir el PDF para leer la tabla: %s", exc)
-        return [], 0, []
-    with documento:
-        if len(documento.pages) > MAX_PAGINAS_PDF:
-            raise ErrorIngesta(
-                f"El PDF supera el maximo de {MAX_PAGINAS_PDF} paginas"
-            )
-        for pagina in documento.pages:
-            try:
-                fichas = _fichas_tabla_dolar_pagina(pagina)
-            except Exception as exc:  # noqa: BLE001 - una pagina no rompe el lote
-                logger.info("No se pudo leer una pagina del PDF: %s", exc)
-                continue
-            for codigo, nombre, precio, marca in fichas:
-                _agregar_ficha_pdf(productos, errores, codigo, nombre, precio, marca)
+    for pagina in paginas:
+        try:
+            fichas = _fichas_tabla_dolar_pagina(pagina)
+        except Exception as exc:
+            logger.info("No se pudo leer una pagina del PDF: %s", exc)
+            continue
+        for codigo, nombre, precio, marca in fichas:
+            _agregar_ficha_pdf(productos, errores, codigo, nombre, precio, marca)
     return productos, len(errores), errores[:MAX_ERRORES_DETALLE]
 
 
 def _extraer_pdf_columnas(
-    contenido: bytes,
+    paginas: list[_PaginaPlana],
 ) -> tuple[list[dict[str, Any]], int, list[str]]:
     """Extrae catalogos de columnas sin bordes, con etiquetas por producto."""
+    if not paginas:
+        return [], 0, []
     productos: list[dict[str, Any]] = []
     errores: list[str] = []
-    try:
-        documento = pdfplumber.open(io.BytesIO(contenido))
-    except Exception as exc:  # noqa: BLE001 - se informa como PDF ilegible
-        logger.info("pdfplumber no pudo abrir el PDF para leer columnas: %s", exc)
-        return [], 0, []
-    with documento:
-        if len(documento.pages) > MAX_PAGINAS_PDF:
-            raise ErrorIngesta(
-                f"El PDF supera el maximo de {MAX_PAGINAS_PDF} paginas"
-            )
-        for pagina in documento.pages:
-            try:
-                fichas = _fichas_columnas_pagina(pagina)
-            except Exception as exc:  # noqa: BLE001 - una pagina no rompe el lote
-                logger.info("No se pudo leer una pagina del PDF: %s", exc)
-                continue
-            for codigo, nombre, precio, marca in fichas:
-                _agregar_ficha_pdf(productos, errores, codigo, nombre, precio, marca)
+    for pagina in paginas:
+        try:
+            fichas = _fichas_columnas_pagina(pagina)
+        except Exception as exc:
+            logger.info("No se pudo leer una pagina del PDF: %s", exc)
+            continue
+        for codigo, nombre, precio, marca in fichas:
+            _agregar_ficha_pdf(productos, errores, codigo, nombre, precio, marca)
     return productos, len(errores), errores[:MAX_ERRORES_DETALLE]
 
 
 def _extraer_pdf_etiquetas(
-    contenido: bytes,
+    paginas: list[_PaginaPlana],
 ) -> tuple[list[dict[str, Any]], int, list[str]]:
     """Extrae catalogos de columnas con etiquetas CODIGO:/MARCA:/MEDIDA:."""
+    if not paginas:
+        return [], 0, []
     productos: list[dict[str, Any]] = []
     errores: list[str] = []
-    try:
-        documento = pdfplumber.open(io.BytesIO(contenido))
-    except Exception as exc:  # noqa: BLE001 - se informa como PDF ilegible
-        logger.info("pdfplumber no pudo abrir el PDF para leer etiquetas: %s", exc)
-        return [], 0, []
-    with documento:
-        if len(documento.pages) > MAX_PAGINAS_PDF:
-            raise ErrorIngesta(
-                f"El PDF supera el maximo de {MAX_PAGINAS_PDF} paginas"
+    for pagina in paginas:
+        try:
+            fichas = _fichas_etiquetas_pagina(pagina)
+        except Exception as exc:
+            logger.info("No se pudo leer una pagina del PDF: %s", exc)
+            continue
+        for codigo, nombre, precio, marca, existencia in fichas:
+            _agregar_ficha_pdf(
+                productos,
+                errores,
+                codigo,
+                nombre,
+                precio,
+                marca,
+                existencia=existencia,
             )
-        for pagina in documento.pages:
-            try:
-                fichas = _fichas_etiquetas_pagina(pagina)
-            except Exception as exc:  # noqa: BLE001 - una pagina no rompe el lote
-                logger.info("No se pudo leer una pagina del PDF: %s", exc)
-                continue
-            for codigo, nombre, precio, marca, existencia in fichas:
-                _agregar_ficha_pdf(
-                    productos,
-                    errores,
-                    codigo,
-                    nombre,
-                    precio,
-                    marca,
-                    existencia=existencia,
-                )
     return productos, len(errores), errores[:MAX_ERRORES_DETALLE]
 
 
@@ -1825,21 +2160,24 @@ def _ficha_pdf(
     )
 
 
-def _extraer_pdf_espacial(lector: PdfReader) -> tuple[list[dict[str, Any]], int, list[str]]:
-    """Extrae productos por coordenadas, admitiendo varias columnas por pagina."""
+def _extraer_pdf_espacial(paginas: list[_PaginaPlana]) -> tuple[list[dict[str, Any]], int, list[str]]:
+    """Extrae productos por coordenadas, admitiendo varias columnas por pagina.
+
+    Versión adaptada a los datos planos pre-extraidos (PyMuPDF). Los fragmentos
+    de cada pagina se construyen desde las palabras con posicion.
+    """
     productos: list[dict[str, Any]] = []
     errores: list[str] = []
     numero_fila = 0
 
-    for pagina in lector.pages:
-        fragmentos: list[tuple[float, float, str]] = []
-
-        def recoger(texto, _matriz, posicion, _fuente, _tamano):
-            limpio = texto.strip()
-            if limpio:
-                fragmentos.append((float(posicion[4]), float(posicion[5]), limpio))
-
-        pagina.extract_text(visitor_text=recoger)
+    for pagina in paginas:
+        fragmentos: list[tuple[float, float, str]] = [
+            (float(p["x0"]), float(p["top"]), str(p["text"]))
+            for p in pagina.palabras
+            if str(p["text"]).strip()
+        ]
+        if not fragmentos:
+            continue
         lineas = _lineas_pdf(fragmentos)
         bordes = _bandas_pdf(lineas)
         if not bordes:
@@ -1928,7 +2266,7 @@ def _extraer_pdf_espacial(lector: PdfReader) -> tuple[list[dict[str, Any]], int,
     return productos, len(errores), errores[:MAX_ERRORES_DETALLE]
 
 
-def _extraer_pdf_fichas(lector: PdfReader) -> tuple[list[dict[str, Any]], int, list[str]]:
+def _extraer_pdf_fichas(paginas: list[_PaginaPlana]) -> tuple[list[dict[str, Any]], int, list[str]]:
     productos: list[dict[str, Any]] = []
     errores: list[str] = []
     patron_codigo = re.compile(
@@ -1936,12 +2274,15 @@ def _extraer_pdf_fichas(lector: PdfReader) -> tuple[list[dict[str, Any]], int, l
         re.IGNORECASE,
     )
     patron_precio = re.compile(r"\bprecio\s*:\s*(.+)$", re.IGNORECASE)
+    # Algunos catalogos (como CASAVEZLARA.pdf) ponen el precio como "$7.50"
+    # sin la etiqueta "PRECIO:". Este patron detecta esos precios sueltos.
+    patron_precio_dolar = re.compile(r"^\s*\$\s*([\d.,]+)\s*$")
     metadatos = ("politica", "cantidad", "marca", "unidad")
 
-    for pagina in lector.pages:
+    for pagina in paginas:
         lineas = [
             linea.strip()
-            for linea in (pagina.extract_text() or "").splitlines()
+            for linea in (pagina.texto or "").splitlines()
             if linea.strip()
         ]
         posiciones = [
@@ -1959,6 +2300,13 @@ def _extraer_pdf_fichas(lector: PdfReader) -> tuple[list[dict[str, Any]], int, l
                 for pos, linea in enumerate(segmento)
                 if patron_precio.search(linea)
             ]
+            if not precios:
+                # Fallback: buscar precios con "$" ("$7.50") sin etiqueta
+                precios = [
+                    (pos, patron_precio_dolar.match(linea))
+                    for pos, linea in enumerate(segmento)
+                    if patron_precio_dolar.match(linea)
+                ]
             if not precios:
                 errores.append(f"Ficha {numero}: no se encontro el precio")
                 continue
@@ -2166,94 +2514,86 @@ def _unir_estrategias_pdf(
     return list(fichas.values()), errores_maximos, detalles[:MAX_ERRORES_DETALLE]
 
 
-def _texto_pdf_local(contenido: bytes) -> str:
-    """Extrae texto plano del PDF con pdfplumber, sin servicios externos."""
+def _texto_pdf_pymupdf(contenido: bytes) -> str:
+    """Extrae texto plano del PDF con PyMuPDF (fitz), una sola apertura."""
     try:
-        with pdfplumber.open(io.BytesIO(contenido)) as documento:
-            if len(documento.pages) > MAX_PAGINAS_PDF:
-                raise ErrorIngesta(
-                    f"El PDF supera el maximo de {MAX_PAGINAS_PDF} paginas"
-                )
-            return "\n".join(
-                (pagina.extract_text() or "") for pagina in documento.pages
-            )
-    except ErrorIngesta:
-        raise
-    except Exception as exc:  # noqa: BLE001 - se informa como PDF ilegible
-        logger.info("pdfplumber no pudo leer el PDF: %s", exc)
-        return ""
-
-
-def _texto_pdf_pypdf(contenido: bytes) -> str:
-    """Respaldo local de extraccion cuando pdfplumber no devuelve texto."""
-    try:
-        lector = PdfReader(io.BytesIO(contenido), strict=True)
-        if len(lector.pages) > MAX_PAGINAS_PDF:
-            raise ErrorIngesta(f"El PDF supera el maximo de {MAX_PAGINAS_PDF} paginas")
-        return "\n".join((pagina.extract_text() or "") for pagina in lector.pages)
-    except ErrorIngesta:
-        raise
-    except (PdfReadError, OSError, ValueError, KeyError) as exc:
+        doc = pymupdf.open(stream=contenido, filetype="pdf")
+    except Exception as exc:
         raise ErrorIngesta("No se pudo leer el PDF") from exc
+    if len(doc) > MAX_PAGINAS_PDF:
+        doc.close()
+        raise ErrorIngesta(
+            f"El PDF supera el maximo de {MAX_PAGINAS_PDF} paginas"
+        )
+    try:
+        return "\n".join(
+            (pagina.get_text("text") or "") for pagina in doc
+        )
+    finally:
+        doc.close()
 
 
 def _extraer_pdf(contenido: bytes) -> tuple[list[dict[str, Any]], int, list[str]]:
-    texto = _texto_pdf_local(contenido).strip()
-    if not texto:
-        texto = _texto_pdf_pypdf(contenido).strip()
+    """Extrae productos de un PDF abriendolo UNA SOLA VEZ con PyMuPDF.
+
+    Todas las estrategias reciben los datos pre-extraidos de cada pagina
+    (texto, palabras y dibujos), eliminando las 5-7 aperturas del archivo
+    que ocurrian con la implementacion anterior (pdfplumber + pypdf).
+    """
+    texto_completo, paginas = _cargar_pdf_en_paginas_planas(contenido)
+    texto = texto_completo.strip()
     if not texto:
         raise ErrorIngesta("El PDF no contiene texto legible; no se admite OCR")
 
     resultados: list[tuple[str, list[dict[str, Any]], int, list[str]]] = []
-    estrategias = (
-        ("espacial", _extraer_pdf_espacial),
-        ("fichas", _extraer_pdf_fichas),
-    )
-    for nombre_estrategia, estrategia in estrategias:
-        try:
-            lector = PdfReader(io.BytesIO(contenido), strict=True)
-            resultados.append(
-                (nombre_estrategia, *estrategia(lector))
-            )
-        except (PdfReadError, OSError, ValueError, KeyError, TypeError) as exc:
-            logger.info(
-                "La estrategia %s no aplica a este PDF: %s", nombre_estrategia, exc
-            )
 
+    # Estrategias basadas en PdfReader (ahora sobre datos planos)
+    try:
+        resultados.append(("espacial", *_extraer_pdf_espacial(paginas)))
+    except Exception as exc:
+        logger.info("La estrategia espacial no aplica a este PDF: %s", exc)
+    try:
+        resultados.append(("fichas", *_extraer_pdf_fichas(paginas)))
+    except Exception as exc:
+        logger.info("La estrategia fichas no aplica a este PDF: %s", exc)
+
+    # Estrategia tabla (solo texto, no necesita paginas)
     resultados.append(("tabla", *_extraer_pdf_tabla(texto)))
 
+    # Estrategias condicionales sobre datos planos
     if _es_catalogo_de_cuadros(texto):
         try:
-            resultados.append(("cuadros", *_extraer_pdf_cuadros(contenido)))
+            resultados.append(("cuadros", *_extraer_pdf_cuadros(paginas)))
         except ErrorIngesta:
             raise
-        except Exception as exc:  # noqa: BLE001 - una estrategia no rompe el lote
+        except Exception as exc:
             logger.info("La estrategia cuadros no aplica a este PDF: %s", exc)
 
     if _es_catalogo_de_columnas(texto):
         try:
-            resultados.append(("columnas", *_extraer_pdf_columnas(contenido)))
+            resultados.append(("columnas", *_extraer_pdf_columnas(paginas)))
         except ErrorIngesta:
             raise
-        except Exception as exc:  # noqa: BLE001 - una estrategia no rompe el lote
+        except Exception as exc:
             logger.info("La estrategia columnas no aplica a este PDF: %s", exc)
 
     if _es_catalogo_de_etiquetas(texto):
         try:
-            resultados.append(("etiquetas", *_extraer_pdf_etiquetas(contenido)))
+            resultados.append(("etiquetas", *_extraer_pdf_etiquetas(paginas)))
         except ErrorIngesta:
             raise
-        except Exception as exc:  # noqa: BLE001 - una estrategia no rompe el lote
+        except Exception as exc:
             logger.info("La estrategia etiquetas no aplica a este PDF: %s", exc)
 
     if _es_catalogo_de_tabla_dolar(texto):
         try:
-            resultados.append(("tabla_dolar", *_extraer_pdf_tabla_dolar(contenido)))
+            resultados.append(("tabla_dolar", *_extraer_pdf_tabla_dolar(paginas)))
         except ErrorIngesta:
             raise
-        except Exception as exc:  # noqa: BLE001 - una estrategia no rompe el lote
+        except Exception as exc:
             logger.info("La estrategia tabla_dolar no aplica a este PDF: %s", exc)
 
+    # Estrategia generica (filas de texto)
     filas = _filas_pdf(texto)
     for indice, fila in enumerate(filas):
         if fila and _clave(fila[0]) == "imagen":
@@ -2323,6 +2663,31 @@ def _directorio_cargas_seguro() -> Path:
     if directorio == estaticos or estaticos in directorio.parents:
         raise RuntimeError("UPLOADS_DIR no puede estar dentro del directorio de estaticos")
     return directorio
+
+
+def _ruta_json_por_token(token: str) -> Path:
+    """Devuelve la ruta del JSON de productos pre-extraidos para un token."""
+    directorio = _directorio_cargas_seguro()
+    return directorio / f"{token}.productos.json"
+
+
+def _escribir_productos_json(ruta: Path, productos: list[dict[str, Any]]) -> None:
+    """Guarda la lista de productos extraidos en un archivo JSON."""
+    directorio = ruta.parent
+    directorio.mkdir(parents=True, exist_ok=True)
+    try:
+        descriptor = os.open(ruta, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as archivo:
+            json.dump(productos, archivo, ensure_ascii=False, default=str)
+    except OSError:
+        ruta.unlink(missing_ok=True)
+        raise
+
+
+def _leer_productos_json(ruta: Path) -> list[dict[str, Any]]:
+    """Lee la lista de productos guardada durante la previsualizacion."""
+    with open(ruta, "r", encoding="utf-8") as archivo:
+        return json.load(archivo)
 
 
 def _ruta_original(nombre: str) -> tuple[Path, str]:
@@ -2453,8 +2818,15 @@ def previsualizar_archivo(
     nombre: str,
     contenido: bytes,
     selecciones_precio: dict[int, int] | None = None,
+    ruta_json: str | None = None,
 ) -> dict[str, Any]:
-    """Analiza un catalogo sin persistirlo y devuelve una muestra verificable."""
+    """Analiza un catalogo sin persistirlo y devuelve una muestra verificable.
+
+    Si ``ruta_json`` se proporciona, la lista completa de productos (ya
+    consolidada) se escribe en ese archivo para que la ingesta posterior
+    no tenga que re-extraer el catalogo.
+    """
+    t0 = time.perf_counter()
     try:
         nombre = _nombre_seguro(nombre)
     except ErrorIngesta as exc:
@@ -2471,6 +2843,7 @@ def previsualizar_archivo(
         _validar_paquete(contenido)
         paginas_docx = _contar_paginas_docx(contenido)
         _validar_paginas_docx(paginas_docx)
+    t1 = time.perf_counter()
     try:
         productos, filas_error, detalles = _extraer(
             nombre,
@@ -2479,6 +2852,11 @@ def previsualizar_archivo(
             paginas_docx,
         )
     except SeleccionPrecioRequerida as exc:
+        t2 = time.perf_counter()
+        logger.info(
+            "FASE0 previsualizar nombre=%s tamano=%d validacion=%.3fs extraccion=%.3fs resultado=seleccion_pendiente",
+            nombre, len(contenido), t1 - t0, t2 - t1,
+        )
         return {
             "productos_detectados": 0,
             "filas_error": 0,
@@ -2488,13 +2866,24 @@ def previsualizar_archivo(
             "seleccion_pendiente": True,
             "opciones_precio": exc.opciones,
         }
+    t2 = time.perf_counter()
     productos, filas_duplicadas, errores_duplicados, detalles_duplicados = (
         _consolidar_codigos(productos)
     )
+    t3 = time.perf_counter()
     detalles = detalles_duplicados + detalles
     aviso_descripcion = _aviso_sin_descripcion(productos)
     if aviso_descripcion:
         detalles.append(aviso_descripcion)
+    if ruta_json:
+        try:
+            _escribir_productos_json(Path(ruta_json), productos)
+        except OSError as exc:
+            logger.warning("No se pudo guardar JSON de previsualizacion %s: %s", ruta_json, exc)
+    logger.info(
+        "FASE0 previsualizar nombre=%s tamano=%d validacion=%.3fs extraccion=%.3fs consolidacion=%.3fs productos=%d",
+        nombre, len(contenido), t1 - t0, t2 - t1, t3 - t2, len(productos),
+    )
     return {
         "productos_detectados": len(productos),
         "filas_error": filas_error + errores_duplicados,
@@ -2684,8 +3073,35 @@ def procesar_archivo(
     id_usuario: int,
     selecciones_precio: dict[int, int] | None = None,
     metadatos: dict[str, Any] | None = None,
+    productos_pre_extraidos: list[dict[str, Any]] | None = None,
+    id_archivo_existente: int | None = None,
 ) -> dict[str, Any]:
-    """Procesa un archivo y devuelve un resultado aislado del resto del lote."""
+    """Procesa un archivo y devuelve un resultado aislado del resto del lote.
+
+    Cuando ``productos_pre_extraidos`` se pasa (desde una previsualizacion
+    guardada), se salta toda la fase de extraccion y consolidacion y se
+    va directo a la insercion. En ese caso ``id_archivo_existente`` debe
+    proporcionarse y ``contenido`` puede ser vacio.
+    """
+    t0 = time.perf_counter()
+
+    # ── Rama productos pre-extraidos (ingesta diferida) ──────────────
+    if productos_pre_extraidos is not None:
+        assert id_archivo_existente is not None
+        id_archivo = id_archivo_existente
+        t_ahora = time.perf_counter()
+        productos = productos_pre_extraidos
+        filas_error = 0
+        errores: list[str] = []
+        logger.info(
+            "FASE1 procesar_archivo pre-extraido id_archivo=%d productos=%d",
+            id_archivo, len(productos),
+        )
+        return _insertar_y_verificar(
+            id_archivo, "(pre-extraido)", productos, filas_error, errores,
+            metadatos, t0, t_ahora, t_ahora, t_ahora,
+        )
+
     try:
         nombre = _nombre_seguro(nombre)
     except ErrorIngesta as exc:
@@ -2739,6 +3155,7 @@ def procesar_archivo(
     digest = hashlib.sha256(contenido).hexdigest()
     ruta, ruta_relativa = _ruta_original(nombre)
     _escribir_original(ruta, contenido)
+    t1 = time.perf_counter()
     try:
         archivo = inventario_model.crear_archivo(
             nombre=nombre,
@@ -2772,6 +3189,7 @@ def procesar_archivo(
         )
         return dict(resultado)
 
+    t2 = time.perf_counter()
     try:
         productos, filas_error, errores = _extraer(
             nombre,
@@ -2780,6 +3198,11 @@ def procesar_archivo(
             paginas_docx,
         )
     except ArchivoSinFilasValidas as exc:
+        t3 = time.perf_counter()
+        logger.info(
+            "FASE0 procesar nombre=%s tamano=%d setup=%.3fs extraccion=%.3fs resultado=sin_filas",
+            nombre, len(contenido), t2 - t0, t3 - t2,
+        )
         resultado = inventario_model.actualizar_estado_archivo(
             id_archivo,
             estado="error",
@@ -2788,6 +3211,11 @@ def procesar_archivo(
         )
         return dict(resultado)
     except ErrorIngesta as exc:
+        t3 = time.perf_counter()
+        logger.info(
+            "FASE0 procesar nombre=%s tamano=%d setup=%.3fs extraccion=%.3fs resultado=error_ingesta",
+            nombre, len(contenido), t2 - t0, t3 - t2,
+        )
         resultado = inventario_model.actualizar_estado_archivo(
             id_archivo,
             estado="error",
@@ -2805,6 +3233,11 @@ def procesar_archivo(
         ValueError,
     ) as exc:
         logger.warning("No se pudo procesar archivo de ingesta %s: %s", nombre, exc)
+        t3 = time.perf_counter()
+        logger.info(
+            "FASE0 procesar nombre=%s tamano=%d setup=%.3fs extraccion=%.3fs resultado=error_formato",
+            nombre, len(contenido), t2 - t0, t3 - t2,
+        )
         resultado = inventario_model.actualizar_estado_archivo(
             id_archivo,
             estado="error",
@@ -2813,9 +3246,13 @@ def procesar_archivo(
         )
         return dict(resultado)
 
+    t3 = time.perf_counter()
     if not productos:
-        # Ningun extractor local puede devolver cero productos sin lanzar un
-        # error; este resguardo evita declarar exito con un catalogo vacio.
+        t3 = time.perf_counter()
+        logger.info(
+            "FASE0 procesar nombre=%s tamano=%d setup=%.3fs extraccion=%.3fs resultado=sin_productos",
+            nombre, len(contenido), t2 - t0, t3 - t2,
+        )
         resultado = inventario_model.actualizar_estado_archivo(
             id_archivo,
             estado="error",
@@ -2830,12 +3267,38 @@ def procesar_archivo(
     productos, _, errores_duplicados, detalles_duplicados = (
         _consolidar_codigos(productos)
     )
+    t4 = time.perf_counter()
     filas_error += errores_duplicados
     errores = detalles_duplicados + errores
     aviso_descripcion = _aviso_sin_descripcion(productos)
     if aviso_descripcion:
         errores.append(aviso_descripcion)
 
+    return _insertar_y_verificar(
+        id_archivo, nombre, productos, filas_error, errores, metadatos,
+        t0, t2, t3, t4,
+    )
+
+
+def _insertar_y_verificar(
+    id_archivo: int,
+    nombre: str,
+    productos: list[dict[str, Any]],
+    filas_error: int,
+    errores: list[str],
+    metadatos: dict[str, Any] | None,
+    t0: float,
+    t2: float,
+    t3: float,
+    t4: float,
+) -> dict[str, Any]:
+    """Inserta productos en DB, verifica el conteo y actualiza estado.
+
+    Es la etapa comun entre el flujo normal (extraccion + consolidacion) y
+    el flujo de ingesta diferida (productos pre-extraidos desde JSON).
+    """
+    t_nombre = nombre or "(pre-extraido)"
+    t5 = time.perf_counter()
     try:
         filas_ok, ofertas_guardadas = inventario_model.insertar_catalogo_completo(
             id_archivo, productos, guardar_ofertas=bool(metadatos)
@@ -2846,6 +3309,11 @@ def procesar_archivo(
                     "No se guardaron todas las ofertas del catalogo del proveedor"
                 )
     except (ErrorPostgres, BaseDeDatosNoDisponible):
+        t6 = time.perf_counter()
+        logger.info(
+            "FASE1 insertar nombre=%s extraccion=%.3fs consolidacion=%.3fs insercion=%.3fs resultado=error_db",
+            t_nombre, t3 - t2, t4 - t3, t6 - t5,
+        )
         inventario_model.actualizar_estado_archivo(
             id_archivo,
             estado="error",
@@ -2854,6 +3322,11 @@ def procesar_archivo(
         )
         raise
     except ValueError as exc:
+        t6 = time.perf_counter()
+        logger.info(
+            "FASE1 insertar nombre=%s extraccion=%.3fs consolidacion=%.3fs insercion=%.3fs resultado=error_ofertas",
+            t_nombre, t3 - t2, t4 - t3, t6 - t5,
+        )
         inventario_model.actualizar_estado_archivo(
             id_archivo,
             estado="error",
@@ -2862,11 +3335,15 @@ def procesar_archivo(
         )
         raise
 
-    # Verificacion: no se declara exito si la base no contiene exactamente los
-    # productos leidos. El reporte anterior contaba filas intentadas, no filas
-    # guardadas, y un guardado parcial pasaba desapercibido.
+    t6 = time.perf_counter()
     guardados = inventario_model.contar_productos_de_archivo(id_archivo)
+    t7 = time.perf_counter()
     if guardados != len(productos):
+        logger.info(
+            "FASE1 insertar nombre=%s extraccion=%.3fs consolidacion=%.3fs insercion=%.3fs verificacion=%.3fs resultado=conteo_erroneo esperados=%d guardados=%d",
+            t_nombre, t3 - t2, t4 - t3, t6 - t5, t7 - t6,
+            len(productos), guardados,
+        )
         detalle = (
             f"Se leyeron {len(productos)} productos pero solo {guardados} "
             "quedaron guardados; el catalogo se marco con error para no "
@@ -2890,6 +3367,11 @@ def procesar_archivo(
         filas_ok=filas_ok,
         filas_error=filas_error,
         detalle=_detalle(errores),
+    )
+    logger.info(
+        "FASE1 insertar nombre=%s tamano=%d extraccion=%.3fs consolidacion=%.3fs insercion=%.3fs verificacion=%.3fs total=%.3fs productos=%d estado=%s",
+        t_nombre, len(productos), t3 - t2, t4 - t3, t6 - t5, t7 - t6,
+        t7 - t0, len(productos), estado,
     )
     return dict(resultado)
 

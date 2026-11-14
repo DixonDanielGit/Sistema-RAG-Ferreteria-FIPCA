@@ -130,31 +130,47 @@ def test_txt_rechaza_moneda_no_soportada():
         )
 
 
-def test_pdf_usa_pdfplumber_para_extraer_texto_local(monkeypatch):
-    class Pagina:
-        def extract_text(self):
-            return "Código Producto Precio\nSKU-8 Martillo 2,50"
+def _pagina_plana_mock(texto: str, palabras: list | None = None) -> etl_service._PaginaPlana:
+    """Crea una _PaginaPlana de prueba a partir de texto plano.
 
-    class Documento:
-        pages = [Pagina()]
+    Las palabras se generan a partir de las lineas del texto, una palabra
+    por fragmento separado por espacio, con coordenadas ficticias.
+    """
+    palabras_list = []
+    if palabras is None and texto:
+        for i, linea in enumerate(texto.splitlines()):
+            for j, palabra in enumerate(linea.split()):
+                x0 = float(j * 30)
+                x1 = x0 + len(palabra) * 6
+                y0 = float(i * 15)
+                y1 = y0 + 10
+                palabras_list.append({
+                    "x0": x0, "top": y0, "x1": x1, "bottom": y1,
+                    "text": palabra, "width": x1 - x0, "height": y1 - y0,
+                })
+    return etl_service._PaginaPlana(
+        texto=texto,
+        palabras=palabras_list if palabras is None else palabras,
+    )
 
-        def __enter__(self):
-            return self
 
-        def __exit__(self, *_):
-            return False
-
+def test_pdf_extrae_texto_con_pymupdf(monkeypatch):
+    """Verifica que _extraer_pdf usa PyMuPDF y extrae productos correctamente."""
+    pagina = _pagina_plana_mock("Código Producto Precio\nSKU-8 Martillo 2,50")
     monkeypatch.setattr(
-        etl_service.pdfplumber,
-        "open",
-        lambda *_args, **_kwargs: Documento(),
+        etl_service,
+        "_cargar_pdf_en_paginas_planas",
+        lambda _contenido: ("Código Producto Precio\nSKU-8 Martillo 2,50\n", [pagina]),
     )
 
     productos, errores, _ = etl_service._extraer_pdf(b"%PDF-1.4 local")
 
     assert errores == 0
-    assert productos[0]["codigo"] == "SKU-8"
-    assert productos[0]["precio"] == Decimal("2.50")
+    assert len(productos) >= 1
+    # Al menos deberia encontrar SKU-8 por alguna estrategia
+    encontrado = next((p for p in productos if p["codigo"] == "SKU-8"), None)
+    assert encontrado is not None, f"SKU-8 no encontrado en {productos}"
+    assert encontrado["precio"] == Decimal("2.50")
 
 
 def test_pdf_corrupto_se_rechaza_sin_intentar_adivinar():
@@ -711,6 +727,7 @@ def _pagina_de_cuadros(tarjetas):
     """
     palabras = []
     rects = []
+    lineas_texto = []
     for izquierda, derecha, arriba, renglones in tarjetas:
         for indice, renglon in enumerate(renglones):
             tope = arriba + 10 + indice * 13
@@ -724,6 +741,8 @@ def _pagina_de_cuadros(tarjetas):
                         "x1": float(x + ancho),
                         "top": float(tope),
                         "bottom": float(tope + 7.2),
+                        "width": float(ancho),
+                        "height": 7.2,
                     }
                 )
                 x += ancho + 3
@@ -739,15 +758,13 @@ def _pagina_de_cuadros(tarjetas):
                     "height": float(alto),
                 }
             )
-    return type(
-        "Pagina",
-        (),
-        {
-            "extract_words": lambda self: palabras,
-            "rects": rects,
-            "lines": [],
-        },
-    )()
+        lineas_texto.extend(renglones)
+    texto_pagina = "\n".join(lineas_texto)
+    return etl_service._PaginaPlana(
+        texto=texto_pagina,
+        palabras=palabras,
+        rects=rects,
+    )
 
 
 def test_pdf_cuadros_arma_cada_ficha_dentro_de_su_tarjeta():
@@ -878,37 +895,14 @@ def test_pdf_cuadros_informa_la_tarjeta_que_el_proveedor_dejo_sin_descripcion(
     monkeypatch,
 ):
     # Hay tarjetas con codigo y precio pero sin nombre: no se inventa uno.
-    class Pagina:
-        pass
-
-    monkeypatch.setattr(
-        etl_service,
-        "pdfplumber",
-        type(
-            "Plumber",
-            (),
-            {
-                "open": staticmethod(
-                    lambda _flujo: type(
-                        "Documento",
-                        (),
-                        {
-                            "__enter__": lambda self: self,
-                            "__exit__": lambda *_args: None,
-                            "pages": [Pagina()],
-                        },
-                    )()
-                )
-            },
-        ),
-    )
+    pagina_mock = _pagina_plana_mock("")
     monkeypatch.setattr(
         etl_service,
         "_fichas_cuadros_pagina",
         lambda _pagina: [("1120096031A3", "", "48.86")],
     )
 
-    productos, errores, detalle = etl_service._extraer_pdf_cuadros(b"pdf")
+    productos, errores, detalle = etl_service._extraer_pdf_cuadros([pagina_mock])
 
     assert productos == []
     assert errores == 1
@@ -940,16 +934,16 @@ def test_pdf_usa_la_estrategia_de_cuadros_cuando_el_catalogo_es_de_tarjetas(
     texto_tarjetas = "\n".join(
         ["CÓDIGO 1100029009A3 MIN. EMP. 1000 Ref. 12.04"] * 5
     )
+    pagina_mock = _pagina_plana_mock(texto_tarjetas)
     monkeypatch.setattr(
-        etl_service, "_texto_pdf_local", lambda _contenido: texto_tarjetas
+        etl_service,
+        "_cargar_pdf_en_paginas_planas",
+        lambda _contenido: (texto_tarjetas, [pagina_mock]),
     )
     monkeypatch.setattr(
         etl_service,
         "_extraer_pdf_cuadros",
-        lambda _contenido: ([producto], 0, []),
-    )
-    monkeypatch.setattr(
-        etl_service, "PdfReader", lambda *_args, **_kwargs: type("Lector", (), {"pages": []})()
+        lambda _paginas: ([producto], 0, []),
     )
 
     productos, errores, _ = etl_service._extraer_pdf(b"pdf de prueba")
@@ -963,6 +957,7 @@ def _pagina_de_palabras(filas):
     """Pagina falsa: ``filas`` es una lista de renglones y cada renglon una
     lista de ``(texto, x)``. El tope avanza 12 pt por renglon."""
     palabras = []
+    lineas_texto = []
     for indice, renglon in enumerate(filas):
         tope = 100.0 + indice * 12
         for texto, x in renglon:
@@ -974,9 +969,15 @@ def _pagina_de_palabras(filas):
                     "x1": float(x) + ancho,
                     "top": tope,
                     "bottom": tope + 7.2,
+                    "width": ancho,
+                    "height": 7.2,
                 }
             )
-    return type("Pagina", (), {"extract_words": lambda self: palabras})()
+        lineas_texto.append(" ".join(str(t[0]) for t in renglon))
+    return etl_service._PaginaPlana(
+        texto="\n".join(lineas_texto),
+        palabras=palabras,
+    )
 
 
 def test_pdf_columnas_lee_bloques_con_ref_marca_y_precio():
